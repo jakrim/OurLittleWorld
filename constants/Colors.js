@@ -1,4 +1,5 @@
 export default {
+  primaryColor: '#8460CB',
   lightPink: '#FFC0CB',
   pink: '#ff3bfa',
   magenta: '#ffb8c6',

@@ -19,7 +19,10 @@ const StyledButton = (props) => {
 
   return (
     <View style={styles.buttonContainer}>
-      <ButtonComponent activeOpacity={0.7} onPress={props.onPress}>
+      <ButtonComponent
+        {...(ButtonComponent === TouchableOpacity ? { activeOpacity: 0.7 } : {})}
+        onPress={props.onPress}
+      >
         <View style={{ ...styles.button, ...props.style }}>
           <Text style={{ ...styles.buttonText, ...props.style }}>
             {props.children}

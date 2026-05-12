@@ -2,7 +2,6 @@ import React from 'react';
 import {
   View,
   StyleSheet,
-  Platform,
   Image,
   Text,
   Dimensions,
@@ -31,16 +30,18 @@ const MemoryItem = (props) => {
       <Text style={styles.title}>{props.title}</Text>
       <Text style={styles.location}>
         <Ionicons
-          name={Platform.OS === 'android' ? 'md-pin' : 'ios-pin'}
+          name="location"
           size={24}
           color={Colors.primaryColor}
           style={styles.callTxt}
         />{' '}
         {props.location}
       </Text>
-      <View style={styles.description}>
-        <Text style={styles.descriptionText}>{props.description}</Text>
-      </View>
+      {!!props.description?.trim() && (
+        <View style={styles.description}>
+          <Text style={styles.descriptionText}>{props.description}</Text>
+        </View>
+      )}
     </Card>
   );
 };

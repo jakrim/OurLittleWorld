@@ -1,9 +1,14 @@
 {
   "expo": {
-    "name": "laurandjess",
-    "slug": "laurandjess",
-    "platforms": ["ios", "android", "web"],
-    "version": "1.0.3",
+    "name": "Our Little World",
+    "slug": "ourlittleworld",
+    "scheme": "ourlittleworld",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/Icon-App-60x60@3x.png",
     "splash": {
@@ -14,11 +19,67 @@
     "updates": {
       "fallbackToCacheTimeout": 0
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "bundleIdentifier": "com.jessekrim.laurandjess",
-      "buildNumber": "1.0.3",
-      "supportsTablet": true
+      "bundleIdentifier": "com.jessekrim.ourlittleworld",
+      "buildNumber": "1.1.0",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Our Little World uses your photo library to build a private timeline of your baby.",
+        "NSPhotoLibraryAddUsageDescription": "Allow saving photos when you export memories.",
+        "NSCameraUsageDescription": "Allow capturing new memories directly from Our Little World.",
+        "NSMicrophoneUsageDescription": "Allow recording short voice notes that play back beside the photo.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": [
+          "message",
+          "googlegmail",
+          "ms-outlook",
+          "readdle-spark",
+          "ymail",
+          "inbox-gmail",
+          "fastmail",
+          "hey",
+          "superhuman"
+        ]
+      }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-sqlite",
+      "expo-image",
+      "expo-asset",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Our Little World uses your photos to build a private timeline of your baby.",
+          "savePhotosPermission": "Allow saving photos when you export memories.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Our Little World needs to read photos so we can pick a reference of your baby's face.",
+          "cameraPermission": "Allow capturing a quick reference photo of your baby."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow recording short voice notes attached to your baby's photos."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-secure-store",
+      "expo-router"
+    ],
+    "owner": "jakrim",
+    "extra": {
+      "eas": {
+        "projectId": "52f0c42f-7070-49eb-a71b-24c401fca1bd"
+      }
     }
   }
 }

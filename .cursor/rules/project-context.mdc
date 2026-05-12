@@ -1,0 +1,13 @@
+---
+description: Project context and guardrails for Our Little World
+alwaysApply: true
+---
+
+# Our Little World Project Notes
+
+- This is the renamed Our Little World Expo/React Native app in the legacy GitHub repo `jakrim/JessLaurApp`.
+- Work from `master` unless the user asks for a separate branch. `old_jessLaurApp` preserves the pre-Our Little World master state.
+- The app uses Expo Router under `app/`; shared screens, providers, Supabase/data access, photo scanning, and UI primitives live under `src/`.
+- Do not commit generated build outputs. Keep `build/`, `dist/`, `ios/build/`, `android/build/`, `.expo/`, simulator screenshots, and seed-photo scratch files out of Git.
+- Treat `.env`, `.env.local`, Apple signing files, and EAS credentials as local secrets. Update `.env.example` only with placeholder keys.
+- Before pushing, check `git status --short --branch` and make sure large simulator/native build products are not staged.

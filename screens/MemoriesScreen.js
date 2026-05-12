@@ -10,15 +10,16 @@ import {
 import StyledButton from '../components/StyledButton';
 import Colors from '../constants/Colors';
 import { generateRandomMemory } from '../components/HelperFunctions';
-import { MEMORIES } from '../data/dummy-data';
+import { MEMORIES } from '../data/memories';
 
 import MemoryItem from '../components/MemoryItem';
 
 const MemoriesScreen = () => {
-  const [memory, setMemory] = useState(false);
+  const [memory, setMemory] = useState(null);
   const getMemory = () => {
-    let memory = generateRandomMemory(MEMORIES);
-    return setMemory(memory);
+    const item = generateRandomMemory(MEMORIES);
+    // New object each tap so React updates even if random picks the same entry twice.
+    setMemory(item ? { ...item } : null);
   };
 
   return (
@@ -29,7 +30,7 @@ const MemoriesScreen = () => {
       >
         <Text style={styles.headerText}>Our Special Memories!</Text>
         <ScrollView>
-          {memory ? (
+          {memory != null ? (
             <MemoryItem
               id={memory.id}
               title={memory.title}

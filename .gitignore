@@ -13,7 +13,23 @@ web-report/
 # macOS
 .DS_Store
 
-# assets
-data
+# Local secrets (Supabase URL / anon key)
+.env
+.env.local
 
-screens/VirtualCard.js
+# Generated memory checklist (npm run generate-memories)
+data/memories.generated.stub.js
+
+# Simulator scratch (seeded photos + screenshots)
+tmp/
+
+# Generated native/build artifacts
+build/
+dist/
+ios/build/
+android/build/
+
+# Optional seed face images for the simulator photo seeder
+scripts/seed-faces/
+
+# assets

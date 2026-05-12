@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, StyleSheet, FlatList } from 'react-native';
-import { MEMORIES } from '../data/dummy-data';
+import { MEMORIES } from '../data/memories';
 
 import MemoryItem from '../components/MemoryItem';
 import Card from './Card';
