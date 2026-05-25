@@ -1,69 +1,226 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 /**
  * Our Little World — design system.
  *
- * Self-contained from the legacy birthday theme. Every OLW screen pulls
- * colour, type, spacing, radius, and shadow from here so the section
- * has its own visual identity (warm editorial, not scrapbook).
- *
- * Vibe: "soft modern" — pastel cream + warm coral + deep plum, generous
- * whitespace, one elegant serif for headings, system sans for body, a
- * single script accent reserved for the brand mark.
+ * Five home palettes, each with a paired dark variant. Hearth is the default.
+ * Components should use palette slots instead of raw hex so the whole app can
+ * settle into a family's preferred home and late-night reading mode.
  */
 
-export const colors = {
-  // Surfaces
-  cream:        '#F8F2EB',  // app background
-  parchment:    '#FBF6F0',  // alternative background for variety
-  surface:      '#FFFFFF',  // cards
-  surfaceMuted: '#F4ECE3',  // input fields, gentle dividers
+export const PALETTE_NAMES = ['hearth', 'sky', 'linen', 'twilight', 'meadow'];
+export const THEME_MODE_NAMES = ['system', 'light', 'dark'];
+export const THEME_STORAGE_KEY = 'olw:theme-preferences:v1';
 
-  // Ink (text)
-  ink:          '#2D1F26',
-  plum:         '#5C4250',
-  muted:        '#9A8A8A',
-  whisper:      '#C5B5AC',
-
-  // Accents — warm-forward
-  coral:        '#E89177',
-  coralSoft:    '#F8C5B3',
-  rose:         '#C76E7E',
-  roseSoft:     '#EBC3CB',
-  gold:         '#D6A45C',
-  goldSoft:     '#F0D9B0',
-
-  // Status
-  sage:         '#94B89B',
-  warning:      '#D49A4A',
-  danger:       '#C0392B',
-
-  // Border / hairlines
-  border:       '#EFE4D9',
-  borderStrong: '#E0D0C2',
-
-  // Overlay
-  scrim:        'rgba(45, 31, 38, 0.42)',
-  scrimDeep:    'rgba(45, 31, 38, 0.78)',
+export const palettes = {
+  hearth: {
+    label: 'Hearth',
+    feel: 'Default. Warm peach + sage.',
+    light: {
+      bg: '#FAF4EE',
+      bgAlt: '#FFF8F1',
+      surface: '#FFFFFF',
+      ink: '#2A1F1A',
+      inkSoft: '#5F4B41',
+      muted: '#907E72',
+      border: '#E8DCD1',
+      primary: '#C46A4C',
+      primarySoft: '#F2CEC1',
+      accent: '#7C9277',
+      gold: '#D6A45C',
+    },
+    dark: {
+      bg: '#1A130E',
+      bgAlt: '#211912',
+      surface: '#2A211A',
+      ink: '#F8EFE7',
+      inkSoft: '#D7C7BA',
+      muted: '#A99588',
+      border: '#3E3026',
+      primary: '#D98268',
+      primarySoft: '#452B22',
+      accent: '#9BAF92',
+      gold: '#E1B76F',
+    },
+  },
+  sky: {
+    label: 'Sky',
+    feel: 'Cool teal + warm coral accent.',
+    light: {
+      bg: '#EEF4F7',
+      bgAlt: '#F7FBFC',
+      surface: '#FFFFFF',
+      ink: '#2E4258',
+      inkSoft: '#556879',
+      muted: '#82909A',
+      border: '#D9E5EA',
+      primary: '#5E9C9A',
+      primarySoft: '#CBE3E2',
+      accent: '#E88474',
+      gold: '#D6A45C',
+    },
+    dark: {
+      bg: '#0F181B',
+      bgAlt: '#142126',
+      surface: '#1D2B31',
+      ink: '#EDF6F8',
+      inkSoft: '#CAD9DE',
+      muted: '#91A7AF',
+      border: '#31454D',
+      primary: '#78B4B0',
+      primarySoft: '#203D3E',
+      accent: '#F09A8D',
+      gold: '#E0B970',
+    },
+  },
+  linen: {
+    label: 'Linen',
+    feel: 'Earthy clay + oat.',
+    light: {
+      bg: '#F4EFE5',
+      bgAlt: '#FBF6EC',
+      surface: '#FFFFFF',
+      ink: '#2A2620',
+      inkSoft: '#5F564A',
+      muted: '#8D8273',
+      border: '#E4DACB',
+      primary: '#8A6A45',
+      primarySoft: '#E5D4BC',
+      accent: '#6E8068',
+      gold: '#C69B58',
+    },
+    dark: {
+      bg: '#18140F',
+      bgAlt: '#211B14',
+      surface: '#2B241B',
+      ink: '#F6F0E5',
+      inkSoft: '#D5CABA',
+      muted: '#A59A89',
+      border: '#403629',
+      primary: '#A88458',
+      primarySoft: '#3B2D1D',
+      accent: '#8DA085',
+      gold: '#DDB76A',
+    },
+  },
+  twilight: {
+    label: 'Twilight',
+    feel: 'Dusk plum + lavender.',
+    light: {
+      bg: '#F1EAEE',
+      bgAlt: '#FAF3F7',
+      surface: '#FFFFFF',
+      ink: '#241A24',
+      inkSoft: '#5A4A59',
+      muted: '#8A7B89',
+      border: '#E3D6DE',
+      primary: '#80506C',
+      primarySoft: '#DDC3D0',
+      accent: '#7C7BA0',
+      gold: '#D2A35F',
+    },
+    dark: {
+      bg: '#171016',
+      bgAlt: '#211821',
+      surface: '#2B2130',
+      ink: '#F6EEF4',
+      inkSoft: '#D8C6D4',
+      muted: '#A48FA1',
+      border: '#403246',
+      primary: '#9A6B85',
+      primarySoft: '#3B2634',
+      accent: '#9897BF',
+      gold: '#E0B56D',
+    },
+  },
+  meadow: {
+    label: 'Meadow',
+    feel: 'Sage green + clay.',
+    light: {
+      bg: '#F2F1E7',
+      bgAlt: '#FAF8EE',
+      surface: '#FFFFFF',
+      ink: '#1F2620',
+      inkSoft: '#4E5A4F',
+      muted: '#7E897C',
+      border: '#E0E0D2',
+      primary: '#5C7A55',
+      primarySoft: '#D4DFC9',
+      accent: '#B07A4C',
+      gold: '#CF9F59',
+    },
+    dark: {
+      bg: '#10170F',
+      bgAlt: '#172114',
+      surface: '#202C1D',
+      ink: '#EEF4EA',
+      inkSoft: '#CDD9C8',
+      muted: '#99A592',
+      border: '#34432F',
+      primary: '#77946E',
+      primarySoft: '#263B21',
+      accent: '#C89562',
+      gold: '#E0B86D',
+    },
+  },
 };
 
-/**
- * Convenience aliases for semantic intent. Prefer these in components when
- * possible — it lets us re-tone the palette later without touching screens.
- */
-export const semantic = {
-  bg:           colors.cream,
-  bgAlt:        colors.parchment,
-  card:         colors.surface,
-  cardAlt:      colors.surfaceMuted,
-  text:         colors.ink,
-  textSoft:     colors.plum,
-  textMuted:    colors.muted,
-  textWhisper:  colors.whisper,
-  primary:      colors.coral,
-  primarySoft:  colors.coralSoft,
-  secondary:    colors.rose,
-  border:       colors.border,
-  borderStrong: colors.borderStrong,
-};
+function addAlpha(hex, alpha) {
+  const clean = hex.replace('#', '');
+  const value = parseInt(clean, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function buildColors(slots, scheme) {
+  const isDark = scheme === 'dark';
+  return {
+    ...slots,
+
+    // Legacy aliases kept for screens that have not moved fully to slots yet.
+    cream: slots.bg,
+    parchment: slots.bgAlt,
+    surfaceMuted: slots.bgAlt,
+    plum: slots.inkSoft,
+    whisper: slots.muted,
+    coral: slots.primary,
+    coralSoft: slots.primarySoft,
+    rose: slots.accent,
+    roseSoft: slots.primarySoft,
+    goldSoft: slots.primarySoft,
+    sage: slots.accent,
+    warning: slots.gold,
+    danger: isDark ? '#F07F72' : '#C0392B',
+    borderStrong: isDark ? '#544237' : '#D7C8BA',
+    scrim: addAlpha(slots.ink, isDark ? 0.62 : 0.42),
+    scrimDeep: addAlpha(slots.ink, isDark ? 0.84 : 0.78),
+    onPrimary: '#FFFFFF',
+  };
+}
+
+function buildSemantic(colorsForPalette) {
+  return {
+    bg: colorsForPalette.bg,
+    bgAlt: colorsForPalette.bgAlt,
+    card: colorsForPalette.surface,
+    cardAlt: colorsForPalette.bgAlt,
+    surface: colorsForPalette.surface,
+    text: colorsForPalette.ink,
+    textSoft: colorsForPalette.inkSoft,
+    textMuted: colorsForPalette.muted,
+    textWhisper: colorsForPalette.muted,
+    primary: colorsForPalette.primary,
+    primarySoft: colorsForPalette.primarySoft,
+    secondary: colorsForPalette.accent,
+    accent: colorsForPalette.accent,
+    border: colorsForPalette.border,
+    borderStrong: colorsForPalette.borderStrong,
+  };
+}
 
 export const space = {
   xxs: 2,
@@ -114,77 +271,194 @@ export const shadow = {
 };
 
 /**
- * Type tokens. We use one elegant serif (Reckless) for headings, the system
- * sans for body, and a single script (Porcelain) reserved for the brand
- * mark / watermark moments.
+ * Type tokens. Newsreader is the intended headline serif, Manrope the UI/body
+ * sans, and Caveat the sparing handwritten voice.
  */
 export const fonts = {
-  display: 'Reckless',
-  script:  'porcelain',
-  body:    undefined, // system
+  display: 'Newsreader',
+  displayItalic: 'Newsreader-Italic',
+  script: 'Caveat',
+  body: 'Manrope',
+  bodyRegular: 'Manrope-Regular',
+  bodyMedium: 'Manrope',
+  bodySemi: 'Manrope-SemiBold',
+  bodyBold: 'Manrope-Bold',
 };
 
-export const type = {
-  display: {
+function buildType(semanticForPalette) {
+  return {
+    display: {
     fontFamily: fonts.display,
-    fontSize: 44,
-    lineHeight: 50,
+    fontSize: 52,
+    lineHeight: 58,
     letterSpacing: -0.5,
-    color: semantic.text,
+    color: semanticForPalette.text,
   },
   hero: {
     fontFamily: fonts.display,
-    fontSize: 36,
-    lineHeight: 42,
+    fontSize: 38,
+    lineHeight: 44,
     letterSpacing: -0.4,
-    color: semantic.text,
+    color: semanticForPalette.text,
   },
   title: {
     fontFamily: fonts.display,
     fontSize: 26,
     lineHeight: 32,
-    color: semantic.text,
+    color: semanticForPalette.text,
   },
   subtitle: {
-    fontFamily: fonts.body,
-    fontSize: 17,
-    lineHeight: 24,
+    fontFamily: fonts.bodySemi,
+    fontSize: 16,
+    lineHeight: 23,
     fontWeight: '600',
-    color: semantic.text,
+    color: semanticForPalette.text,
   },
   body: {
-    fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: 24,
-    color: semantic.textSoft,
+    fontFamily: fonts.bodyMedium,
+    fontSize: 15,
+    lineHeight: 23,
+    fontWeight: '500',
+    color: semanticForPalette.textSoft,
   },
   bodyTight: {
-    fontFamily: fonts.body,
+    fontFamily: fonts.bodyMedium,
     fontSize: 15,
     lineHeight: 21,
-    color: semantic.textSoft,
+    fontWeight: '500',
+    color: semanticForPalette.textSoft,
   },
   caption: {
-    fontFamily: fonts.body,
+    fontFamily: fonts.bodyMedium,
     fontSize: 13,
     lineHeight: 18,
-    color: semantic.textMuted,
+    fontWeight: '500',
+    color: semanticForPalette.textMuted,
   },
   micro: {
-    fontFamily: fonts.body,
-    fontSize: 11,
+    fontFamily: fonts.bodyBold,
+    fontSize: 10.5,
     lineHeight: 14,
-    fontWeight: '600',
-    letterSpacing: 1.4,
+    fontWeight: '700',
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
-    color: semantic.textMuted,
+    color: semanticForPalette.textMuted,
   },
   brand: {
-    fontFamily: fonts.script,
+    fontFamily: fonts.displayItalic,
     fontSize: 22,
-    color: semantic.primary,
+    color: semanticForPalette.primary,
   },
-};
+  };
+}
 
-const theme = { colors, semantic, space, radius, shadow, fonts, type };
+export function createTheme({ paletteName = 'hearth', scheme = 'light', mode = 'system' } = {}) {
+  const safePaletteName = palettes[paletteName] ? paletteName : 'hearth';
+  const safeScheme = scheme === 'dark' ? 'dark' : 'light';
+  const palette = palettes[safePaletteName];
+  const paletteSlots = palette[safeScheme];
+  const nextColors = buildColors(paletteSlots, safeScheme);
+  const nextSemantic = buildSemantic(nextColors);
+
+  return {
+    paletteName: safePaletteName,
+    paletteLabel: palette.label,
+    paletteFeel: palette.feel,
+    mode: THEME_MODE_NAMES.includes(mode) ? mode : 'system',
+    scheme: safeScheme,
+    isDark: safeScheme === 'dark',
+    colors: nextColors,
+    semantic: nextSemantic,
+    space,
+    radius,
+    shadow,
+    fonts,
+    type: buildType(nextSemantic),
+  };
+}
+
+const fallbackTheme = createTheme({ paletteName: 'hearth', scheme: 'light', mode: 'system' });
+
+export const colors = fallbackTheme.colors;
+export const semantic = fallbackTheme.semantic;
+export const type = fallbackTheme.type;
+
+const ThemeContext = createContext({
+  ...fallbackTheme,
+  preferencesReady: false,
+  setMode: async () => {},
+  setPaletteName: async () => {},
+});
+
+function normalizePreferences(value) {
+  const paletteName = palettes[value?.paletteName] ? value.paletteName : 'hearth';
+  const mode = THEME_MODE_NAMES.includes(value?.mode) ? value.mode : 'system';
+  return { paletteName, mode };
+}
+
+export function ThemeProvider({ children }) {
+  const systemScheme = useColorScheme();
+  const [preferences, setPreferences] = useState({ paletteName: 'hearth', mode: 'system' });
+  const [preferencesReady, setPreferencesReady] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    AsyncStorage.getItem(THEME_STORAGE_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        setPreferences(normalizePreferences(JSON.parse(raw)));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setPreferencesReady(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const persist = useCallback(async (next) => {
+    const normalized = normalizePreferences(next);
+    setPreferences(normalized);
+    await AsyncStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(normalized));
+  }, []);
+
+  const setMode = useCallback(
+    (mode) => persist({ ...preferences, mode }),
+    [persist, preferences],
+  );
+
+  const setPaletteName = useCallback(
+    (paletteName) => persist({ ...preferences, paletteName }),
+    [persist, preferences],
+  );
+
+  const scheme = preferences.mode === 'system'
+    ? (systemScheme === 'dark' ? 'dark' : 'light')
+    : preferences.mode;
+
+  const value = useMemo(
+    () => ({
+      ...createTheme({ paletteName: preferences.paletteName, scheme, mode: preferences.mode }),
+      preferencesReady,
+      setMode,
+      setPaletteName,
+    }),
+    [preferences.paletteName, preferences.mode, preferencesReady, scheme, setMode, setPaletteName],
+  );
+
+  useEffect(() => {
+    Object.assign(colors, value.colors);
+    Object.assign(semantic, value.semantic);
+    Object.assign(type, value.type);
+  }, [value]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+const theme = fallbackTheme;
 export default theme;

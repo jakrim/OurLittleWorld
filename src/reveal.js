@@ -205,7 +205,7 @@ export function pickPhotoForMode(mode, items, opts = {}) {
   if (mode === 'place') {
     const located = items.filter((p) => {
       const key = `${p.asset_owner_user_id}:${p.asset_id}`;
-      return !!metadataByKey[key]?.location;
+      return !!(metadataByKey[key]?.location || p.location);
     });
     return located.length ? located[Math.floor(Math.random() * located.length)] : null;
   }

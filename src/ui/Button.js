@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { Pressable, Text, View, StyleSheet, Animated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
-import { semantic, colors, space, radius, shadow, type as t } from './theme';
+import { space, radius, shadow, useTheme } from './theme';
 
 /**
  * The OLW button.
@@ -32,6 +32,7 @@ export default function Button({
   style,
   haptic = 'selection',
 }) {
+  const theme = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePress = () => {
@@ -45,6 +46,7 @@ export default function Button({
   const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40 }).start();
   const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
 
+  const variants = getVariants(theme);
   const v = variants[variant] || variants.primary;
   const s = sizes[size]      || sizes.lg;
 
@@ -80,14 +82,21 @@ export default function Button({
   );
 }
 
-const variants = {
-  primary:   { bg: semantic.primary,   fg: '#FFFFFF',           shadow: true },
-  secondary: { bg: semantic.secondary, fg: '#FFFFFF',           shadow: true },
-  ghost:     { bg: 'transparent',      fg: semantic.primary,    border: semantic.primary, shadow: false },
-  quiet:     { bg: 'transparent',      fg: semantic.primary,    shadow: false },
-  dark:      { bg: colors.ink,         fg: colors.cream,        shadow: true },
-  cream:     { bg: colors.cream,       fg: colors.ink,          shadow: true },
-};
+function getVariants(theme) {
+  const { colors, semantic } = theme;
+  return {
+    primary:   { bg: semantic.primary,   fg: colors.onPrimary, shadow: true },
+    secondary: { bg: semantic.secondary, fg: colors.onPrimary, shadow: true },
+    ghost:     { bg: 'transparent',      fg: semantic.primary, border: semantic.primary, shadow: false },
+    quiet:     { bg: 'transparent',      fg: semantic.primary, shadow: false },
+    dark:      {
+      bg: theme.isDark ? colors.surface : colors.ink,
+      fg: theme.isDark ? colors.ink : colors.bg,
+      shadow: true,
+    },
+    cream:     { bg: colors.bg,          fg: colors.ink,       shadow: true },
+  };
+}
 
 const sizes = {
   lg: { padY: 18, padX: 28, font: 17 },

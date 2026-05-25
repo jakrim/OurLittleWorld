@@ -1,21 +1,43 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Redirect } from 'expo-router';
 
-import FallingRosePetals from '../../components/FallingRosePetals';
-import { palette } from '../../constants/theme';
 import { useAuth } from '../AuthContext';
 import { useFamily } from '../FamilyContext';
 import { firstLookStorageKey, shouldShowFirstLook } from '../reveal';
+import { BrandMark, useTheme } from '../ui';
 
 export function CenteredSpinner() {
+  const theme = useTheme();
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.05,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
   return (
-    <View style={{ flex: 1, backgroundColor: palette.plum }}>
-      <FallingRosePetals introDense={false} quietCount={9} />
-      <View style={styles.spinnerCenter}>
-        <ActivityIndicator color={palette.cream} size="large" />
-      </View>
+    <View style={[styles.loadingScreen, { backgroundColor: theme.semantic.bg }]}>
+      <Animated.View style={{ transform: [{ scale: pulse }] }}>
+        <BrandMark size={92} />
+      </Animated.View>
     </View>
   );
 }
@@ -95,10 +117,9 @@ export function useAppGate() {
 }
 
 const styles = StyleSheet.create({
-  spinnerCenter: {
-    ...StyleSheet.absoluteFillObject,
+  loadingScreen: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
   },
 });

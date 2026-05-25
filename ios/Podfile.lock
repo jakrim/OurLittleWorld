@@ -193,6 +193,8 @@ PODS:
     - ExpoModulesCore
   - ExpoFont (55.0.7):
     - ExpoModulesCore
+  - ExpoGlassEffect (55.0.11):
+    - ExpoModulesCore
   - ExpoHaptics (55.0.14):
     - ExpoModulesCore
   - ExpoImage (55.0.10):
@@ -248,11 +250,16 @@ PODS:
     - React-Core
     - React-runtimescheduler
     - ReactCommon
+  - ExpoRouter (55.0.14):
+    - ExpoModulesCore
+    - RNScreens
   - ExpoSecureStore (55.0.13):
     - ExpoModulesCore
   - ExpoSplashScreen (55.0.20):
     - ExpoModulesCore
   - ExpoSQLite (55.0.15):
+    - ExpoModulesCore
+  - ExpoSymbols (55.0.8):
     - ExpoModulesCore
   - EXUpdatesInterface (55.1.6):
     - ExpoModulesCore
@@ -2408,10 +2415,11 @@ DEPENDENCIES:
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
   - ExpoClipboard (from `../node_modules/expo-clipboard/ios`)
-  - "ExpoDomWebView (from `../node_modules/expo/node_modules/@expo/log-box/node_modules/@expo/dom-webview/ios`)"
+  - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
   - ExpoFaceMatcher (from `../modules/expo-face-matcher/ios`)
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
   - ExpoFont (from `../node_modules/expo-font/ios`)
+  - ExpoGlassEffect (from `../node_modules/expo-glass-effect/ios`)
   - ExpoHaptics (from `../node_modules/expo-haptics/ios`)
   - ExpoImage (from `../node_modules/expo-image/ios`)
   - ExpoImageManipulator (from `../node_modules/expo-image-manipulator/ios`)
@@ -2419,13 +2427,15 @@ DEPENDENCIES:
   - ExpoKeepAwake (from `../node_modules/expo/node_modules/expo-keep-awake/ios`)
   - ExpoLinearGradient (from `../node_modules/expo-linear-gradient/ios`)
   - ExpoLinking (from `../node_modules/expo-linking/ios`)
-  - "ExpoLogBox (from `../node_modules/expo/node_modules/@expo/log-box`)"
+  - "ExpoLogBox (from `../node_modules/@expo/log-box`)"
   - ExpoMediaLibrary (from `../node_modules/expo-media-library/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-core`)
+  - ExpoRouter (from `../node_modules/expo-router/ios`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
   - ExpoSplashScreen (from `../node_modules/expo-splash-screen/ios`)
   - ExpoSQLite (from `../node_modules/expo-sqlite/ios`)
+  - ExpoSymbols (from `../node_modules/expo-symbols/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
@@ -2545,13 +2555,15 @@ EXTERNAL SOURCES:
   ExpoClipboard:
     :path: "../node_modules/expo-clipboard/ios"
   ExpoDomWebView:
-    :path: "../node_modules/expo/node_modules/@expo/log-box/node_modules/@expo/dom-webview/ios"
+    :path: "../node_modules/@expo/dom-webview/ios"
   ExpoFaceMatcher:
     :path: "../modules/expo-face-matcher/ios"
   ExpoFileSystem:
     :path: "../node_modules/expo-file-system/ios"
   ExpoFont:
     :path: "../node_modules/expo-font/ios"
+  ExpoGlassEffect:
+    :path: "../node_modules/expo-glass-effect/ios"
   ExpoHaptics:
     :path: "../node_modules/expo-haptics/ios"
   ExpoImage:
@@ -2567,19 +2579,23 @@ EXTERNAL SOURCES:
   ExpoLinking:
     :path: "../node_modules/expo-linking/ios"
   ExpoLogBox:
-    :path: "../node_modules/expo/node_modules/@expo/log-box"
+    :path: "../node_modules/@expo/log-box"
   ExpoMediaLibrary:
     :path: "../node_modules/expo-media-library/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
   ExpoModulesJSI:
     :path: "../node_modules/expo-modules-core"
+  ExpoRouter:
+    :path: "../node_modules/expo-router/ios"
   ExpoSecureStore:
     :path: "../node_modules/expo-secure-store/ios"
   ExpoSplashScreen:
     :path: "../node_modules/expo-splash-screen/ios"
   ExpoSQLite:
     :path: "../node_modules/expo-sqlite/ios"
+  ExpoSymbols:
+    :path: "../node_modules/expo-symbols/ios"
   EXUpdatesInterface:
     :path: "../node_modules/expo-updates-interface/ios"
   FBLazyVector:
@@ -2761,6 +2777,7 @@ SPEC CHECKSUMS:
   ExpoFaceMatcher: c66370e54aa29367f1ca178b71658120988d9e89
   ExpoFileSystem: 0b73b097e67c83622640168f620defc65a1a6f70
   ExpoFont: a95606f106a6394df8edf6d0d87aab9020af5ad4
+  ExpoGlassEffect: 2dedac2fe817f9b02d0dad29ce0aef7afebc5cd4
   ExpoHaptics: 679f09dc37d5981e619bc197732007a3334e80b8
   ExpoImage: 74d26278507b0b0d85b1e50562412172603f59eb
   ExpoImageManipulator: 6365c9351edb047a2add6160fb44be424ebe477d
@@ -2772,9 +2789,11 @@ SPEC CHECKSUMS:
   ExpoMediaLibrary: ddb07a0f7e0e8b36adc3130fa2fe5757643273bb
   ExpoModulesCore: 5e1ad569ce7cf8d35c0737585f34cc299fc3f0ca
   ExpoModulesJSI: 964334271fc77832736f66ee1785761cdc778dbe
+  ExpoRouter: 0948f6a7c3949e8405099663e55d149408afc021
   ExpoSecureStore: 38954f6bcef1287aa04c06fba3b86e8af3291ccd
   ExpoSplashScreen: 3e64eed7a300d4e1131e8b419b5cea6e604adba7
   ExpoSQLite: f63db535d24c59722971241ea9ade2a878dfabea
+  ExpoSymbols: 446a0835f3fb505214891d72baf5edf1de2ee4e7
   EXUpdatesInterface: 4c11f4d1594526258f14d09817dc407acbf24e3b
   FBLazyVector: 427fa1856a481856091061293ce865a75aa4f20f
   hermes-engine: 35ea496d939f4073291ce4f295e8d1278d4568ff

@@ -84,14 +84,15 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
   for (const photo of shared || []) {
     const key = `${photo.asset_owner_user_id}:${photo.asset_id}`;
     const meta = metadataByKey[key];
-    const clusterKey = clusterKeyFromLocation(meta?.location || {});
+    const location = meta?.location || photo.location;
+    const clusterKey = clusterKeyFromLocation(location || {});
     if (!clusterKey) continue;
 
     if (!buckets.has(clusterKey)) {
       buckets.set(clusterKey, {
         id: clusterKey,
-        location: meta.location,
-        label: formatLocationLabel(meta.location),
+        location,
+        label: formatLocationLabel(location),
         photos: [],
         sceneCounts: {},
       });

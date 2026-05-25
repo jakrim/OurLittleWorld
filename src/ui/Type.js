@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 
-import { type as t, semantic } from './theme';
+import { useTheme } from './theme';
 
 /**
  * Typography primitives. Use these instead of raw <Text> in OLW screens
@@ -18,24 +18,39 @@ import { type as t, semantic } from './theme';
  *
  * Every component accepts `color`, `align`, and standard <Text> props.
  */
-export function Display(props)  { return <Base style={t.display}  {...props} />; }
-export function Hero(props)     { return <Base style={t.hero}     {...props} />; }
-export function Title(props)    { return <Base style={t.title}    {...props} />; }
-export function Subtitle(props) { return <Base style={t.subtitle} {...props} />; }
-export function Body(props)     { return <Base style={t.body}     {...props} />; }
-export function BodyTight(props){ return <Base style={t.bodyTight} {...props} />; }
-export function Caption(props)  { return <Base style={t.caption}  {...props} />; }
-export function Eyebrow(props)  { return <Base style={t.micro}    {...props} />; }
-export function Brand(props)    { return <Base style={t.brand}    {...props} />; }
+export function Display(props)  { return <Base token="display"  {...props} />; }
+export function Hero(props)     { return <Base token="hero"     {...props} />; }
+export function Title(props)    { return <Base token="title"    {...props} />; }
+export function Subtitle(props) { return <Base token="subtitle" {...props} />; }
+export function Body(props)     { return <Base token="body"     {...props} />; }
+export function BodyTight(props){ return <Base token="bodyTight" {...props} />; }
+export function Caption(props)  { return <Base token="caption"  {...props} />; }
+export function Eyebrow(props)  { return <Base token="micro"    {...props} />; }
+export function Brand(props)    { return <Base token="brand"    {...props} />; }
 
-function Base({ children, style, color, align, italic, weight, ...rest }) {
+function Base({ children, token, style, color, align, italic, weight, ...rest }) {
+  const theme = useTheme();
+  const baseStyle = theme.type[token] || theme.type.body;
   const overrides = {};
   if (color)  overrides.color = color === 'inherit' ? undefined : color;
   if (align)  overrides.textAlign = align;
-  if (italic) overrides.fontStyle = 'italic';
-  if (weight) overrides.fontWeight = weight;
+  if (italic) {
+    overrides.fontStyle = 'italic';
+    if (token === 'display' || token === 'hero' || token === 'title') {
+      overrides.fontFamily = theme.fonts.displayItalic;
+    }
+  }
+  if (weight) {
+    overrides.fontWeight = weight;
+    if (baseStyle.fontFamily?.startsWith('Manrope')) {
+      if (weight === '400') overrides.fontFamily = theme.fonts.bodyRegular;
+      if (weight === '500') overrides.fontFamily = theme.fonts.bodyMedium;
+      if (weight === '600') overrides.fontFamily = theme.fonts.bodySemi;
+      if (weight === '700') overrides.fontFamily = theme.fonts.bodyBold;
+    }
+  }
   return (
-    <Text style={[style, overrides, style?.fontFamily ? null : { color: semantic.text }, style]} {...rest}>
+    <Text style={[baseStyle, overrides, style]} {...rest}>
       {children}
     </Text>
   );

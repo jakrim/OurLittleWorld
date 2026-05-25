@@ -11,7 +11,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 
 import Field from './Field';
-import { colors, semantic, space, radius, type as t } from './theme';
+import { colors, semantic, space, radius, type as t, useTheme } from './theme';
 
 const MIN_BIRTH = new Date(1970, 0, 1, 12, 0, 0, 0);
 
@@ -74,6 +74,7 @@ export function isValidBirthIso(iso) {
  * Web falls back to typed entry with the same validation at the screen level.
  */
 export default function BirthDatePicker({ value, onChange, error, caption }) {
+  const theme = useTheme();
   const [showIOSModal, setShowIOSModal] = useState(false);
   const [showAndroid, setShowAndroid] = useState(false);
   const [iosDraft, setIosDraft] = useState(() => localDateFromIso(value) || defaultSuggestionDate());
@@ -148,23 +149,34 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
         onPress={open}
         style={({ pressed }) => [
           styles.row,
-          pressed && styles.rowPressed,
-          error ? styles.rowError : null,
+          { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+          pressed && {
+            backgroundColor: theme.isDark ? theme.semantic.cardAlt : theme.colors.bgAlt,
+            borderColor: theme.semantic.primary,
+          },
+          error ? { borderColor: theme.colors.danger } : null,
           !value ? styles.rowMuted : null,
         ]}
         accessibilityRole="button"
         accessibilityLabel="Baby birth date"
         accessibilityHint="Opens the date picker"
       >
-        <Text style={[styles.valueText, !value && styles.placeholderText]} numberOfLines={2}>
+        <Text
+          style={[
+            styles.valueText,
+            { color: theme.semantic.text },
+            !value && { color: theme.semantic.textWhisper },
+          ]}
+          numberOfLines={2}
+        >
           {displayLabel || 'Choose birth date'}
         </Text>
-        <Ionicons name="calendar-outline" size={22} color={semantic.primary} />
+        <Ionicons name="calendar-outline" size={22} color={theme.semantic.primary} />
       </Pressable>
       {error ? (
-        <Text style={styles.error}>{error}</Text>
+        <Text style={[styles.error, { color: theme.colors.danger }]}>{error}</Text>
       ) : caption === null ? null : (
-        <Text style={styles.caption}>
+        <Text style={[styles.caption, { color: theme.semantic.textMuted }]}>
           {caption ?? 'We use this for photo ages and which pictures to scan.'}
         </Text>
       )}
@@ -184,21 +196,21 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
         <Modal visible={showIOSModal} transparent animationType="slide" onRequestClose={cancelIOS}>
           <View style={styles.modalRoot}>
             <Pressable style={styles.modalBackdrop} onPress={cancelIOS} accessibilityLabel="Dismiss" />
-            <View style={styles.modalSheet}>
+            <View style={[styles.modalSheet, { backgroundColor: theme.semantic.card }]}>
               <View style={styles.modalHeader}>
                 <Pressable onPress={cancelIOS} hitSlop={12} accessibilityRole="button">
-                  <Text style={styles.modalBtn}>Cancel</Text>
+                  <Text style={[styles.modalBtn, { color: theme.semantic.primary }]}>Cancel</Text>
                 </Pressable>
-                <Text style={styles.modalTitle}>Birth date</Text>
+                <Text style={[styles.modalTitle, { color: theme.semantic.textMuted }]}>Birth date</Text>
                 <Pressable onPress={commitIOS} hitSlop={12} accessibilityRole="button">
-                  <Text style={[styles.modalBtn, styles.modalBtnStrong]}>Done</Text>
+                  <Text style={[styles.modalBtn, styles.modalBtnStrong, { color: theme.semantic.primary }]}>Done</Text>
                 </Pressable>
               </View>
               <DateTimePicker
                 value={iosDraft}
                 mode="date"
                 display="spinner"
-                themeVariant="light"
+                themeVariant={theme.isDark ? 'dark' : 'light'}
                 minimumDate={MIN_BIRTH}
                 maximumDate={maxDate}
                 onChange={onIOSPickerChange}

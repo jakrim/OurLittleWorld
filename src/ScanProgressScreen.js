@@ -1,10 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { Screen, Button, Hero, Caption, Eyebrow, Spacer, colors, space } from './ui';
+import { Screen, Button, Hero, Caption, Eyebrow, Spacer, BrandMark, colors, space } from './ui';
 import { isNative } from './faceMatcher';
 import { referenceStorageKey } from './ReferencePhotoScreen';
 import { useFamily } from './FamilyContext';
@@ -115,7 +114,7 @@ export default function ScanProgressScreen() {
           <Animated.View style={[styles.ring, ringStyle(pulse1)]} />
           <Animated.View style={[styles.ring, ringStyle(pulse2)]} />
           <View style={styles.core}>
-            <Ionicons name="heart" size={48} color="#FFFFFF" />
+            <BrandMark size={86} />
           </View>
         </View>
 
@@ -176,7 +175,7 @@ const styles = StyleSheet.create({
     width: RING_SIZE,
     height: RING_SIZE,
     borderRadius: RING_SIZE / 2,
-    backgroundColor: colors.coral,
+    backgroundColor: colors.surface,
   },
   core: {
     width: 110,

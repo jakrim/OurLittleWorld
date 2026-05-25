@@ -1,30 +1,46 @@
 import 'react-native-gesture-handler';
-import React, { useEffect } from 'react';
-import { LogBox, Pressable, StyleSheet, Text } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { LogBox } from 'react-native';
+import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import {
+  Newsreader_400Regular,
+  Newsreader_500Medium_Italic,
+} from '@expo-google-fonts/newsreader';
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from '@expo-google-fonts/manrope';
+import { Caveat_400Regular } from '@expo-google-fonts/caveat';
 
 import { AuthProvider } from '../src/AuthContext';
 import { FamilyProvider } from '../src/FamilyContext';
-import { palette } from '../constants/theme';
+import LaunchScreen from '../src/LaunchScreen';
+import { ThemeProvider } from '../src/ui';
 
 LogBox.ignoreAllLogs();
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [launchVisible, setLaunchVisible] = useState(true);
   const [fontsLoaded, fontError] = useFonts({
-    balqis: require('../assets/fonts/Balqis.ttf'),
-    'dm-sans-boldItalic': require('../assets/fonts/DMSans-BoldItalic.ttf'),
-    porcelain: require('../assets/fonts/Porcelain.ttf'),
-    Reckless: require('../assets/fonts/Reckless.otf'),
+    Newsreader: Newsreader_400Regular,
+    'Newsreader-Italic': Newsreader_500Medium_Italic,
+    Manrope: Manrope_500Medium,
+    'Manrope-Regular': Manrope_400Regular,
+    'Manrope-SemiBold': Manrope_600SemiBold,
+    'Manrope-Bold': Manrope_700Bold,
+    Caveat: Caveat_400Regular,
   });
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 
@@ -33,57 +49,23 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AuthProvider>
-          <FamilyProvider>
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                gestureEnabled: true,
-                animation: 'fade_from_bottom',
-              }}
-            />
-            <DevLegacyArchiveButton />
-          </FamilyProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <FamilyProvider>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  gestureEnabled: true,
+                  animation: 'fade_from_bottom',
+                }}
+              />
+              {launchVisible ? (
+                <LaunchScreen onDone={() => setLaunchVisible(false)} />
+              ) : null}
+            </FamilyProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
-
-function DevLegacyArchiveButton() {
-  const router = useRouter();
-
-  if (!__DEV__) return null;
-
-  return (
-    <Pressable
-      style={styles.devArchiveButton}
-      onPress={() => router.push('/dev/archive')}
-      accessibilityRole="button"
-      accessibilityLabel="Open Lauren archive"
-    >
-      <Text style={styles.devArchiveButtonText}>Lauren Archive</Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  devArchiveButton: {
-    position: 'absolute',
-    right: 16,
-    bottom: 28,
-    zIndex: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: 'rgba(45, 31, 41, 0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 245, 238, 0.28)',
-  },
-  devArchiveButtonText: {
-    color: palette.cream,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
-});

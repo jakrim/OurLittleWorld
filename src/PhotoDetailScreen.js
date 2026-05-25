@@ -21,7 +21,13 @@ import { shareMemoryMoment } from './shareMoment';
  */
 export default function PhotoDetailScreen() {
   const router = useRouter();
-  const { assetId } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const assetId = Array.isArray(params.assetId) ? params.assetId[0] : params.assetId;
+  const previewUri = Array.isArray(params.uri) ? params.uri[0] : params.uri;
+  const previewCreationRaw = Array.isArray(params.creationTime)
+    ? params.creationTime[0]
+    : params.creationTime;
+  const previewCreationTime = previewCreationRaw != null ? Number(previewCreationRaw) : null;
   const { family } = useFamily();
   const { user } = useAuth();
 
@@ -38,7 +44,7 @@ export default function PhotoDetailScreen() {
     (async () => {
       if (!family || !user || !assetId) return;
       const [info, allTags, mems, memberList] = await Promise.all([
-        MediaLibrary.getAssetInfoAsync(assetId).catch(() => null),
+        MediaLibrary.getAssetInfoAsync(assetId, { shouldDownloadFromNetwork: true }).catch(() => null),
         Tags.all(family.id),
         Memories.forAsset({ familyId: family.id, assetId, ownerUserId: user.id }),
         Family.members(family.id),
@@ -53,17 +59,28 @@ export default function PhotoDetailScreen() {
     })();
   }, [assetId, family?.id, user?.id]);
 
+  const takenAtMs = useMemo(() => {
+    if (asset?.creationTime) return asset.creationTime;
+    if (Number.isFinite(previewCreationTime)) return previewCreationTime;
+    return null;
+  }, [asset?.creationTime, previewCreationTime]);
+
+  const displayUri = useMemo(
+    () => asset?.localUri || asset?.uri || previewUri || null,
+    [asset?.localUri, asset?.uri, previewUri],
+  );
+
   const age = useMemo(() => {
-    if (!asset || !family?.babyBirthday) return null;
-    return ageAt(family.babyBirthday, asset.creationTime);
-  }, [asset, family?.babyBirthday]);
+    if (!takenAtMs || !family?.babyBirthday) return null;
+    return ageAt(family.babyBirthday, takenAtMs);
+  }, [takenAtMs, family?.babyBirthday]);
 
   const dateLabel = useMemo(() => {
-    if (!asset?.creationTime) return '';
-    return new Date(asset.creationTime).toLocaleDateString(undefined, {
+    if (!takenAtMs) return '';
+    return new Date(takenAtMs).toLocaleDateString(undefined, {
       year: 'numeric', month: 'long', day: 'numeric',
     });
-  }, [asset]);
+  }, [takenAtMs]);
 
   const placeLabel = useMemo(() => {
     const lat = asset?.location?.latitude;
@@ -98,7 +115,7 @@ export default function PhotoDetailScreen() {
   };
 
   const onShareMoment = async () => {
-    const sourceUri = asset?.localUri || asset?.uri;
+    const sourceUri = displayUri;
     if (!sourceUri) {
       Alert.alert('Could not share', 'This photo is not available yet.');
       return;
@@ -143,9 +160,9 @@ export default function PhotoDetailScreen() {
         </Pressable>
 
         <View style={styles.imageWrap}>
-          {asset?.uri ? (
+          {displayUri ? (
             <Image
-              source={{ uri: asset.localUri || asset.uri }}
+              source={{ uri: displayUri }}
               style={styles.image}
               contentFit="contain"
               transition={150}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, TextInput, StyleSheet, Text, Pressable } from 'react-native';
 
-import { colors, semantic, space, radius, type as t } from './theme';
+import { colors, semantic, space, radius, type as t, useTheme } from './theme';
 
 /**
  * Text input with floating label, optional caption + error.
@@ -29,8 +29,25 @@ export default function Field({
   containerStyle,
   ...rest
 }) {
+  const theme = useTheme();
   const [focused, setFocused] = useState(false);
   const filled = (value && value.length > 0) || focused;
+  const dynamic = {
+    label: { color: theme.semantic.textMuted },
+    labelFocused: { color: theme.semantic.primary },
+    error: { color: theme.colors.danger },
+    inputBox: {
+      backgroundColor: theme.semantic.card,
+      borderColor: theme.semantic.border,
+    },
+    inputBoxFocused: {
+      backgroundColor: theme.isDark ? theme.semantic.cardAlt : theme.colors.bgAlt,
+      borderColor: theme.semantic.primary,
+    },
+    input: { color: theme.semantic.text },
+    placeholder: theme.semantic.textWhisper,
+    caption: { color: theme.semantic.textMuted },
+  };
 
   const baseInputStyle = [
     styles.input,
@@ -44,7 +61,12 @@ export default function Field({
   return (
     <View style={[styles.wrap, containerStyle]}>
       {label ? (
-        <Text style={[styles.label, focused && styles.labelFocused, error && styles.labelError]}>
+        <Text style={[
+          styles.label,
+          dynamic.label,
+          focused && dynamic.labelFocused,
+          error && dynamic.error,
+        ]}>
           {label}
         </Text>
       ) : null}
@@ -52,8 +74,9 @@ export default function Field({
       <View
         style={[
           styles.inputBox,
-          focused && styles.inputBoxFocused,
-          error && styles.inputBoxError,
+          dynamic.inputBox,
+          focused && dynamic.inputBoxFocused,
+          error && { borderColor: theme.colors.danger },
           as === 'textarea' && styles.inputBoxTextarea,
         ]}
       >
@@ -61,12 +84,12 @@ export default function Field({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={semantic.textWhisper}
+          placeholderTextColor={dynamic.placeholder}
           multiline={as === 'textarea'}
           textAlignVertical={as === 'textarea' ? 'top' : 'center'}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          style={baseInputStyle}
+          style={[baseInputStyle, dynamic.input]}
           {...inputProps}
           {...rest}
         />
@@ -74,9 +97,9 @@ export default function Field({
       </View>
 
       {error ? (
-        <Text style={styles.error}>{error}</Text>
+        <Text style={[styles.error, dynamic.error]}>{error}</Text>
       ) : caption ? (
-        <Text style={styles.caption}>{caption}</Text>
+        <Text style={[styles.caption, dynamic.caption]}>{caption}</Text>
       ) : null}
     </View>
   );

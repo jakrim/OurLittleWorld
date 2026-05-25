@@ -1,11 +1,5 @@
-import LegacyColors from './Colors';
-
 /**
- * Shared design system. The original birthday palette lives in `LegacyColors`
- * and is re-exported so existing screens keep their look. New screens (the
- * Our Little World section) should reach for `palette`, `radii`, `spacing`, and the
- * `font` helpers below for a softer, more modern feel that still feels
- * playful and warm.
+ * Shared design system for the modern Our Little World app.
  */
 
 export const palette = {
@@ -27,8 +21,6 @@ export const palette = {
   surface: '#FFFFFF',
   surfaceMuted: '#FFF1F4',
   border: '#F0D7DD',
-  // Legacy colours, still available for the birthday section
-  legacy: LegacyColors,
 };
 
 export const spacing = {

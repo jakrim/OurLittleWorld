@@ -44,11 +44,24 @@ create table if not exists public.photo_tags (
   asset_id             text not null,
   tagged_by_user_id    uuid not null references auth.users(id) on delete cascade,
   tagged_at            timestamptz not null default now(),
+  storage_object       uuid,
+  thumb_object         uuid,
+  original_width       integer,
+  original_height      integer,
+  creation_time        timestamptz,
+  latitude             double precision,
+  longitude            double precision,
+  location_fetched_at  timestamptz,
+  upload_status        text not null default 'pending' check (upload_status in ('pending', 'uploading', 'ready', 'failed')),
+  upload_error         text,
   primary key (family_id, asset_owner_user_id, asset_id)
 );
 
 create index if not exists photo_tags_family_idx on public.photo_tags(family_id);
 create index if not exists photo_tags_owner_idx on public.photo_tags(family_id, asset_owner_user_id);
+create index if not exists photo_tags_family_location_idx
+  on public.photo_tags(family_id, latitude, longitude)
+  where latitude is not null and longitude is not null;
 
 create table if not exists public.memories (
   id                   uuid primary key default gen_random_uuid(),

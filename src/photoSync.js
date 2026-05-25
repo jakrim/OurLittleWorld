@@ -43,6 +43,13 @@ function uuid() {
   return `${r(8)}-${r(4)}-4${r(3)}-${(8 + ((Math.random() * 4) | 0)).toString(16)}${r(3)}-${r(12)}`;
 }
 
+function normalizeLocation(location) {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
 async function readAsArrayBuffer(uri) {
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
@@ -73,6 +80,8 @@ export async function uploadForTag({ familyId, assetId }) {
   const info = await MediaLibrary.getAssetInfoAsync(assetId);
   const localUri = info.localUri || info.uri;
   if (!localUri) throw new Error('Could not load local photo');
+  const location = normalizeLocation(info.location);
+  const nowIso = new Date().toISOString();
 
   // 1. Insert (or refresh) the tag row in pending state
   const { error: upsertErr } = await supabase.from('photo_tags').upsert(
@@ -81,10 +90,13 @@ export async function uploadForTag({ familyId, assetId }) {
       asset_owner_user_id: userId,
       asset_id: assetId,
       tagged_by_user_id: userId,
-      tagged_at: new Date().toISOString(),
+      tagged_at: nowIso,
       creation_time: info.creationTime ? new Date(info.creationTime).toISOString() : null,
       original_width: info.width || null,
       original_height: info.height || null,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      location_fetched_at: nowIso,
       upload_status: 'uploading',
       upload_error: null,
     },
@@ -192,7 +204,7 @@ export async function listSharedTagged(familyId, { limit = 5000, pageSize = 1000
     const { data, error } = await supabase
       .from('photo_tags')
       .select(
-        'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, upload_status',
+        'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status',
       )
       .eq('family_id', familyId)
       .eq('upload_status', 'ready')
@@ -225,6 +237,7 @@ export async function listSharedTagged(familyId, { limit = 5000, pageSize = 1000
 
   return all.map((r) => ({
     ...r,
+    location: normalizeLocation(r),
     fullUrl: r.storage_object ? fullByPath.get(`${familyId}/full/${r.storage_object}.jpg`) : null,
     thumbUrl: r.thumb_object ? thumbByPath.get(`${familyId}/thumb/${r.thumb_object}.jpg`) : null,
   }));

@@ -10,11 +10,11 @@
     ],
     "version": "1.1.0",
     "orientation": "portrait",
-    "icon": "./assets/Icon-App-60x60@3x.png",
+    "icon": "./assets/brand/icon.png",
     "splash": {
-      "image": "./assets/Icon-App-60x60@3x.png",
+      "image": "./assets/brand/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffb8c6"
+      "backgroundColor": "#F8F2EB"
     },
     "updates": {
       "fallbackToCacheTimeout": 0
@@ -43,6 +43,12 @@
           "hey",
           "superhuman"
         ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/adaptive-icon.png",
+        "backgroundColor": "#F8F2EB"
       }
     },
     "plugins": [
@@ -77,8 +83,9 @@
     ],
     "owner": "jakrim",
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "52f0c42f-7070-49eb-a71b-24c401fca1bd"
+        "projectId": "417b49c8-5800-4011-bf15-9d5c55101fb7"
       }
     }
   }

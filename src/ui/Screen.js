@@ -3,7 +3,7 @@ import { View, ScrollView, Keyboard, Platform, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { semantic, colors, space } from './theme';
+import { semantic, space, useTheme } from './theme';
 
 /**
  * Standard wrapper for every OLW screen.
@@ -26,6 +26,7 @@ export default function Screen({
   edges = { top: true, bottom: true },
 }) {
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function Screen({
     : { paddingHorizontal: space.xl };
 
   const Background = (
-    <BackgroundLayer variant={variant} />
+    <BackgroundLayer variant={variant} theme={theme} />
   );
 
   const ChildrenWrap = (
@@ -77,7 +78,7 @@ export default function Screen({
     );
 
     return (
-      <View style={styles.root}>
+      <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
         {Background}
         {Inner}
       </View>
@@ -85,18 +86,19 @@ export default function Screen({
   }
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
       {Background}
       <View style={[{ flex: 1 }, insetStyle]}>{ChildrenWrap}</View>
     </View>
   );
 }
 
-function BackgroundLayer({ variant }) {
+function BackgroundLayer({ variant, theme }) {
+  const { colors, semantic } = theme;
   if (variant === 'warm') {
     return (
       <LinearGradient
-        colors={[colors.coralSoft, colors.cream, colors.cream]}
+        colors={[colors.primarySoft, colors.bg, colors.bg]}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -105,7 +107,7 @@ function BackgroundLayer({ variant }) {
   if (variant === 'dawn') {
     return (
       <LinearGradient
-        colors={['#F8C5B3', '#F8D2C0', colors.cream]}
+        colors={[colors.primarySoft, colors.bgAlt, colors.bg]}
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -114,14 +116,14 @@ function BackgroundLayer({ variant }) {
   if (variant === 'dusk') {
     return (
       <LinearGradient
-        colors={['#EBC3CB', '#F5D7D5', colors.cream]}
+        colors={[colors.primarySoft, colors.bgAlt, colors.bg]}
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFill}
       />
     );
   }
   if (variant === 'dark') {
-    return <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.ink }]} />;
+    return <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.isDark ? colors.bg : colors.ink }]} />;
   }
   return <View style={[StyleSheet.absoluteFill, { backgroundColor: semantic.bg }]} />;
 }

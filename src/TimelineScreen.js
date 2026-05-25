@@ -23,12 +23,16 @@ import {
   Card,
   Button,
   Brand,
+  BrandMark,
   Hero,
   Title,
   Body,
   Caption,
   Eyebrow,
   Spacer,
+  useTheme,
+  palettes,
+  PALETTE_NAMES,
   semantic,
   colors,
   space,
@@ -58,6 +62,7 @@ import {
 import { ensureMetadataFor, loadCache } from './photoMetadata';
 
 const SCREEN_W = Dimensions.get('window').width;
+const SCREEN_H = Dimensions.get('window').height;
 
 /**
  * Three views in one screen, controlled by the segment.
@@ -304,7 +309,7 @@ export default function TimelineScreen() {
       const leadMemory = [...memories].sort(
         (a, b) => +new Date(b.updated_at || b.created_at) - +new Date(a.updated_at || a.created_at),
       )[0];
-      const placeLabel = formatLocationLabel(metadataByKey[photoKey]?.location);
+      const placeLabel = formatLocationLabel(metadataByKey[photoKey]?.location || photo.location);
       await shareMemoryMoment({
         sourceUri,
         babyName: family?.babyName || 'Our little one',
@@ -322,7 +327,13 @@ export default function TimelineScreen() {
   const onOpenPhoto = useCallback((photo) => {
     if (!photo) return;
     if (photo.asset_owner_user_id === user?.id) {
-      router.push(`/photo/${photo.asset_id}`);
+      const params = { assetId: photo.asset_id };
+      const previewUri = photo.thumbUrl || photo.fullUrl;
+      if (previewUri) params.uri = previewUri;
+      if (photo.creation_time) {
+        params.creationTime = String(new Date(photo.creation_time).getTime());
+      }
+      router.push({ pathname: '/photo/[assetId]', params });
     }
   }, [router, user?.id]);
 
@@ -432,9 +443,6 @@ export default function TimelineScreen() {
       case 'invite': router.push('/invite'); break;
       case 'settings': router.push('/setup'); break;
       case 'reference': router.push('/reference'); break;
-      case 'browse': setTab('browse'); break;
-      case 'places': setTab('places'); break;
-      case 'timeline': setTab('timeline'); break;
       default: break;
     }
   };
@@ -484,6 +492,7 @@ export default function TimelineScreen() {
           />
         ) : (
           <FlatList
+            key="timeline"
             data={sections}
             keyExtractor={(s) => s.key}
             renderItem={({ item: section }) => (
@@ -533,6 +542,7 @@ export default function TimelineScreen() {
         />
       ) : (
         <FlatList
+          key="browse"
           data={photos}
           numColumns={3}
           keyExtractor={(p) => p.id}
@@ -562,7 +572,13 @@ export default function TimelineScreen() {
                 uri={item.uri}
                 age={ageObj ? formatAge(ageObj) : null}
                 tagged={tagged}
-                onPress={() => router.push(`/photo/${item.id}`)}
+                onPress={() => {
+                  const params = { assetId: item.id, uri: item.uri };
+                  if (item.creationTime != null) {
+                    params.creationTime = String(item.creationTime);
+                  }
+                  router.push({ pathname: '/photo/[assetId]', params });
+                }}
               />
             );
           }}
@@ -609,8 +625,8 @@ function Header({ familyName, referenceUri, onMenu, onScan }) {
             <Image source={{ uri: referenceUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
           </View>
         ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder]}>
-            <Ionicons name="heart" size={20} color={colors.coral} />
+          <View style={styles.headerBrandMark}>
+            <BrandMark size={66} />
           </View>
         )}
         <View style={styles.titleWrap}>
@@ -641,7 +657,25 @@ function Header({ familyName, referenceUri, onMenu, onScan }) {
 
 // ─── Hamburger menu ──────────────────────────────────────────────────────────
 
+const THEME_MODE_OPTIONS = [
+  { value: 'system', label: 'Auto', icon: 'phone-portrait-outline' },
+  { value: 'light', label: 'Light', icon: 'sunny-outline' },
+  { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+];
+
 function HamburgerMenu({ visible, onClose, onAction, babyName }) {
+  const theme = useTheme();
+
+  const setMode = (mode) => {
+    Haptics.selectionAsync();
+    theme.setMode(mode);
+  };
+
+  const setPalette = (paletteName) => {
+    Haptics.selectionAsync();
+    theme.setPaletteName(paletteName);
+  };
+
   return (
     <Modal
       animationType="fade"
@@ -649,45 +683,127 @@ function HamburgerMenu({ visible, onClose, onAction, babyName }) {
       visible={visible}
       onRequestClose={onClose}
     >
-      <Pressable style={styles.menuBackdrop} onPress={onClose}>
+      <Pressable
+        style={[styles.menuBackdrop, { backgroundColor: theme.colors.scrim }]}
+        onPress={onClose}
+      >
         <View style={styles.menuSheetWrap}>
-          <Pressable style={styles.menuSheet} onPress={() => {}}>
-            <Eyebrow>{babyName ? `${babyName}'s tools` : 'Tools'}</Eyebrow>
-            <Spacer h={space.md} />
-            <MenuItem
-              icon="images-outline"
-              label="Timeline"
-              onPress={() => onAction('timeline')}
-            />
-            <MenuItem
-              icon="map-outline"
-              label="Places map"
-              onPress={() => onAction('places')}
-            />
-            <MenuItem
-              icon="grid-outline"
-              label="Browse my library"
-              onPress={() => onAction('browse')}
-            />
-            <View style={styles.menuDivider} />
-            <MenuItem
-              icon="sparkles"
-              tint={colors.coral}
-              label="Find more photos"
-              onPress={() => onAction('reference')}
-            />
-            <MenuItem
-              icon="person-add-outline"
-              label="Invite family"
-              onPress={() => onAction('invite')}
-            />
-            <MenuItem
-              icon="settings-outline"
-              label="Settings"
-              onPress={() => onAction('settings')}
-            />
-            <Spacer h={space.md} />
-            <Button variant="quiet" onPress={onClose}>Close</Button>
+          <Pressable
+            style={[
+              styles.menuSheet,
+              {
+                backgroundColor: theme.semantic.card,
+                borderColor: theme.semantic.border,
+              },
+            ]}
+            onPress={() => {}}
+          >
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              <Eyebrow>Menu</Eyebrow>
+              <Spacer h={space.md} />
+
+              <View style={[styles.themePanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+                <View style={styles.themePanelHeader}>
+                  <View>
+                    <Eyebrow>Theme</Eyebrow>
+                    <Caption style={styles.themeCaption}>
+                      {theme.paletteLabel} · {theme.mode === 'system' ? `Auto (${theme.scheme})` : theme.mode}
+                    </Caption>
+                  </View>
+                  <View style={[styles.themePreview, { backgroundColor: theme.colors.bg, borderColor: theme.colors.border }]}>
+                    <View style={[styles.themePreviewDot, { backgroundColor: theme.colors.primary }]} />
+                    <View style={[styles.themePreviewDot, { backgroundColor: theme.colors.accent }]} />
+                  </View>
+                </View>
+
+                <View style={styles.themeModeRow}>
+                  {THEME_MODE_OPTIONS.map((option) => {
+                    const active = theme.mode === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        onPress={() => setMode(option.value)}
+                        style={[
+                          styles.themeModeButton,
+                          {
+                            backgroundColor: active ? theme.semantic.primary : theme.semantic.card,
+                            borderColor: active ? theme.semantic.primary : theme.semantic.border,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={option.icon}
+                          size={14}
+                          color={active ? theme.colors.onPrimary : theme.semantic.textSoft}
+                        />
+                        <Caption
+                          style={[
+                            styles.themeModeText,
+                            { color: active ? theme.colors.onPrimary : theme.semantic.textSoft },
+                          ]}
+                        >
+                          {option.label}
+                        </Caption>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.paletteQuickRow}>
+                  {PALETTE_NAMES.map((name) => {
+                    const meta = palettes[name];
+                    const slots = meta[theme.scheme];
+                    const active = theme.paletteName === name;
+                    return (
+                      <Pressable
+                        key={name}
+                        onPress={() => setPalette(name)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Use ${meta.label} palette`}
+                        style={[
+                          styles.paletteQuickButton,
+                          {
+                            backgroundColor: slots.bg,
+                            borderColor: active ? slots.primary : theme.semantic.border,
+                            borderWidth: active ? 2 : 1,
+                          },
+                        ]}
+                      >
+                        <View style={styles.paletteQuickSwatches}>
+                          <View style={[styles.paletteQuickSwatch, { backgroundColor: slots.primary }]} />
+                          <View style={[styles.paletteQuickSwatch, { backgroundColor: slots.accent }]} />
+                        </View>
+                        {active ? (
+                          <Ionicons name="checkmark" size={13} color={slots.ink} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Spacer h={space.lg} />
+              <Eyebrow>Actions</Eyebrow>
+              <Spacer h={space.sm} />
+              <MenuItem
+                icon="sparkles"
+                tint={theme.semantic.primary}
+                label="Find more photos"
+                onPress={() => onAction('reference')}
+              />
+              <MenuItem
+                icon="person-add-outline"
+                label="Invite family"
+                onPress={() => onAction('invite')}
+              />
+              <MenuItem
+                icon="settings-outline"
+                label="Settings"
+                onPress={() => onAction('settings')}
+              />
+              <Spacer h={space.md} />
+              <Button variant="quiet" onPress={onClose}>Close</Button>
+            </ScrollView>
           </Pressable>
         </View>
       </Pressable>
@@ -695,14 +811,16 @@ function HamburgerMenu({ visible, onClose, onAction, babyName }) {
   );
 }
 
-function MenuItem({ icon, label, onPress, tint = colors.plum }) {
+function MenuItem({ icon, label, onPress, tint }) {
+  const theme = useTheme();
+  const iconColor = tint || theme.semantic.textSoft;
   return (
     <Pressable onPress={onPress} style={styles.menuItem}>
-      <View style={[styles.menuItemIcon, { backgroundColor: semantic.cardAlt }]}>
-        <Ionicons name={icon} size={18} color={tint} />
+      <View style={[styles.menuItemIcon, { backgroundColor: theme.semantic.cardAlt }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
-      <Body style={{ flex: 1, color: colors.ink }}>{label}</Body>
-      <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+      <Body style={{ flex: 1, color: theme.semantic.text }}>{label}</Body>
+      <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
     </Pressable>
   );
 }
@@ -997,7 +1115,7 @@ function EmptyTimeline({ babyName, onScan, onBrowse }) {
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
-        <Ionicons name="heart-outline" size={48} color={colors.coral} />
+        <BrandMark size={92} />
       </View>
       <Spacer h={space.lg} />
       <Hero align="center" style={{ fontSize: 28 }}>No moments yet.</Hero>
@@ -1200,6 +1318,7 @@ function PlacesMapPanel({
 
   return (
     <FlatList
+      key="places"
       data={photos}
       keyExtractor={(p) => `${p.asset_owner_user_id}:${p.asset_id}`}
       numColumns={3}
@@ -1376,7 +1495,9 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
     ...shadow.whisper,
   },
-  avatarPlaceholder: {
+  headerBrandMark: {
+    width: 56,
+    height: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1423,8 +1544,84 @@ const styles = StyleSheet.create({
   menuSheet: {
     backgroundColor: semantic.card,
     borderRadius: radius.xl,
+    borderWidth: 1,
+    maxHeight: SCREEN_H * 0.84,
     padding: space.xl,
     ...shadow.soft,
+  },
+  themePanel: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: space.md,
+  },
+  themePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  themeCaption: {
+    marginTop: 2,
+    textTransform: 'capitalize',
+    letterSpacing: 0,
+  },
+  themePreview: {
+    width: 48,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  themePreviewDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  themeModeRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  themeModeButton: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  themeModeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'none',
+    letterSpacing: 0,
+  },
+  paletteQuickRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  paletteQuickButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paletteQuickSwatches: {
+    flexDirection: 'row',
+    gap: 3,
+  },
+  paletteQuickSwatch: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   menuItem: {
     flexDirection: 'row',

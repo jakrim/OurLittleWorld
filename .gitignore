@@ -1,5 +1,5 @@
 node_modules/**/*
-.expo/*
+.expo/
 npm-debug.*
 *.jks
 *.p8
@@ -17,13 +17,11 @@ web-report/
 .env
 .env.local
 
-# Generated memory checklist (npm run generate-memories)
-data/memories.generated.stub.js
-
 # Simulator scratch (seeded photos + screenshots)
 tmp/
 
 # Generated native/build artifacts
+/*.tar.gz
 build/
 dist/
 ios/build/
@@ -31,5 +29,9 @@ android/build/
 
 # Optional seed face images for the simulator photo seeder
 scripts/seed-faces/
+
+# Local agent skill installs
+.agents/
+skills-lock.json
 
 # assets

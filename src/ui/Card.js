@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 
-import { colors, semantic, space, radius, shadow } from './theme';
+import { space, radius, shadow, useTheme } from './theme';
 
 /**
  *   <Card>...</Card>                  white surface, soft shadow
@@ -15,6 +15,8 @@ export default function Card({
   padding = 'lg',
   style,
 }) {
+  const theme = useTheme();
+  const variants = getVariants(theme);
   const v = variants[variant] || variants.plain;
   const padPx = paddings[padding] ?? paddings.lg;
   return (
@@ -31,12 +33,14 @@ export default function Card({
   );
 }
 
-const variants = {
-  plain: { bg: semantic.card, shadow: shadow.whisper },
-  muted: { bg: semantic.cardAlt, shadow: null, border: semantic.border },
-  dark:  { bg: colors.ink,    shadow: shadow.soft },
-  ghost: { bg: 'transparent', shadow: null, border: semantic.border },
-};
+function getVariants(theme) {
+  return {
+    plain: { bg: theme.semantic.card, shadow: shadow.whisper },
+    muted: { bg: theme.semantic.cardAlt, shadow: null, border: theme.semantic.border },
+    dark:  { bg: theme.isDark ? theme.colors.surface : theme.colors.ink, shadow: shadow.soft },
+    ghost: { bg: 'transparent', shadow: null, border: theme.semantic.border },
+  };
+}
 
 const paddings = {
   none: 0,
