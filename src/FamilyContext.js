@@ -37,7 +37,7 @@ export function FamilyProvider({ children }) {
     [family, loading, refresh],
   );
 
-  return <FamilyContext.Provider value={value}>{children}</FamilyContext.Provider>;
+  return <FamilyContext value={value}>{children}</FamilyContext>;
 }
 
 export function useFamily() {

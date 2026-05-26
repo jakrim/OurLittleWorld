@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
-import * as MediaLibrary from 'expo-media-library';
-import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from "expo-router/react-navigation";
+import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
   Screen,
@@ -28,7 +28,6 @@ import BirthDatePicker, { isValidBirthIso } from './ui/BirthDatePicker';
 import { Family } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
-import { ensureLibraryPermission } from './photos';
 import { supabase } from './supabase';
 
 /**
@@ -55,11 +54,11 @@ export default function SetupScreen() {
   }, [family?.babyName, family?.babyBirthday]);
 
   const refreshPermission = useCallback(async () => {
-    const perm = await MediaLibrary.getPermissionsAsync();
+    const { granted, accessPrivileges, canAskAgain } = await getLibraryPermissionStatus();
     setPermission({
-      granted: perm.status === 'granted',
-      accessPrivileges: perm.accessPrivileges,
-      canAskAgain: perm.canAskAgain !== false,
+      granted,
+      accessPrivileges,
+      canAskAgain,
     });
   }, []);
 
@@ -151,9 +150,9 @@ export default function SetupScreen() {
           />
         ) : (
           <IntroHeader
-            hero={'Your little\nworld.'}
+            hero={'Tell us about\nyour little one.'}
             body={`Manage ${childName}'s name, birthday, photo access, and account.`}
-            topRight={{
+            topLeft={{
               icon: 'chevron-back',
               onPress: onBack,
               accessibilityLabel: 'Go back',
@@ -233,21 +232,20 @@ export default function SetupScreen() {
 }
 
 /**
- * Onboarding-style screen intro: brand row, optional top-right chip, hero + body.
- * Matches the warm setup header (brand left, circular action right).
+ * Onboarding-style screen intro: brand row, optional leading chip, hero + body.
  */
-function IntroHeader({ hero, body, topRight }) {
+function IntroHeader({ hero, body, topLeft }) {
   const theme = useTheme();
 
   return (
     <>
       <View style={styles.introTopRow}>
-        <Brand style={styles.introBrand}>our little world</Brand>
-        {topRight ? (
+        {topLeft ? (
           <Pressable
-            onPress={topRight.onPress}
+            onPress={topLeft.onPress}
             style={[
               styles.introIconBtn,
+              styles.introIconBtnLeading,
               {
                 backgroundColor: theme.semantic.card,
                 borderColor: theme.semantic.border,
@@ -255,15 +253,16 @@ function IntroHeader({ hero, body, topRight }) {
             ]}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel={topRight.accessibilityLabel}
+            accessibilityLabel={topLeft.accessibilityLabel}
           >
             <Ionicons
-              name={topRight.icon}
-              size={topRight.iconSize ?? 20}
+              name={topLeft.icon}
+              size={topLeft.iconSize ?? 20}
               color={theme.semantic.textSoft}
             />
           </Pressable>
         ) : null}
+        <Brand style={[styles.introBrand, topLeft && styles.introBrandWithLeading]}>our little world</Brand>
       </View>
       <Hero>{hero}</Hero>
       <Body>{body}</Body>
@@ -373,7 +372,9 @@ const styles = StyleSheet.create({
   },
   introBrand: {
     flex: 1,
-    marginRight: space.md,
+  },
+  introBrandWithLeading: {
+    textAlign: 'right',
   },
   introIconBtn: {
     width: 40,
@@ -383,6 +384,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...shadow.whisper,
+  },
+  introIconBtnLeading: {
+    marginRight: space.md,
   },
   accessStatus: {
     flexDirection: 'row',

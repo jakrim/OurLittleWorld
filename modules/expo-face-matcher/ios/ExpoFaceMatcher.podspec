@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   s.author         = 'Our Little World'
   s.homepage       = 'https://ourlittleworld.me'
   s.platforms      = {
-    :ios => '15.1'
+    :ios => '16.4'
   }
   s.source         = { git: '' }
   s.static_framework = true

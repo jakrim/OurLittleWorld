@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as MediaLibrary from 'expo-media-library';
-import { Ionicons } from '@expo/vector-icons';
+import { getAssetDetails } from './photos';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
 
 import { Screen, Card, Button, Field, Brand, Hero, Title, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, space, radius, shadow } from './ui';
@@ -44,7 +44,7 @@ export default function PhotoDetailScreen() {
     (async () => {
       if (!family || !user || !assetId) return;
       const [info, allTags, mems, memberList] = await Promise.all([
-        MediaLibrary.getAssetInfoAsync(assetId, { shouldDownloadFromNetwork: true }).catch(() => null),
+        getAssetDetails(assetId, { downloadFromNetwork: true }).catch(() => null),
         Tags.all(family.id),
         Memories.forAsset({ familyId: family.id, assetId, ownerUserId: user.id }),
         Family.members(family.id),

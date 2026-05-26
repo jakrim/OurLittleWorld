@@ -1,20 +1,87 @@
-import * as MediaLibrary from 'expo-media-library';
+import {
+  Asset,
+  AssetField,
+  MediaType,
+  Query,
+  getPermissionsAsync,
+  requestPermissionsAsync,
+} from 'expo-media-library';
 
 /**
- * Helpers that talk to the photo library on behalf of the Our Little World
- * feature. We isolate every PhotoKit call in this module so adding face
- * detection later only touches one file.
+ * Helpers that talk to the photo library on behalf of Our Little World.
+ * All expo-media-library access goes through this module (SDK 56 Query + Asset API).
  */
 
+const DESC_CREATION = { key: AssetField.CREATION_TIME, ascending: false };
+
+function imageQuery(createdAfterMs) {
+  let q = new Query()
+    .eq(AssetField.MEDIA_TYPE, MediaType.IMAGE)
+    .orderBy(DESC_CREATION);
+  if (createdAfterMs != null && Number.isFinite(createdAfterMs)) {
+    q = q.gte(AssetField.CREATION_TIME, createdAfterMs);
+  }
+  return q;
+}
+
+/** iOS Vision module expects ph:// URIs; asset ids are local identifiers. */
+export function uriForNativeVision(assetId) {
+  if (!assetId) return assetId;
+  if (
+    assetId.startsWith('ph://')
+    || assetId.startsWith('file://')
+    || assetId.startsWith('content://')
+    || assetId.startsWith('assets-library://')
+  ) {
+    return assetId;
+  }
+  return `ph://${assetId}`;
+}
+
+async function mapAssetToLegacy(asset) {
+  const [uri, creationTime, width, height] = await Promise.all([
+    asset.getUri(),
+    asset.getCreationTime(),
+    asset.getWidth().catch(() => 0),
+    asset.getHeight().catch(() => 0),
+  ]);
+  return {
+    id: asset.id,
+    uri: uriForNativeVision(asset.id),
+    localUri: uriForNativeVision(asset.id),
+    creationTime: creationTime ?? 0,
+    width: width || 0,
+    height: height || 0,
+  };
+}
+
+export async function mapAssetForScan(asset) {
+  const [creationTime] = await Promise.all([asset.getCreationTime()]);
+  return {
+    assetId: asset.id,
+    localUri: uriForNativeVision(asset.id),
+    creationTime: creationTime ?? 0,
+  };
+}
+
+export async function getLibraryPermissionStatus() {
+  const perm = await getPermissionsAsync();
+  return {
+    granted: perm.status === 'granted',
+    accessPrivileges: perm.accessPrivileges,
+    canAskAgain: perm.canAskAgain !== false,
+  };
+}
+
 export async function ensureLibraryPermission() {
-  const current = await MediaLibrary.getPermissionsAsync();
+  const current = await getPermissionsAsync();
   if (current.status === 'granted') {
     return { granted: true, accessPrivileges: current.accessPrivileges };
   }
   if (!current.canAskAgain) {
     return { granted: false, canAskAgain: false };
   }
-  const next = await MediaLibrary.requestPermissionsAsync();
+  const next = await requestPermissionsAsync();
   return {
     granted: next.status === 'granted',
     accessPrivileges: next.accessPrivileges,
@@ -23,21 +90,62 @@ export async function ensureLibraryPermission() {
 }
 
 /**
- * Fetch a page of photos sorted newest first. Returns an object with
- * `assets`, `endCursor`, and `hasNextPage` so the UI can paginate.
+ * Fetch a page of photos sorted newest first.
+ * `after` is an opaque offset string (legacy cursor compatibility).
  */
-export async function fetchPhotosPage({ after, pageSize = 60 } = {}) {
-  const result = await MediaLibrary.getAssetsAsync({
-    mediaType: 'photo',
-    first: pageSize,
-    after,
-    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-  });
+export async function fetchPhotosPage({ after, pageSize = 60, createdAfterMs } = {}) {
+  const offset = after != null && after !== '' ? parseInt(String(after), 10) : 0;
+  const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
+  const rows = await imageQuery(createdAfterMs).limit(pageSize).offset(safeOffset).exe();
+  const assets = await Promise.all(rows.map(mapAssetToLegacy));
   return {
-    assets: result.assets,
-    endCursor: result.endCursor,
-    hasNextPage: result.hasNextPage,
+    assets,
+    endCursor: String(safeOffset + rows.length),
+    hasNextPage: rows.length === pageSize,
   };
+}
+
+/**
+ * Count photos in the birthday→now window (offset paging; no totalCount in SDK 56).
+ */
+export async function countPhotosInWindow({ createdAfterMs, pageSize = 200 } = {}) {
+  let offset = 0;
+  let total = 0;
+  for (;;) {
+    const rows = await imageQuery(createdAfterMs).limit(pageSize).offset(offset).exe();
+    total += rows.length;
+    if (rows.length < pageSize) return total;
+    offset += pageSize;
+  }
+}
+
+/**
+ * Load one library asset by id (replaces getAssetInfoAsync).
+ */
+export async function getAssetDetails(assetId, { downloadFromNetwork: _downloadFromNetwork = false } = {}) {
+  if (!assetId) return null;
+  const asset = new Asset(assetId);
+  try {
+    const [uri, creationTime, location, width, height] = await Promise.all([
+      asset.getUri(),
+      asset.getCreationTime(),
+      asset.getLocation().catch(() => null),
+      asset.getWidth().catch(() => null),
+      asset.getHeight().catch(() => null),
+    ]);
+    const visionUri = uriForNativeVision(assetId);
+    return {
+      id: assetId,
+      uri: visionUri,
+      localUri: uri || visionUri,
+      creationTime: creationTime ?? undefined,
+      location,
+      width: width ?? undefined,
+      height: height ?? undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

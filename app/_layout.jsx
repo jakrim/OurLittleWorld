@@ -1,6 +1,6 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { LogBox } from 'react-native';
+import { ActivityIndicator, LogBox, Modal, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -26,6 +26,14 @@ import { ThemeProvider } from '../src/ui';
 LogBox.ignoreAllLogs();
 SplashScreen.preventAutoHideAsync();
 
+export function SuspenseFallback() {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" />
+    </View>
+  );
+}
+
 export default function RootLayout() {
   const [launchVisible, setLaunchVisible] = useState(true);
   const [fontsLoaded, fontError] = useFonts({
@@ -37,12 +45,6 @@ export default function RootLayout() {
     'Manrope-Bold': Manrope_700Bold,
     Caveat: Caveat_400Regular,
   });
-
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) return null;
 
@@ -56,12 +58,17 @@ export default function RootLayout() {
                 screenOptions={{
                   headerShown: false,
                   gestureEnabled: true,
-                  animation: 'fade_from_bottom',
+                  animation: launchVisible ? 'none' : 'fade_from_bottom',
                 }}
               />
-              {launchVisible ? (
+              <Modal
+                visible={launchVisible}
+                transparent
+                animationType="none"
+                statusBarTranslucent
+              >
                 <LaunchScreen onDone={() => setLaunchVisible(false)} />
-              ) : null}
+              </Modal>
             </FamilyProvider>
           </AuthProvider>
         </ThemeProvider>

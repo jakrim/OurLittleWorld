@@ -11,10 +11,8 @@
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/brand/icon.png",
-    "splash": {
-      "image": "./assets/brand/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F8F2EB"
+    "experiments": {
+      "reactCompiler": true
     },
     "updates": {
       "fallbackToCacheTimeout": 0
@@ -48,10 +46,22 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/brand/adaptive-icon.png",
-        "backgroundColor": "#F8F2EB"
+        "backgroundColor": "#FAF4EE"
       }
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/brand/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FAF4EE",
+          "imageWidth": 280,
+          "android": {
+            "imageWidth": 280
+          }
+        }
+      ],
       "expo-font",
       "expo-sqlite",
       "expo-image",
@@ -77,9 +87,16 @@
           "microphonePermission": "Allow recording short voice notes attached to your baby's photos."
         }
       ],
-      "@react-native-community/datetimepicker",
       "expo-secure-store",
-      "expo-router"
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usePrecompiledHeaders": true
+          }
+        }
+      ]
     ],
     "owner": "jakrim",
     "extra": {

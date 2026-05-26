@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Dimensions, Pressable, StyleSheet, View } 
 import { Image } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Screen, Button, Brand, Display, Body, Caption, Eyebrow, Spacer, colors, space, radius } from './ui';
 import { useFamily } from './FamilyContext';

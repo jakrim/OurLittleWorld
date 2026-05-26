@@ -7,8 +7,8 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@expo/ui/community/datetime-picker';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import Field from './Field';
 import { colors, semantic, space, radius, type as t, useTheme } from './theme';

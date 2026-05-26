@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Screen, Button, Brand, Hero, Body, Caption, V, H, Spacer, semantic, colors, space, radius, shadow } from './ui';

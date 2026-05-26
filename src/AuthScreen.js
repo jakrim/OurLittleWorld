@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Alert, Platform, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Screen, Button, Field, Brand, Hero, Body, Caption, V, Spacer, semantic, colors, space } from './ui';
 import { supabase, hasSupabaseCreds } from './supabase';

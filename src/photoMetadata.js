@@ -15,7 +15,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as MediaLibrary from 'expo-media-library';
+import { getAssetDetails } from './photos';
 
 import { supabase } from './supabase';
 
@@ -170,7 +170,8 @@ export async function ensureMetadataFor({ familyId, photos, ownerUserId, concurr
           touched = true;
           continue;
         }
-        const info = await MediaLibrary.getAssetInfoAsync(photo.asset_id);
+        const info = await getAssetDetails(photo.asset_id);
+        if (!info) continue;
         const fetchedAt = Date.now();
         const location = normalizeLocation(info);
         const value = metadataValue({ location, fetchedAt });

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Pressable, Share, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, space, radius } from './ui';
 import { Family, Invites } from './families';

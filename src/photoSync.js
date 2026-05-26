@@ -1,12 +1,7 @@
-// SDK 55 split expo-file-system into a new File-class API (top-level) and the
-// classic functional API (now under /legacy). We use the legacy module here
-// because it round-trips well with `base64-arraybuffer` and supabase Storage's
-// ArrayBuffer upload path.
-import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as MediaLibrary from 'expo-media-library';
-import { decode as decodeBase64 } from 'base64-arraybuffer';
 
+import { getAssetDetails } from './photos';
 import { supabase } from './supabase';
 
 /**
@@ -51,10 +46,7 @@ function normalizeLocation(location) {
 }
 
 async function readAsArrayBuffer(uri) {
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  return decodeBase64(base64);
+  return new File(uri).arrayBuffer();
 }
 
 async function resize(uri, maxDim, compress) {
@@ -77,7 +69,8 @@ export async function uploadForTag({ familyId, assetId }) {
   if (!userId) throw new Error('Not signed in');
   if (!familyId) throw new Error('No family');
 
-  const info = await MediaLibrary.getAssetInfoAsync(assetId);
+  const info = await getAssetDetails(assetId);
+  if (!info) throw new Error('Could not load photo from library');
   const localUri = info.localUri || info.uri;
   if (!localUri) throw new Error('Could not load local photo');
   const location = normalizeLocation(info.location);

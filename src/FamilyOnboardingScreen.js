@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import * as Linking from 'expo-linking';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Screen, Card, Button, Field, Brand, Hero, Title, Body, Caption, V, H, Spacer, semantic, colors, space } from './ui';
 import { Family, Invites } from './families';

@@ -14,7 +14,7 @@
  * Embeddings are L2-normalised so cosine similarity == dot product.
  */
 
-import * as MediaLibrary from 'expo-media-library';
+import { countPhotosInWindow, fetchPhotosPage } from './photos';
 
 let native = null;
 try {
@@ -92,13 +92,7 @@ export async function matchAgainst({ reference, candidates }) {
  * asset set and thresholds as sequential paging.
  */
 export async function countCandidates({ since } = {}) {
-  // One cheap call — MediaLibrary returns totalCount in addition to the page.
-  const probe = await MediaLibrary.getAssetsAsync({
-    first: 1,
-    mediaType: 'photo',
-    createdAfter: since,
-  });
-  return probe.totalCount ?? probe.assets.length;
+  return countPhotosInWindow({ createdAfterMs: since });
 }
 
 export async function scanLibrary({
@@ -115,34 +109,28 @@ export async function scanLibrary({
   let total;
   const all = [];
 
-  let page = await MediaLibrary.getAssetsAsync({
-    first: batchSize,
-    after: undefined,
-    mediaType: 'photo',
-    sortBy: [[MediaLibrary.SortBy.creationTime, false]], // newest first
-    createdAfter: since,
+  let page = await fetchPhotosPage({
+    pageSize: batchSize,
+    createdAfterMs: since,
   });
 
   while (true) {
     if (signal?.aborted) break;
 
-    if (total == null) total = page.totalCount ?? undefined;
     if (page.assets.length === 0) break;
 
     const nextPagePromise =
       page.hasNextPage && !signal?.aborted
-        ? MediaLibrary.getAssetsAsync({
-          first: batchSize,
+        ? fetchPhotosPage({
           after: page.endCursor,
-          mediaType: 'photo',
-          sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-          createdAfter: since,
+          pageSize: batchSize,
+          createdAfterMs: since,
         })
         : null;
 
     const candidates = page.assets.map((a) => ({
       assetId: a.id,
-      localUri: a.uri, // ph:// URI works for Vision via PHImageManager in our native module
+      localUri: a.localUri || a.uri,
       creationTime: a.creationTime,
     }));
 

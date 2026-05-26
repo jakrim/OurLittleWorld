@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Animated, Easing, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { useRouter } from 'expo-router';
 
 import { Screen, Button, Brand, BrandMark, Display, Body, BodyTight, Caption, Eyebrow, Spacer, colors, space, radius, shadow } from './ui';

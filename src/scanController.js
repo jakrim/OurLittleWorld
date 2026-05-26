@@ -9,7 +9,7 @@
  * `useScanState()`, and the scan keeps running until the JS engine dies.
  *
  * Page fetch overlaps native scoring: while `matchAgainst` runs on batch N,
- * `MediaLibrary.getAssetsAsync` for batch N+1 is already in flight (same
+ * `fetchPhotosPage` for batch N+1 is already in flight (same
  * params as before — accuracy unchanged).
  *
  * State shape:
@@ -28,8 +28,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import * as MediaLibrary from 'expo-media-library';
-
+import { countPhotosInWindow, fetchPhotosPage } from './photos';
 import { matchAgainst, isNative } from './faceMatcher';
 
 const initialState = () => ({
@@ -60,12 +59,10 @@ const AUTO_SAVE_CONCURRENCY = 3;
 const PAGE_SIZE = 60;
 
 function fetchPhotoPage(after, since) {
-  return MediaLibrary.getAssetsAsync({
-    first: PAGE_SIZE,
+  return fetchPhotosPage({
     after,
-    mediaType: 'photo',
-    sortBy: [[MediaLibrary.SortBy.creationTime, false]], // newest first
-    createdAfter: since,
+    pageSize: PAGE_SIZE,
+    createdAfterMs: since,
   });
 }
 
@@ -315,13 +312,9 @@ export async function start({
   // Cheap probe — gives us a denominator for "X of Y photos read".
   (async () => {
     try {
-      const probe = await MediaLibrary.getAssetsAsync({
-        first: 1,
-        mediaType: 'photo',
-        createdAfter: since,
-      });
+      const total = await countPhotosInWindow({ createdAfterMs: since });
       if (!me.aborted && state.scanKey === scanKey) {
-        setState({ total: probe.totalCount ?? null });
+        setState({ total });
       }
     } catch { /* non-fatal */ }
   })();
@@ -343,7 +336,7 @@ export async function start({
         .filter((a) => !skipSet.has(a.id))
         .map((a) => ({
           assetId: a.id,
-          localUri: a.uri, // ph:// — Vision and expo-image both handle it
+          localUri: a.localUri || a.uri,
           creationTime: a.creationTime,
         }));
 
