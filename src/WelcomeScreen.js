@@ -130,7 +130,7 @@ export default function WelcomeScreen() {
         <Animated.View
           style={[styles.brandWrap, { opacity: brandO }]}
         >
-          <BrandMark size={logoSize} />
+          <BrandMark size={logoSize} fillFrame />
           <Spacer h={2} />
           <Brand align="center">our little world</Brand>
         </Animated.View>

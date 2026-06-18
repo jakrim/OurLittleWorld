@@ -135,7 +135,7 @@ export default function LaunchScreen({ onDone }) {
             },
           ]}
         >
-          <BrandMark size={280} showWordmark />
+          <BrandMark size={280} showWordmark fillFrame />
         </Animated.View>
       </View>
     </Animated.View>

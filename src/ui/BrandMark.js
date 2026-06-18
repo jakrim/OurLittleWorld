@@ -7,6 +7,7 @@ import { space, useTheme } from './theme';
 export default function BrandMark({
   size = 112,
   showWordmark = false,
+  fillFrame = false,
   tone = 'light',
   style,
 }) {
@@ -14,12 +15,16 @@ export default function BrandMark({
   const wordmarkColor = tone === 'dark' ? theme.colors.bg : theme.semantic.primary;
 
   return (
-    <View style={[styles.root, style]}>
+    <View style={[styles.root, !showWordmark && { width: size, height: size }, style]}>
       <Image
-        source={require('../../assets/brand/logo-mark-flat.png')}
+        source={
+          fillFrame
+            ? require('../../assets/brand/logo-mark-circle.png')
+            : require('../../assets/brand/logo-mark.png')
+        }
         style={{ width: size, height: size }}
         resizeMode="contain"
-        accessibilityLabel="Our Little World rooted sprout mark"
+        accessibilityLabel="Our Little World logo"
         fadeDuration={0}
       />
 

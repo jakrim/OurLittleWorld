@@ -57,8 +57,16 @@
           "resizeMode": "contain",
           "backgroundColor": "#FAF4EE",
           "imageWidth": 280,
+          "dark": {
+            "image": "./assets/brand/splash-dark.png",
+            "backgroundColor": "#1A130E"
+          },
           "android": {
-            "imageWidth": 280
+            "imageWidth": 280,
+            "dark": {
+              "image": "./assets/brand/splash-dark.png",
+              "backgroundColor": "#1A130E"
+            }
           }
         }
       ],
