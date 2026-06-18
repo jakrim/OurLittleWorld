@@ -21,6 +21,11 @@ web-report/
 tmp/
 
 # Generated native/build artifacts
+/ios/
+/android/
+*.ipa
+*.apk
+*.aab
 /*.tar.gz
 build/
 dist/
