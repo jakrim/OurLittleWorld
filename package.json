@@ -18,37 +18,38 @@
     "build:device:cloud": "eas build --platform ios --profile development",
     "device:register": "eas device:create",
     "install:sim": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz -C ./build/simulator/extracted && xcrun simctl install booted ./build/simulator/extracted/OurLittleWorld.app",
-    "install:sim:16e": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && (test -f ./build/simulator/ourlittleworld-sim-sdk56.tar.gz && tar -xzf ./build/simulator/ourlittleworld-sim-sdk56.tar.gz || tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz) -C ./build/simulator/extracted && xcrun simctl install DF0B3E65-8508-431F-9CD3-B9DF63DE1393 \"$(find ./build/simulator/extracted -name OurLittleWorld.app -print -quit)\"",
+    "install:sim:16e": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz -C ./build/simulator/extracted && SIM_UDID=\"$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16e/ {print $2; exit}')\" && test -n \"$SIM_UDID\" && (xcrun simctl boot \"$SIM_UDID\" 2>/dev/null || true) && xcrun simctl bootstatus \"$SIM_UDID\" -b && xcrun simctl install \"$SIM_UDID\" \"$(find ./build/simulator/extracted -name OurLittleWorld.app -print -quit)\"",
     "dev:cloud-sim": "eas build --platform ios --profile development-simulator --non-interactive",
-    "credentials": "eas credentials"
+    "credentials": "eas credentials",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo-google-fonts/caveat": "^0.4.2",
     "@expo-google-fonts/manrope": "^0.4.2",
     "@expo-google-fonts/newsreader": "^0.4.1",
-    "@expo/ui": "~56.0.13",
+    "@expo/ui": "~56.0.15",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-vector-icons/ionicons": "^13.1.2",
     "@supabase/supabase-js": "^2.105.4",
     "babel-preset-expo": "~56.0.0",
-    "expo": "^56.0.4",
+    "expo": "~56.0.8",
     "expo-asset": "~56.0.14",
-    "expo-audio": "~56.0.10",
+    "expo-audio": "~56.0.11",
     "expo-blur": "~56.0.3",
-    "expo-build-properties": "~56.0.14",
+    "expo-build-properties": "~56.0.16",
     "expo-clipboard": "~56.0.3",
     "expo-constants": "~56.0.15",
-    "expo-dev-client": "~56.0.15",
+    "expo-dev-client": "~56.0.18",
     "expo-file-system": "~56.0.7",
     "expo-font": "~56.0.5",
     "expo-haptics": "~56.0.3",
     "expo-image": "~56.0.9",
-    "expo-image-manipulator": "~56.0.14",
-    "expo-image-picker": "~56.0.13",
+    "expo-image-manipulator": "~56.0.16",
+    "expo-image-picker": "~56.0.15",
     "expo-linear-gradient": "~56.0.4",
-    "expo-linking": "~56.0.11",
+    "expo-linking": "~56.0.13",
     "expo-media-library": "~56.0.6",
-    "expo-router": "~56.2.6",
+    "expo-router": "~56.2.8",
     "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
     "expo-sqlite": "~56.0.4",
@@ -61,7 +62,11 @@
     "react-native-screens": "4.25.2",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "^0.21.0",
-    "react-native-worklets": "0.8.3"
+    "react-native-worklets": "0.8.3",
+    "typescript": "~6.0.3"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
 }
