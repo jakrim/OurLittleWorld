@@ -18,10 +18,14 @@ create table if not exists public.family_members (
   family_id     uuid not null references public.families(id) on delete cascade,
   user_id       uuid not null references auth.users(id) on delete cascade,
   display_name  text,
+  relationship_label text,
   role          text not null default 'partner' check (role in ('creator','partner')),
   joined_at     timestamptz not null default now(),
   primary key (family_id, user_id)
 );
+
+alter table public.family_members
+  add column if not exists relationship_label text;
 
 create index if not exists family_members_user_idx on public.family_members(user_id);
 
@@ -76,6 +80,81 @@ create table if not exists public.memories (
 
 create index if not exists memories_family_asset_idx on public.memories(family_id, asset_owner_user_id, asset_id);
 
+create table if not exists public.daily_prompt_responses (
+  id                   uuid primary key default gen_random_uuid(),
+  family_id            uuid not null references public.families(id) on delete cascade,
+  prompt_date          date not null,
+  prompt_key           text not null,
+  prompt_text          text not null,
+  author_user_id       uuid not null references auth.users(id) on delete cascade,
+  response_text        text,
+  audio_storage_object uuid,
+  snoozed_until        timestamptz,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+  unique (family_id, prompt_date, author_user_id)
+);
+
+create index if not exists daily_prompt_responses_family_date_idx
+  on public.daily_prompt_responses(family_id, prompt_date desc);
+
+create table if not exists public.firsts (
+  id                   uuid primary key default gen_random_uuid(),
+  family_id            uuid not null references public.families(id) on delete cascade,
+  created_by_user_id   uuid not null references auth.users(id) on delete cascade,
+  title                text not null,
+  note                 text,
+  happened_at          timestamptz,
+  asset_owner_user_id  uuid references auth.users(id) on delete set null,
+  asset_id             text,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+create index if not exists firsts_family_happened_idx
+  on public.firsts(family_id, happened_at desc nulls last, created_at desc);
+
+create table if not exists public.letters (
+  id              uuid primary key default gen_random_uuid(),
+  family_id       uuid not null references public.families(id) on delete cascade,
+  author_user_id  uuid not null references auth.users(id) on delete cascade,
+  title           text,
+  body            text not null,
+  open_on         date not null,
+  audience        text not null default 'child' check (audience in ('child','spouse')),
+  starter_key     text,
+  sealed_at       timestamptz not null default now(),
+  opened_at       timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+alter table public.letters
+  add column if not exists audience text not null default 'child'
+    check (audience in ('child','spouse'));
+
+alter table public.letters
+  add column if not exists starter_key text;
+
+create index if not exists letters_family_open_idx
+  on public.letters(family_id, open_on asc, created_at desc);
+
+create table if not exists public.weekly_digests (
+  id                         uuid primary key default gen_random_uuid(),
+  family_id                  uuid not null references public.families(id) on delete cascade,
+  week_start                 date not null,
+  week_end                   date not null,
+  headline                   text not null,
+  photo_count                integer not null default 0,
+  memory_count               integer not null default 0,
+  firsts_count               integer not null default 0,
+  letter_count               integer not null default 0,
+  cover_asset_owner_user_id  uuid references auth.users(id) on delete set null,
+  cover_asset_id             text,
+  generated_at               timestamptz not null default now(),
+  unique (family_id, week_start)
+);
+
 -- ─── triggers ────────────────────────────────────────────────────────────────
 
 create or replace function public.ool_set_updated_at()
@@ -97,6 +176,21 @@ create trigger families_updated
 drop trigger if exists memories_updated on public.memories;
 create trigger memories_updated
   before update on public.memories
+  for each row execute procedure public.ool_set_updated_at();
+
+drop trigger if exists daily_prompt_responses_updated on public.daily_prompt_responses;
+create trigger daily_prompt_responses_updated
+  before update on public.daily_prompt_responses
+  for each row execute procedure public.ool_set_updated_at();
+
+drop trigger if exists firsts_updated on public.firsts;
+create trigger firsts_updated
+  before update on public.firsts
+  for each row execute procedure public.ool_set_updated_at();
+
+drop trigger if exists letters_updated on public.letters;
+create trigger letters_updated
+  before update on public.letters
   for each row execute procedure public.ool_set_updated_at();
 
 -- ─── helper: is the current user a member of this family? ─────────────────────
@@ -143,7 +237,13 @@ grant execute on function public.generate_invite_code() to authenticated;
 
 -- ─── invite redemption RPC ───────────────────────────────────────────────────
 
-create or replace function public.redeem_family_invite(invite_code text, member_display_name text default null)
+drop function if exists public.redeem_family_invite(text, text);
+
+create or replace function public.redeem_family_invite(
+  invite_code text,
+  member_display_name text default null,
+  member_relationship_label text default null
+)
 returns uuid
 language plpgsql
 volatile
@@ -165,8 +265,8 @@ begin
     raise exception 'invite code is invalid or expired';
   end if;
 
-  insert into public.family_members (family_id, user_id, display_name, role)
-  values (v_invite.family_id, auth.uid(), member_display_name, 'partner')
+  insert into public.family_members (family_id, user_id, display_name, relationship_label, role)
+  values (v_invite.family_id, auth.uid(), member_display_name, nullif(member_relationship_label, ''), 'partner')
   on conflict (family_id, user_id) do nothing;
 
   update public.family_invites set used_by = auth.uid(), used_at = now()
@@ -176,8 +276,8 @@ begin
 end
 $$;
 
-revoke all on function public.redeem_family_invite(text, text) from public, anon;
-grant execute on function public.redeem_family_invite(text, text) to authenticated;
+revoke all on function public.redeem_family_invite(text, text, text) from public, anon;
+grant execute on function public.redeem_family_invite(text, text, text) to authenticated;
 
 -- ─── row-level security ──────────────────────────────────────────────────────
 
@@ -186,6 +286,10 @@ alter table public.family_members  enable row level security;
 alter table public.family_invites  enable row level security;
 alter table public.photo_tags      enable row level security;
 alter table public.memories        enable row level security;
+alter table public.daily_prompt_responses enable row level security;
+alter table public.firsts                 enable row level security;
+alter table public.letters                enable row level security;
+alter table public.weekly_digests         enable row level security;
 
 -- families
 create policy families_select on public.families for select
@@ -224,3 +328,42 @@ create policy memories_update_own on public.memories for update
   with check (author_user_id = auth.uid());
 create policy memories_delete_own on public.memories for delete
   using (public.is_family_member(family_id) and author_user_id = auth.uid());
+
+-- rituals
+create policy daily_prompt_responses_select on public.daily_prompt_responses for select
+  using (public.is_family_member(family_id));
+create policy daily_prompt_responses_insert on public.daily_prompt_responses for insert
+  with check (public.is_family_member(family_id) and author_user_id = auth.uid());
+create policy daily_prompt_responses_update_own on public.daily_prompt_responses for update
+  using (public.is_family_member(family_id) and author_user_id = auth.uid())
+  with check (author_user_id = auth.uid());
+create policy daily_prompt_responses_delete_own on public.daily_prompt_responses for delete
+  using (public.is_family_member(family_id) and author_user_id = auth.uid());
+
+create policy firsts_select on public.firsts for select
+  using (public.is_family_member(family_id));
+create policy firsts_insert on public.firsts for insert
+  with check (public.is_family_member(family_id) and created_by_user_id = auth.uid());
+create policy firsts_update_own on public.firsts for update
+  using (public.is_family_member(family_id) and created_by_user_id = auth.uid())
+  with check (created_by_user_id = auth.uid());
+create policy firsts_delete_own on public.firsts for delete
+  using (public.is_family_member(family_id) and created_by_user_id = auth.uid());
+
+create policy letters_select on public.letters for select
+  using (public.is_family_member(family_id));
+create policy letters_insert on public.letters for insert
+  with check (public.is_family_member(family_id) and author_user_id = auth.uid());
+create policy letters_update_own on public.letters for update
+  using (public.is_family_member(family_id) and author_user_id = auth.uid())
+  with check (author_user_id = auth.uid());
+create policy letters_delete_own on public.letters for delete
+  using (public.is_family_member(family_id) and author_user_id = auth.uid());
+
+create policy weekly_digests_select on public.weekly_digests for select
+  using (public.is_family_member(family_id));
+create policy weekly_digests_insert on public.weekly_digests for insert
+  with check (public.is_family_member(family_id));
+create policy weekly_digests_update on public.weekly_digests for update
+  using (public.is_family_member(family_id))
+  with check (public.is_family_member(family_id));

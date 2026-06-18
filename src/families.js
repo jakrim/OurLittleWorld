@@ -7,13 +7,13 @@ import { supabase } from './supabase';
  *
  * Tables (see latest migration; mirrored in src/schema.sql):
  *   families         (id, name, baby_name, baby_birthday, created_by)
- *   family_members   (family_id, user_id, display_name, role)
+ *   family_members   (family_id, user_id, display_name, relationship_label, role)
  *   family_invites   (id, family_id, code, expires_at, used_by)
  *   photo_tags       (family_id, asset_owner_user_id, asset_id, tagged_by)
  *   memories         (id, family_id, asset_owner_user_id, asset_id, author_user_id, note)
  *
  * RPCs:
- *   redeem_family_invite(code text, member_display_name text) -> family_id
+ *   redeem_family_invite(code text, member_display_name text, member_relationship_label text) -> family_id
  *   generate_invite_code() -> text
  */
 
@@ -21,6 +21,29 @@ async function currentUserId() {
   const { data, error } = await supabase.auth.getUser();
   if (error || !data?.user) return null;
   return data.user.id;
+}
+
+function hasMissingRelationshipColumn(error) {
+  return String(error?.message || '').toLowerCase().includes('relationship_label');
+}
+
+export const RELATIONSHIP_PRESETS = [
+  { value: 'husband', label: 'Husband' },
+  { value: 'wife', label: 'Wife' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'mom', label: 'Mom' },
+  { value: 'dad', label: 'Dad' },
+  { value: 'custom', label: 'Custom' },
+];
+
+export function normalizeRelationshipLabel(value) {
+  return String(value || '').trim() || null;
+}
+
+export function relationshipTitle(value) {
+  const normalized = normalizeRelationshipLabel(value);
+  if (!normalized) return 'Partner';
+  return RELATIONSHIP_PRESETS.find((item) => item.value === normalized)?.label || normalized;
 }
 
 export const Family = {
@@ -33,13 +56,25 @@ export const Family = {
     const userId = await currentUserId();
     if (!userId) return null;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('family_members')
-      .select('display_name, role, joined_at, family:family_id (id, name, baby_name, baby_birthday, created_by, created_at)')
+      .select('display_name, relationship_label, role, joined_at, family:family_id (id, name, baby_name, baby_birthday, created_by, created_at)')
       .eq('user_id', userId)
       .order('joined_at', { ascending: true })
       .limit(1)
       .maybeSingle();
+
+    if (error && hasMissingRelationshipColumn(error)) {
+      const fallback = await supabase
+        .from('family_members')
+        .select('display_name, role, joined_at, family:family_id (id, name, baby_name, baby_birthday, created_by, created_at)')
+        .eq('user_id', userId)
+        .order('joined_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       console.warn('Family.current', error.message);
@@ -57,13 +92,14 @@ export const Family = {
       me: {
         userId,
         displayName: data.display_name,
+        relationshipLabel: data.relationship_label,
         role: data.role,
         joinedAt: data.joined_at,
       },
     };
   },
 
-  async create({ name, babyName, babyBirthday, displayName }) {
+  async create({ name, babyName, babyBirthday, displayName, relationshipLabel }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
 
@@ -79,12 +115,20 @@ export const Family = {
       .single();
     if (famErr) throw famErr;
 
-    const { error: memErr } = await supabase.from('family_members').insert({
+    const memberPayload = {
       family_id: family.id,
       user_id: userId,
       display_name: displayName?.trim() || null,
+      relationship_label: normalizeRelationshipLabel(relationshipLabel),
       role: 'creator',
-    });
+    };
+    let { error: memErr } = await supabase.from('family_members').insert(memberPayload);
+    if (memErr && hasMissingRelationshipColumn(memErr)) {
+      const fallbackPayload = { ...memberPayload };
+      delete fallbackPayload.relationship_label;
+      const fallback = await supabase.from('family_members').insert(fallbackPayload);
+      memErr = fallback.error;
+    }
     if (memErr) throw memErr;
 
     return family.id;
@@ -109,17 +153,45 @@ export const Family = {
     if (error) throw error;
   },
 
+  async updateMyMembership(familyId, patch) {
+    const userId = await currentUserId();
+    if (!userId) throw new Error('Not signed in');
+    if (!familyId) throw new Error('No family');
+    const payload = {};
+    if (patch.displayName !== undefined) payload.display_name = patch.displayName?.trim() || null;
+    if (patch.relationshipLabel !== undefined) payload.relationship_label = normalizeRelationshipLabel(patch.relationshipLabel);
+    if (Object.keys(payload).length === 0) return;
+
+    const { error } = await supabase
+      .from('family_members')
+      .update(payload)
+      .eq('family_id', familyId)
+      .eq('user_id', userId);
+    if (error && hasMissingRelationshipColumn(error)) return;
+    if (error) throw error;
+  },
+
   /** All members in the given family, including display names + roles. */
   async members(familyId) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('family_members')
-      .select('user_id, display_name, role, joined_at')
+      .select('user_id, display_name, relationship_label, role, joined_at')
       .eq('family_id', familyId)
       .order('joined_at', { ascending: true });
+    if (error && hasMissingRelationshipColumn(error)) {
+      const fallback = await supabase
+        .from('family_members')
+        .select('user_id, display_name, role, joined_at')
+        .eq('family_id', familyId)
+        .order('joined_at', { ascending: true });
+      data = fallback.data;
+      error = fallback.error;
+    }
     if (error) throw error;
     return (data || []).map((row) => ({
       userId: row.user_id,
       displayName: row.display_name,
+      relationshipLabel: row.relationship_label,
       role: row.role,
       joinedAt: row.joined_at,
     }));
@@ -161,13 +233,22 @@ export const Invites = {
    * Redeems an invite code via the security-definer RPC, atomically joining
    * the family and marking the invite as used. Returns the family_id.
    */
-  async redeem(code, displayName) {
+  async redeem(code, displayName, relationshipLabel) {
     const trimmed = code?.trim().toUpperCase();
     if (!trimmed) throw new Error('Enter the invite code');
-    const { data, error } = await supabase.rpc('redeem_family_invite', {
+    let { data, error } = await supabase.rpc('redeem_family_invite', {
       invite_code: trimmed,
       member_display_name: displayName?.trim() || null,
+      member_relationship_label: normalizeRelationshipLabel(relationshipLabel),
     });
+    if (error && String(error?.message || '').includes('member_relationship_label')) {
+      const fallback = await supabase.rpc('redeem_family_invite', {
+        invite_code: trimmed,
+        member_display_name: displayName?.trim() || null,
+      });
+      data = fallback.data;
+      error = fallback.error;
+    }
     if (error) throw error;
     return data; // family_id
   },
