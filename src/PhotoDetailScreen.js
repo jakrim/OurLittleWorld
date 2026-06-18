@@ -6,7 +6,7 @@ import { getAssetDetails } from './photos';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
 
-import { Screen, Card, Button, Field, Brand, Hero, Title, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, space, radius, shadow } from './ui';
+import { Screen, Card, Button, Field, GlassButton, PhotoPlaceholder, Title, Body, Caption, Eyebrow, V, H, Spacer, space, radius, useTheme } from './ui';
 import { Memories, Tags } from './storage';
 import { Family } from './families';
 import { useFamily } from './FamilyContext';
@@ -21,8 +21,10 @@ import { shareMemoryMoment } from './shareMoment';
  */
 export default function PhotoDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const params = useLocalSearchParams();
   const assetId = Array.isArray(params.assetId) ? params.assetId[0] : params.assetId;
+  const ownerUserIdParam = Array.isArray(params.ownerUserId) ? params.ownerUserId[0] : params.ownerUserId;
   const previewUri = Array.isArray(params.uri) ? params.uri[0] : params.uri;
   const previewCreationRaw = Array.isArray(params.creationTime)
     ? params.creationTime[0]
@@ -30,6 +32,7 @@ export default function PhotoDetailScreen() {
   const previewCreationTime = previewCreationRaw != null ? Number(previewCreationRaw) : null;
   const { family } = useFamily();
   const { user } = useAuth();
+  const ownerUserId = ownerUserIdParam || user?.id;
 
   const [asset, setAsset] = useState(null);
   const [note, setNote] = useState('');
@@ -46,7 +49,7 @@ export default function PhotoDetailScreen() {
       const [info, allTags, mems, memberList] = await Promise.all([
         getAssetDetails(assetId, { downloadFromNetwork: true }).catch(() => null),
         Tags.all(family.id),
-        Memories.forAsset({ familyId: family.id, assetId, ownerUserId: user.id }),
+        Memories.forAsset({ familyId: family.id, assetId, ownerUserId }),
         Family.members(family.id),
       ]);
       setAsset(info);
@@ -55,9 +58,9 @@ export default function PhotoDetailScreen() {
       const myMem = mems.find((m) => m.author_user_id === user.id);
       setSavedNote(myMem?.note || '');
       setNote(myMem?.note || '');
-      setIsBaby(!!allTags[Tags.key(assetId, user.id)]);
+      setIsBaby(!!allTags[Tags.key(assetId, ownerUserId)]);
     })();
-  }, [assetId, family?.id, user?.id]);
+  }, [assetId, family?.id, ownerUserId, user?.id]);
 
   const takenAtMs = useMemo(() => {
     if (asset?.creationTime) return asset.creationTime;
@@ -107,9 +110,9 @@ export default function PhotoDetailScreen() {
 
   const onSaveNote = async () => {
     if (!family || !user) return;
-    await Memories.setMine({ familyId: family.id, assetId, ownerUserId: user.id, note });
+    await Memories.setMine({ familyId: family.id, assetId, ownerUserId, note });
     setSavedNote(note.trim());
-    const fresh = await Memories.forAsset({ familyId: family.id, assetId, ownerUserId: user.id });
+    const fresh = await Memories.forAsset({ familyId: family.id, assetId, ownerUserId });
     setMemories(fresh);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -149,16 +152,11 @@ export default function PhotoDetailScreen() {
 
   const dirty = note !== savedNote;
   const partnerMemories = memories.filter((m) => m.author_user_id !== user?.id);
+  const isOwnAsset = ownerUserId === user?.id;
 
   return (
     <Screen scroll keyboard>
       <V gap="lg" style={{ paddingTop: space.md, paddingBottom: space.xxl }}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <View style={styles.backChip}>
-            <Ionicons name="chevron-back" size={20} color={colors.plum} />
-          </View>
-        </Pressable>
-
         <View style={styles.imageWrap}>
           {displayUri ? (
             <Image
@@ -167,7 +165,21 @@ export default function PhotoDetailScreen() {
               contentFit="contain"
               transition={150}
             />
-          ) : null}
+          ) : (
+            <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+          )}
+          <View style={styles.photoChrome}>
+            <GlassButton
+              icon="chevron-back"
+              accessibilityLabel="Go back"
+              onPress={() => router.back()}
+            />
+            <GlassButton
+              icon="share-social-outline"
+              accessibilityLabel="Share moment"
+              onPress={onShareMoment}
+            />
+          </View>
         </View>
 
         <Card>
@@ -175,41 +187,57 @@ export default function PhotoDetailScreen() {
             <View style={{ flex: 1 }}>
               <Caption>{dateLabel}</Caption>
               <Spacer h={4} />
-              {age ? <Title style={{ color: colors.coral, fontSize: 22 }}>{formatAge(age)}</Title> : null}
+              {age ? <Title style={{ color: theme.semantic.primary, fontSize: 22 }}>{formatAge(age)}</Title> : null}
             </View>
             <View style={styles.actionsCol}>
               <Pressable
                 onPress={onShareMoment}
                 disabled={sharing}
-                style={[styles.share, sharing && { opacity: 0.55 }]}
+                style={[
+                  styles.share,
+                  {
+                    borderColor: theme.semantic.border,
+                    backgroundColor: theme.semantic.cardAlt,
+                  },
+                  sharing && { opacity: 0.55 },
+                ]}
               >
-                <Ionicons name="share-social-outline" size={16} color={colors.plum} />
+                <Ionicons name="share-social-outline" size={16} color={theme.semantic.textSoft} />
                 <Caption style={styles.shareLabel}>{sharing ? 'Sharing…' : 'Share moment'}</Caption>
               </Pressable>
-              <Spacer h={space.sm} />
-              <Pressable
-                onPress={onToggleBaby}
-                disabled={tagging}
-                style={[styles.tag, isBaby && styles.tagActive, tagging && { opacity: 0.55 }]}
-              >
-                <Ionicons name={isBaby ? 'heart' : 'heart-outline'} size={16} color={isBaby ? '#FFFFFF' : colors.coral} />
-                <Caption style={{
-                  color: isBaby ? '#FFFFFF' : colors.coral,
-                  fontWeight: '700',
-                  marginLeft: 6,
-                  textTransform: 'none',
-                  letterSpacing: 0,
-                  fontSize: 14,
-                }}>
-                  {tagging ? (isBaby ? 'Syncing…' : 'Removing…') : isBaby ? 'Tagged' : 'Tag as baby'}
-                </Caption>
-              </Pressable>
+              {isOwnAsset ? (
+                <>
+                  <Spacer h={space.sm} />
+                  <Pressable
+                    onPress={onToggleBaby}
+                    disabled={tagging}
+                    style={[
+                      styles.tag,
+                      { borderColor: theme.semantic.primary },
+                      isBaby && { backgroundColor: theme.semantic.primary, borderColor: theme.semantic.primary },
+                      tagging && { opacity: 0.55 },
+                    ]}
+                  >
+                    <Ionicons name={isBaby ? 'heart' : 'heart-outline'} size={16} color={isBaby ? theme.colors.onPrimary : theme.semantic.primary} />
+                    <Caption style={{
+                      color: isBaby ? theme.colors.onPrimary : theme.semantic.primary,
+                      fontWeight: '700',
+                      marginLeft: 6,
+                      textTransform: 'none',
+                      letterSpacing: 0,
+                      fontSize: 14,
+                    }}>
+                      {tagging ? (isBaby ? 'Syncing…' : 'Removing…') : isBaby ? 'Tagged' : 'Tag as baby'}
+                    </Caption>
+                  </Pressable>
+                </>
+              ) : null}
             </View>
           </H>
         </Card>
 
         <Card variant="muted">
-          <Eyebrow>Reuben context</Eyebrow>
+          <Eyebrow>{family?.babyName || 'little one'} context</Eyebrow>
           <Spacer h={space.sm} />
           <Caption>{dateLabel || 'Date unavailable'}</Caption>
           {placeLabel ? (
@@ -232,11 +260,11 @@ export default function PhotoDetailScreen() {
             <Spacer h={space.md} />
             {partnerMemories.map((m, i) => (
               <View key={m.id}>
-                <Caption style={{ color: colors.coral, fontWeight: '700' }}>
+                <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>
                   {(members[m.author_user_id] || 'Family').toUpperCase()}
                 </Caption>
                 <Spacer h={4} />
-                <Body style={{ color: colors.ink }}>{m.note}</Body>
+                <Body style={{ color: theme.semantic.text }}>{m.note}</Body>
                 {i < partnerMemories.length - 1 ? <Spacer h={space.md} /> : null}
               </View>
             ))}
@@ -246,6 +274,14 @@ export default function PhotoDetailScreen() {
         <Card>
           <Eyebrow>Your memory</Eyebrow>
           <Spacer h={space.md} />
+          {savedNote ? (
+            <>
+              <Body style={[styles.handwrittenNote, { color: theme.semantic.primary }]}>
+                {savedNote}
+              </Body>
+              <Spacer h={space.md} />
+            </>
+          ) : null}
           <Field
             as="textarea"
             value={note}
@@ -267,31 +303,24 @@ export default function PhotoDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  back: {
-    alignSelf: 'flex-start',
-  },
-  backChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: semantic.card,
-    borderWidth: 1,
-    borderColor: semantic.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.whisper,
-  },
   imageWrap: {
     width: '100%',
     aspectRatio: 1,
     backgroundColor: '#000',
     borderRadius: radius.xl,
     overflow: 'hidden',
-    ...shadow.soft,
   },
   image: {
     width: '100%',
     height: '100%',
+  },
+  photoChrome: {
+    position: 'absolute',
+    top: space.md,
+    left: space.md,
+    right: space.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   tag: {
     flexDirection: 'row',
@@ -300,12 +329,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     borderRadius: radius.pill,
     borderWidth: 1.5,
-    borderColor: colors.coral,
     backgroundColor: 'transparent',
-  },
-  tagActive: {
-    backgroundColor: colors.coral,
-    borderColor: colors.coral,
   },
   actionsCol: {
     alignItems: 'flex-end',
@@ -317,15 +341,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: semantic.borderStrong,
-    backgroundColor: semantic.cardAlt,
   },
   shareLabel: {
-    color: colors.plum,
     marginLeft: 6,
     fontWeight: '600',
     textTransform: 'none',
     letterSpacing: 0,
     fontSize: 13,
+  },
+  handwrittenNote: {
+    fontFamily: 'Caveat',
+    fontSize: 24,
+    lineHeight: 30,
   },
 });

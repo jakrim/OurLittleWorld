@@ -5,7 +5,6 @@ import {
   Pressable,
   StyleSheet,
   Platform,
-  Modal,
 } from 'react-native';
 import DateTimePicker from '@expo/ui/community/datetime-picker';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -75,7 +74,7 @@ export function isValidBirthIso(iso) {
  */
 export default function BirthDatePicker({ value, onChange, error, caption }) {
   const theme = useTheme();
-  const [showIOSModal, setShowIOSModal] = useState(false);
+  const [showIOSPicker, setShowIOSPicker] = useState(false);
   const [showAndroid, setShowAndroid] = useState(false);
   const [iosDraft, setIosDraft] = useState(() => localDateFromIso(value) || defaultSuggestionDate());
 
@@ -96,21 +95,15 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
     const base = localDateFromIso(value) || defaultSuggestionDate();
     setIosDraft(clampToBirthBounds(base));
     if (Platform.OS === 'android') setShowAndroid(true);
-    else if (Platform.OS === 'ios') setShowIOSModal(true);
+    else if (Platform.OS === 'ios') setShowIOSPicker((current) => !current);
   }, [value]);
 
   const onIOSPickerChange = useCallback((_, selected) => {
-    if (selected) setIosDraft(clampToBirthBounds(selected));
-  }, []);
-
-  const commitIOS = useCallback(() => {
-    onChange(isoDateFromLocalDate(iosDraft));
-    setShowIOSModal(false);
-  }, [iosDraft, onChange]);
-
-  const cancelIOS = useCallback(() => {
-    setShowIOSModal(false);
-  }, []);
+    if (!selected) return;
+    const next = clampToBirthBounds(selected);
+    setIosDraft(next);
+    onChange(isoDateFromLocalDate(next));
+  }, [onChange]);
 
   const onAndroidChange = useCallback(
     (event, selected) => {
@@ -192,33 +185,19 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
         />
       ) : null}
 
-      {Platform.OS === 'ios' ? (
-        <Modal visible={showIOSModal} transparent animationType="slide" onRequestClose={cancelIOS}>
-          <View style={styles.modalRoot}>
-            <Pressable style={styles.modalBackdrop} onPress={cancelIOS} accessibilityLabel="Dismiss" />
-            <View style={[styles.modalSheet, { backgroundColor: theme.semantic.card }]}>
-              <View style={styles.modalHeader}>
-                <Pressable onPress={cancelIOS} hitSlop={12} accessibilityRole="button">
-                  <Text style={[styles.modalBtn, { color: theme.semantic.primary }]}>Cancel</Text>
-                </Pressable>
-                <Text style={[styles.modalTitle, { color: theme.semantic.textMuted }]}>Birth date</Text>
-                <Pressable onPress={commitIOS} hitSlop={12} accessibilityRole="button">
-                  <Text style={[styles.modalBtn, styles.modalBtnStrong, { color: theme.semantic.primary }]}>Done</Text>
-                </Pressable>
-              </View>
-              <DateTimePicker
-                value={iosDraft}
-                mode="date"
-                display="spinner"
-                themeVariant={theme.isDark ? 'dark' : 'light'}
-                minimumDate={MIN_BIRTH}
-                maximumDate={maxDate}
-                onChange={onIOSPickerChange}
-                style={styles.iosPicker}
-              />
-            </View>
-          </View>
-        </Modal>
+      {Platform.OS === 'ios' && showIOSPicker ? (
+        <View style={[styles.inlinePickerWrap, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+          <DateTimePicker
+            value={iosDraft}
+            mode="date"
+            display="spinner"
+            themeVariant={theme.isDark ? 'dark' : 'light'}
+            minimumDate={MIN_BIRTH}
+            maximumDate={maxDate}
+            onChange={onIOSPickerChange}
+            style={styles.iosPicker}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -241,7 +220,6 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   rowPressed: {
-    backgroundColor: '#FFFDFB',
     borderColor: semantic.primary,
   },
   rowMuted: {
@@ -274,42 +252,11 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
     paddingHorizontal: space.xs,
   },
-  modalRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.scrim,
-  },
-  modalSheet: {
-    backgroundColor: semantic.card,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingBottom: 28,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.lg,
-    paddingTop: space.md,
-    paddingBottom: space.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: semantic.border,
-  },
-  modalTitle: {
-    ...t.subtitle,
-    fontSize: 16,
-    color: semantic.textMuted,
-  },
-  modalBtn: {
-    fontSize: 17,
-    color: semantic.primary,
-    paddingVertical: space.sm,
-  },
-  modalBtnStrong: {
-    fontWeight: '700',
+  inlinePickerWrap: {
+    marginTop: space.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   iosPicker: {
     height: 216,

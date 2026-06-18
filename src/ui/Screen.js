@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView, Keyboard, Platform, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { semantic, space, useTheme } from './theme';
@@ -47,10 +47,10 @@ export default function Screen({
   const scrollBottomPad =
     insetBottom + keyboardHeight + (keyboardHeight > 0 ? space.lg : 0);
 
-  const insetStyle = {
-    paddingTop: edges.top ? insets.top : 0,
-    paddingBottom: scroll && keyboard ? scrollBottomPad : insetBottom,
-  };
+  const safeEdges = getSafeEdges(edges, scroll && keyboard);
+  const keyboardInsetStyle = scroll && keyboard
+    ? { paddingBottom: scrollBottomPad }
+    : null;
 
   const contentPadding = bare
     ? null
@@ -68,7 +68,7 @@ export default function Screen({
     const Inner = (
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, insetStyle]}
+        contentContainerStyle={[styles.scrollContent, keyboardInsetStyle]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         showsVerticalScrollIndicator={false}
@@ -80,7 +80,9 @@ export default function Screen({
     return (
       <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
         {Background}
-        {Inner}
+        <SafeAreaView style={styles.safe} edges={safeEdges}>
+          {Inner}
+        </SafeAreaView>
       </View>
     );
   }
@@ -88,9 +90,21 @@ export default function Screen({
   return (
     <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
       {Background}
-      <View style={[{ flex: 1 }, insetStyle]}>{ChildrenWrap}</View>
+      <SafeAreaView style={styles.safe} edges={safeEdges}>
+        {ChildrenWrap}
+      </SafeAreaView>
     </View>
   );
+}
+
+function getSafeEdges(edges, keyboardControlsBottom) {
+  if (Array.isArray(edges)) return keyboardControlsBottom ? edges.filter((edge) => edge !== 'bottom') : edges;
+  const out = [];
+  if (edges.top) out.push('top');
+  if (edges.bottom && !keyboardControlsBottom) out.push('bottom');
+  if (edges.left) out.push('left');
+  if (edges.right) out.push('right');
+  return out;
 }
 
 function BackgroundLayer({ variant, theme }) {
@@ -132,6 +146,9 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: semantic.bg,
+  },
+  safe: {
+    flex: 1,
   },
   scroll: {
     flex: 1,

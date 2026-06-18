@@ -3,8 +3,8 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Card, Button, Field, Brand, Hero, Title, Body, Caption, V, H, Spacer, semantic, colors, space } from './ui';
-import { Family, Invites } from './families';
+import { Screen, Card, Button, Field, Brand, Hero, Title, Body, Caption, V, H, Spacer, SegmentedControl, semantic, colors, space } from './ui';
+import { Family, Invites, RELATIONSHIP_PRESETS } from './families';
 import { useFamily } from './FamilyContext';
 
 /**
@@ -17,6 +17,8 @@ export default function FamilyOnboardingScreen({ route }) {
   const { refresh } = useFamily();
   const [mode, setMode] = useState('chooser');
   const [name, setName] = useState('');
+  const [relationshipPreset, setRelationshipPreset] = useState('partner');
+  const [customRelationshipLabel, setCustomRelationshipLabel] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -43,7 +45,11 @@ export default function FamilyOnboardingScreen({ route }) {
     setError(null);
     setBusy(true);
     try {
-      await Family.create({ name: 'Our Little World', displayName: name?.trim() || null });
+      await Family.create({
+        name: 'Our Little World',
+        displayName: name?.trim() || null,
+        relationshipLabel: relationshipValue(relationshipPreset, customRelationshipLabel),
+      });
       await refresh();
     } catch (err) {
       setError(err.message || 'Could not create family');
@@ -58,7 +64,7 @@ export default function FamilyOnboardingScreen({ route }) {
     if (trimmed.length < 6) return setError('That code looks too short.');
     setBusy(true);
     try {
-      await Invites.redeem(trimmed, name?.trim() || null);
+      await Invites.redeem(trimmed, name?.trim() || null, relationshipValue(relationshipPreset, customRelationshipLabel));
       await refresh();
     } catch (err) {
       setError(err.message || 'Could not redeem code');
@@ -80,6 +86,10 @@ export default function FamilyOnboardingScreen({ route }) {
           <CreateFlow
             name={name}
             setName={setName}
+            relationshipPreset={relationshipPreset}
+            setRelationshipPreset={setRelationshipPreset}
+            customRelationshipLabel={customRelationshipLabel}
+            setCustomRelationshipLabel={setCustomRelationshipLabel}
             error={error}
             busy={busy}
             onSubmit={onCreate}
@@ -93,6 +103,10 @@ export default function FamilyOnboardingScreen({ route }) {
             setCode={setCode}
             name={name}
             setName={setName}
+            relationshipPreset={relationshipPreset}
+            setRelationshipPreset={setRelationshipPreset}
+            customRelationshipLabel={customRelationshipLabel}
+            setCustomRelationshipLabel={setCustomRelationshipLabel}
             error={error}
             busy={busy}
             onSubmit={onJoin}
@@ -139,7 +153,19 @@ function Chooser({ onCreate, onJoin }) {
   );
 }
 
-function CreateFlow({ name, setName, error, busy, onSubmit, onBack }) {
+function CreateFlow({
+  name,
+  setName,
+  relationshipPreset,
+  setRelationshipPreset,
+  customRelationshipLabel,
+  setCustomRelationshipLabel,
+  error,
+  busy,
+  onSubmit,
+  onBack,
+}) {
+  const relationshipReady = relationshipPreset !== 'custom' || customRelationshipLabel.trim();
   return (
     <>
       <BackInline onPress={onBack} />
@@ -164,16 +190,39 @@ function CreateFlow({ name, setName, error, busy, onSubmit, onBack }) {
         autoFocus
       />
 
+      <Spacer h={space.md} />
+
+      <RelationshipPicker
+        preset={relationshipPreset}
+        onChangePreset={setRelationshipPreset}
+        customValue={customRelationshipLabel}
+        onChangeCustomValue={setCustomRelationshipLabel}
+      />
+
       <Spacer h={space.lg} />
 
-      <Button onPress={onSubmit} loading={busy} disabled={!name.trim()}>
+      <Button onPress={onSubmit} loading={busy} disabled={!name.trim() || !relationshipReady}>
         Create family
       </Button>
     </>
   );
 }
 
-function JoinFlow({ code, setCode, name, setName, error, busy, onSubmit, onBack }) {
+function JoinFlow({
+  code,
+  setCode,
+  name,
+  setName,
+  relationshipPreset,
+  setRelationshipPreset,
+  customRelationshipLabel,
+  setCustomRelationshipLabel,
+  error,
+  busy,
+  onSubmit,
+  onBack,
+}) {
+  const relationshipReady = relationshipPreset !== 'custom' || customRelationshipLabel.trim();
   return (
     <>
       <BackInline onPress={onBack} />
@@ -214,13 +263,52 @@ function JoinFlow({ code, setCode, name, setName, error, busy, onSubmit, onBack 
         error={error}
       />
 
+      <Spacer h={space.md} />
+
+      <RelationshipPicker
+        preset={relationshipPreset}
+        onChangePreset={setRelationshipPreset}
+        customValue={customRelationshipLabel}
+        onChangeCustomValue={setCustomRelationshipLabel}
+      />
+
       <Spacer h={space.lg} />
 
-      <Button onPress={onSubmit} loading={busy} disabled={code.length < 6}>
+      <Button onPress={onSubmit} loading={busy} disabled={code.length < 6 || !relationshipReady}>
         Join family
       </Button>
     </>
   );
+}
+
+function RelationshipPicker({ preset, onChangePreset, customValue, onChangeCustomValue }) {
+  return (
+    <View>
+      <Caption>Your role in the relationship</Caption>
+      <Spacer h={space.sm} />
+      <SegmentedControl
+        value={preset}
+        onChange={onChangePreset}
+        options={RELATIONSHIP_PRESETS}
+      />
+      {preset === 'custom' ? (
+        <>
+          <Spacer h={space.md} />
+          <Field
+            value={customValue}
+            onChangeText={onChangeCustomValue}
+            placeholder="What should your partner see?"
+            autoCapitalize="words"
+            returnKeyType="done"
+          />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function relationshipValue(preset, customValue) {
+  return preset === 'custom' ? customValue : preset;
 }
 
 function BackInline({ onPress }) {

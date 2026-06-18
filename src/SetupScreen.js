@@ -10,6 +10,7 @@ import {
   Card,
   Button,
   Field,
+  SegmentedControl,
   Brand,
   Hero,
   Title,
@@ -25,7 +26,7 @@ import {
   shadow,
 } from './ui';
 import BirthDatePicker, { isValidBirthIso } from './ui/BirthDatePicker';
-import { Family } from './families';
+import { Family, RELATIONSHIP_PRESETS } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { supabase } from './supabase';
@@ -45,13 +46,18 @@ export default function SetupScreen() {
 
   const [name, setName] = useState(family?.babyName || '');
   const [birthday, setBirthday] = useState(family?.babyBirthday || '');
+  const [relationshipPreset, setRelationshipPreset] = useState('partner');
+  const [customRelationshipLabel, setCustomRelationshipLabel] = useState('');
   const [permission, setPermission] = useState({ granted: false, accessPrivileges: null, canAskAgain: true });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setName(family?.babyName || '');
     setBirthday(family?.babyBirthday || '');
-  }, [family?.babyName, family?.babyBirthday]);
+    const relationship = presetForRelationship(family?.me?.relationshipLabel);
+    setRelationshipPreset(relationship.preset);
+    setCustomRelationshipLabel(relationship.custom);
+  }, [family?.babyName, family?.babyBirthday, family?.me?.relationshipLabel]);
 
   const refreshPermission = useCallback(async () => {
     const { granted, accessPrivileges, canAskAgain } = await getLibraryPermissionStatus();
@@ -93,10 +99,11 @@ export default function SetupScreen() {
   };
 
   const validBirthday = isValidBirthIso(birthday);
+  const relationshipReady = relationshipPreset !== 'custom' || customRelationshipLabel.trim();
   const profileReady = name.trim().length > 0 && validBirthday && !!family;
   const canContinue = isFirstSetup
     ? profileReady && permission.granted
-    : profileReady;
+    : profileReady && relationshipReady;
 
   const onContinue = async () => {
     if (!family) return;
@@ -107,6 +114,9 @@ export default function SetupScreen() {
     setSaving(true);
     try {
       await Family.update(family.id, { babyName: name.trim(), babyBirthday: birthday.trim() });
+      await Family.updateMyMembership(family.id, {
+        relationshipLabel: relationshipValue(relationshipPreset, customRelationshipLabel),
+      });
       await refresh();
       if (isFirstSetup) {
         router.replace('/reference');
@@ -208,6 +218,19 @@ export default function SetupScreen() {
               theme={theme}
               onRequestPermission={onRequestPermission}
             />
+            <RelationshipCard
+              eyebrow="Relationship"
+              title="Your role"
+              preset={relationshipPreset}
+              onChangePreset={setRelationshipPreset}
+              customValue={customRelationshipLabel}
+              onChangeCustomValue={setCustomRelationshipLabel}
+            />
+            <RitualSettingsCard
+              onInvite={() => router.push('/invite')}
+              onLetters={() => router.push('/letters')}
+              onLibrary={() => router.push('/library')}
+            />
           </>
         )}
 
@@ -229,6 +252,113 @@ export default function SetupScreen() {
       </V>
     </Screen>
   );
+}
+
+function RelationshipCard({ eyebrow, title, preset, onChangePreset, customValue, onChangeCustomValue }) {
+  return (
+    <Card>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <Spacer h={space.sm} />
+      <Title>{title}</Title>
+      <Spacer h={space.sm} />
+      <Caption>Used to sign notes between spouses without assuming husband/wife.</Caption>
+      <Spacer h={space.lg} />
+      <SegmentedControl
+        value={preset}
+        onChange={onChangePreset}
+        options={RELATIONSHIP_PRESETS}
+      />
+      {preset === 'custom' ? (
+        <>
+          <Spacer h={space.md} />
+          <Field
+            value={customValue}
+            onChangeText={onChangeCustomValue}
+            placeholder="What should your partner see?"
+            autoCapitalize="words"
+            returnKeyType="done"
+          />
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
+function RitualSettingsCard({ onInvite, onLetters, onLibrary }) {
+  const theme = useTheme();
+  return (
+    <Card variant="muted">
+      <Eyebrow>Rituals</Eyebrow>
+      <Spacer h={space.sm} />
+      <Title>What this home remembers.</Title>
+      <Spacer h={space.md} />
+      <SettingsRow
+        icon="chatbubble-ellipses-outline"
+        title="Daily memory prompt"
+        detail="One question a day, answered when the house is quiet."
+        theme={theme}
+      />
+      <SettingsRow
+        icon="calendar-outline"
+        title="Weekly digest"
+        detail="Sunday summaries from photos, notes, firsts, and letters."
+        theme={theme}
+      />
+      <SettingsRow
+        icon="mail-outline"
+        title="Time capsules"
+        detail="Letters sealed for later."
+        theme={theme}
+        onPress={onLetters}
+      />
+      <SettingsRow
+        icon="book-outline"
+        title="Family archive"
+        detail="Photos, places, and saved milestones live in Library."
+        theme={theme}
+        onPress={onLibrary}
+      />
+      <SettingsRow
+        icon="person-add-outline"
+        title="Invite family"
+        detail="Bring a co-parent into this private world."
+        theme={theme}
+        onPress={onInvite}
+      />
+    </Card>
+  );
+}
+
+function SettingsRow({ icon, title, detail, theme, onPress }) {
+  const content = (
+    <>
+      <View style={[styles.settingsRowIcon, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+        <Ionicons name={icon} size={17} color={theme.semantic.primary} />
+      </View>
+      <View style={styles.settingsRowText}>
+        <Body style={styles.settingsRowTitle}>{title}</Body>
+        <Caption>{detail}</Caption>
+      </View>
+      {onPress ? <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} /> : null}
+    </>
+  );
+  if (!onPress) return <View style={styles.settingsRow}>{content}</View>;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.settingsRow, pressed && { opacity: 0.7 }]}>
+      {content}
+    </Pressable>
+  );
+}
+
+function presetForRelationship(value) {
+  if (!value) return { preset: 'partner', custom: '' };
+  const normalized = String(value).trim().toLowerCase();
+  const preset = RELATIONSHIP_PRESETS.find((item) => item.value === normalized && item.value !== 'custom');
+  return preset ? { preset: preset.value, custom: '' } : { preset: 'custom', custom: String(value).trim() };
+}
+
+function relationshipValue(preset, customValue) {
+  return preset === 'custom' ? customValue : preset;
 }
 
 /**
@@ -395,5 +525,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     borderRadius: radius.lg,
     borderWidth: 1,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(80,60,44,0.12)',
+  },
+  settingsRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+  },
+  settingsRowText: {
+    flex: 1,
+  },
+  settingsRowTitle: {
+    color: undefined,
+    fontSize: 14,
+    lineHeight: 19,
   },
 });

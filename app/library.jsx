@@ -1,15 +1,15 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
-import TodayScreen from '../src/TodayScreen';
+import LibraryScreen from '../src/LibraryScreen';
 import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
-export default function TimelineRoute() {
+export default function LibraryRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'none' }} />
       <ProtectedRoute>
-        <TodayScreen />
+        <LibraryScreen />
       </ProtectedRoute>
     </>
   );

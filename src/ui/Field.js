@@ -26,6 +26,7 @@ export default function Field({
   size = 'md',
   rightAdornment,
   inputProps,
+  inputRef,
   containerStyle,
   ...rest
 }) {
@@ -81,6 +82,7 @@ export default function Field({
         ]}
       >
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -131,7 +133,7 @@ const styles = StyleSheet.create({
   },
   inputBoxFocused: {
     borderColor: semantic.primary,
-    backgroundColor: '#FFFDFB',
+    backgroundColor: semantic.cardAlt,
   },
   inputBoxError: {
     borderColor: colors.danger,
