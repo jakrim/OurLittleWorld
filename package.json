@@ -18,7 +18,8 @@
     "build:device:cloud": "eas build --platform ios --profile development",
     "device:register": "eas device:create",
     "install:sim": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz -C ./build/simulator/extracted && xcrun simctl install booted ./build/simulator/extracted/OurLittleWorld.app",
-    "install:sim:16e": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz -C ./build/simulator/extracted && SIM_UDID=\"$(xcrun simctl list devices available | awk -F '[()]' '/iPhone 16e/ {print $2; exit}')\" && test -n \"$SIM_UDID\" && (xcrun simctl boot \"$SIM_UDID\" 2>/dev/null || true) && xcrun simctl bootstatus \"$SIM_UDID\" -b && xcrun simctl install \"$SIM_UDID\" \"$(find ./build/simulator/extracted -name OurLittleWorld.app -print -quit)\"",
+    "install:sim:27": "rm -rf ./build/simulator/extracted && mkdir -p ./build/simulator/extracted && tar -xzf ./build/simulator/ourlittleworld-sim.tar.gz -C ./build/simulator/extracted && SIM_UDID=\"$(xcrun simctl list devices available | awk -F '[()]' '/-- iOS 27.0 --/{in27=1; next} /^-- /{in27=0} in27 && /iPhone 17 Pro / {print $2; exit}')\" && test -n \"$SIM_UDID\" && (xcrun simctl boot \"$SIM_UDID\" 2>/dev/null || true) && xcrun simctl bootstatus \"$SIM_UDID\" -b && xcrun simctl install \"$SIM_UDID\" \"$(find ./build/simulator/extracted -name OurLittleWorld.app -print -quit)\"",
+    "install:sim:16e": "npm run install:sim:27",
     "dev:cloud-sim": "eas build --platform ios --profile development-simulator --non-interactive",
     "credentials": "eas credentials",
     "postinstall": "patch-package"

@@ -13,6 +13,10 @@ web-report/
 # macOS
 .DS_Store
 
+# Python generated files
+__pycache__/
+*.py[cod]
+
 # Local secrets (Supabase URL / anon key)
 .env
 .env.local

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pricing | Our Little World</title>
+    <meta name="description" content="Choose a private baby book plan for your family, or purchase Our Little World as a gift for a friend.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-nav">
+      <div class="wrap nav-inner">
+        <a class="brand-link" href="/" aria-label="Our Little World home">
+          <img src="/assets/brand/logo-mark.png" alt="">
+          <span>our little world</span>
+        </a>
+        <nav class="nav-links" data-nav-links aria-label="Primary navigation">
+          <a data-nav-link href="/story/">Story</a>
+          <a data-nav-link href="/pricing/">Pricing</a>
+          <a data-nav-link href="/gift/">Gift</a>
+          <a data-nav-link href="/partners/">Partners</a>
+          <a data-nav-link href="/privacy/">Privacy</a>
+        </nav>
+        <div class="nav-actions">
+          <a class="button button-dark" href="/pricing/#chapter-one">Begin Chapter One</a>
+          <button class="nav-toggle" type="button" data-menu-toggle aria-label="Open menu" aria-expanded="false">
+            <i data-lucide="menu"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="page-hero" id="chapter-one">
+        <div class="wrap">
+          <div class="breadcrumbs"><a href="/">Home</a><span>/</span><span>Pricing</span></div>
+          <p class="script">begin chapter one</p>
+          <h1 class="page-title">Choose the way you want to keep the beginning.</h1>
+          <p class="lead">Start a private family space for your own baby book, or purchase the first year for a friend who is about to need it.</p>
+        </div>
+      </section>
+
+      <section class="section band-soft" aria-labelledby="plans-title">
+        <div class="wrap">
+          <div class="section-head center">
+            <p class="eyebrow">Launch plans</p>
+            <h2 class="section-title" id="plans-title">Simple pricing for one private family space.</h2>
+            <p class="lead">Each plan includes two invited caregivers, private memory storage, milestones, letters, and weekly recaps.</p>
+          </div>
+          <div class="grid grid-3 pricing-grid">
+            <article class="card price-card">
+              <h3 class="card-title">Monthly</h3>
+              <p>Start small and keep your family space month to month.</p>
+              <div class="price"><strong>$8</strong><span>/ month</span></div>
+              <ul class="list">
+                <li><i data-lucide="check"></i><span>Private baby timeline</span></li>
+                <li><i data-lucide="check"></i><span>Two parent or caregiver seats</span></li>
+                <li><i data-lucide="check"></i><span>Photos, notes, firsts, and letters</span></li>
+              </ul>
+              <a class="button button-ghost button-full" href="#checkout">Choose monthly</a>
+            </article>
+            <article class="card price-card featured">
+              <span class="tag">Most families choose this</span>
+              <h3 class="card-title">Yearly</h3>
+              <p>Give the first year a home without thinking about it again.</p>
+              <div class="price"><strong>$72</strong><span>/ year</span></div>
+              <ul class="list">
+                <li><i data-lucide="check"></i><span>Everything in Monthly</span></li>
+                <li><i data-lucide="check"></i><span>One year of weekly memory recaps</span></li>
+                <li><i data-lucide="check"></i><span>Better fit for pregnancy and newborn gifts</span></li>
+              </ul>
+              <a class="button button-primary button-full" href="#checkout">Choose yearly</a>
+            </article>
+            <article class="card price-card">
+              <h3 class="card-title">Gift Year</h3>
+              <p>Purchase Our Little World for a friend, sibling, client, or new-parent couple.</p>
+              <div class="price"><strong>$72</strong><span>gift</span></div>
+              <ul class="list">
+                <li><i data-lucide="check"></i><span>Gift note and scheduled delivery</span></li>
+                <li><i data-lucide="check"></i><span>Recipient creates their own private family space</span></li>
+                <li><i data-lucide="check"></i><span>Designed for showers, births, and first birthdays</span></li>
+              </ul>
+              <a class="button button-dark button-full" href="/gift/">Purchase for a friend</a>
+            </article>
+          </div>
+          <p class="small" style="text-align: center; margin-top: 24px;">Introductory launch rates for one private family space.</p>
+        </div>
+      </section>
+
+      <section class="section" id="checkout" aria-labelledby="checkout-title">
+        <div class="wrap checkout-panel">
+          <div>
+            <p class="eyebrow">Start your family space</p>
+            <h2 class="section-title" id="checkout-title">Begin with the plan that fits this season.</h2>
+            <p class="lead">Enter a few details, choose a plan, and continue into checkout for your private family space.</p>
+            <ul class="list">
+              <li><i data-lucide="lock-keyhole"></i><span>Your family space is private to the invited caregivers.</span></li>
+              <li><i data-lucide="image"></i><span>Photos and notes stay organized by age and memory.</span></li>
+              <li><i data-lucide="gift"></i><span>Gifts have their own dedicated purchase flow.</span></li>
+            </ul>
+          </div>
+          <form class="form-card form-grid" data-demo-form="self">
+            <div class="segmented" data-segment-group="#self-plan">
+              <button class="segment" type="button" data-segment="monthly" aria-pressed="false">Monthly</button>
+              <button class="segment" type="button" data-segment="annual" aria-pressed="true">Yearly</button>
+            </div>
+            <input type="hidden" id="self-plan" name="plan" value="annual" data-plan-select>
+            <div class="field">
+              <label for="parent-name">Your name</label>
+              <input id="parent-name" name="name" autocomplete="name" required>
+            </div>
+            <div class="field">
+              <label for="parent-email">Email</label>
+              <input id="parent-email" name="email" type="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label for="child-stage">Where are you starting?</label>
+              <select id="child-stage" name="stage" required>
+                <option value="">Choose one</option>
+                <option>Expecting</option>
+                <option>Newborn</option>
+                <option>First year</option>
+                <option>Toddler years</option>
+              </select>
+            </div>
+            <button class="button button-primary button-full" type="submit">Continue to Checkout</button>
+            <div class="status-box" data-form-status role="status" aria-live="polite"></div>
+          </form>
+        </div>
+      </section>
+
+      <section class="section band-deep" aria-labelledby="faq-title">
+        <div class="wrap">
+          <div class="section-head center">
+            <p class="eyebrow">Questions</p>
+            <h2 class="section-title" id="faq-title">A few details before chapter one.</h2>
+          </div>
+          <div class="grid grid-3 feature-grid">
+            <article class="card">
+              <h3 class="card-title">Can I invite my partner?</h3>
+              <p>Yes. Our Little World is designed around one private family space shared by two caregivers.</p>
+            </article>
+            <article class="card">
+              <h3 class="card-title">Is it public?</h3>
+              <p>No. There is no public feed, no likes, no followers, and no advertising algorithm.</p>
+            </article>
+            <article class="card">
+              <h3 class="card-title">Can I gift it?</h3>
+              <p>Yes. The dedicated gift flow lets you choose a recipient, write a note, and schedule delivery.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a class="brand-link" href="/">
+              <img src="/assets/brand/logo-mark.png" alt="">
+              <span>our little world</span>
+            </a>
+            <p>A private baby book for photos, firsts, notes, and letters.</p>
+          </div>
+          <div class="footer-cols">
+            <div>
+              <p class="footer-h">Explore</p>
+              <a href="/story/">Story</a>
+              <a href="/pricing/">Pricing</a>
+              <a href="/gift/">Gift</a>
+            </div>
+            <div>
+              <p class="footer-h">Company</p>
+              <a href="/partners/">Partners</a>
+              <a href="/privacy/">Privacy</a>
+              <a href="mailto:jesse.krim@gmail.com">Contact</a>
+            </div>
+            <div>
+              <p class="footer-h">Promise</p>
+              <a href="/privacy/">No feed</a>
+              <a href="/privacy/">No likes</a>
+              <a href="/privacy/">Private by design</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-base">
+          <span>Copyright 2026 Get Mentors, Inc.</span>
+          <span>For two, for now, for later.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <script src="/site.js"></script>
+  </body>
+</html>

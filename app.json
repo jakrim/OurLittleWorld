@@ -22,7 +22,7 @@
     ],
     "ios": {
       "bundleIdentifier": "com.jessekrim.ourlittleworld",
-      "buildNumber": "1.1.0",
+      "buildNumber": "1.1.1",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Our Little World uses your photo library to build a private timeline of your baby.",
