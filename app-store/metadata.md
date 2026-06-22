@@ -76,7 +76,7 @@ See `app-store/final-submission-runbook.md` for exact links and commands.
 
 - Publish a privacy policy URL, ideally at `https://ourlittleworld.me/privacy`.
 - A publish-ready HTML version is available at `app-store/privacy.html`; `https://ourlittleworld.me/privacy` currently returns 404.
-- Provide an App Review contact phone number.
+- App Review contact details have been submitted in App Store Connect.
 - Create initial App Availability in App Store Connect. The public API can edit availability after it exists, but cannot create the first availability record.
 - Confirm App Privacy answers in App Store Connect using `app-store/app-privacy-worksheet.md`; the public API cannot fully verify the published privacy questionnaire.
 - Initial release notes (`What's New`) are still shown as empty by `asc validate`, but Apple rejected edits to this field for the first version.
