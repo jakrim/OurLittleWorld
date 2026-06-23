@@ -1,0 +1,24 @@
+diff --git a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index a0e3e24d6070c5ec0a220af3cb56fe3373fe1968..46886fe471584452e60639e72bc809f2d93247a3 100644
+--- a/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -215,9 +215,16 @@ open class JavaScriptRuntime: Equatable, @unchecked Sendable {
+       .toOpaque()
+     // Pass a null setter to C++ when the Swift setter is nil so that JS assignment
+     // raises a `jsi::JSError` directly, without crossing the Swift boundary.
+-    let callbacks = expo.HostObjectCallbacks(
+-      context, getter, set == nil ? nil : setter, propertyNamesGetter, deallocate)
+-    let hostObject = expo.HostObject.makeObject(pointee, consume callbacks)
++    let hostObject: facebook.jsi.Object
++    if set == nil {
++      let callbacks = expo.HostObjectCallbacks(
++        context, getter, nil, propertyNamesGetter, deallocate)
++      hostObject = expo.HostObject.makeObject(pointee, consume callbacks)
++    } else {
++      let callbacks = expo.HostObjectCallbacks(
++        context, getter, setter, propertyNamesGetter, deallocate)
++      hostObject = expo.HostObject.makeObject(pointee, consume callbacks)
++    }
+
+     return JavaScriptObject(self, hostObject)
+   }

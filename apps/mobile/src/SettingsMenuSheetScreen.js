@@ -1,0 +1,990 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
+import * as Haptics from 'expo-haptics';
+
+import {
+  Body,
+  Caption,
+  Eyebrow,
+  Screen,
+  SegmentedControl,
+  Title,
+  palettes,
+  PALETTE_NAMES,
+  radius,
+  shadow,
+  space,
+  useTheme,
+} from './ui';
+import { useAuth } from './AuthContext';
+import { useFamily } from './FamilyContext';
+import { Family } from './families';
+import { ageAt, formatAge } from './photos';
+import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
+import {
+  DEFAULT_RITUAL_SETTINGS,
+  DEFAULT_SETTINGS_COUNTS,
+  MONTHIVERSARY_DAY_OPTIONS,
+  PROMPT_TIME_OPTIONS,
+  WEEKDAY_OPTIONS,
+  formatDigestDay,
+  formatMonthiversary,
+  formatPromptTime,
+  getFamilyRitualSettings,
+  getSettingsCounts,
+  normalizeRitualSettings,
+  saveFamilyRitualSettings,
+} from './ritualSettings';
+
+const THEME_MODE_OPTIONS = [
+  { value: 'system', label: 'Auto', icon: 'phone-portrait-outline' },
+  { value: 'light', label: 'Light', icon: 'sunny-outline' },
+  { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+];
+
+const DEFAULT_REFERENCE_SUMMARY = {
+  total: 0,
+  trusted: 0,
+  seeded: 0,
+  latestAgeLabel: 'No local reference yet',
+  latestSourceLabel: 'Pick one clear photo before automatic discovery.',
+  updatedAt: null,
+};
+
+export default function SettingsMenuSheetScreen() {
+  const router = useRouter();
+  const theme = useTheme();
+  const { family, refresh } = useFamily();
+  const { user } = useAuth();
+  const [ritualSettings, setRitualSettings] = useState(() => normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS));
+  const [settingsCounts, setSettingsCounts] = useState(DEFAULT_SETTINGS_COUNTS);
+  const [referenceSummary, setReferenceSummary] = useState(DEFAULT_REFERENCE_SUMMARY);
+  const [activeEditor, setActiveEditor] = useState(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [clearingReferences, setClearingReferences] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    if (!family?.id) {
+      setRitualSettings(normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS, family));
+      setSettingsCounts(DEFAULT_SETTINGS_COUNTS);
+      setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
+      return () => {
+        alive = false;
+      };
+    }
+    Promise.all([
+      getFamilyRitualSettings({ familyId: family.id, family }),
+      getSettingsCounts(family.id),
+      user?.id
+        ? readReferenceProfile({ familyId: family.id, userId: user.id }).catch(() => null)
+        : Promise.resolve(null),
+    ]).then(([nextSettings, nextCounts, nextReferenceProfile]) => {
+      if (!alive) return;
+      setRitualSettings(nextSettings);
+      setSettingsCounts(nextCounts);
+      setReferenceSummary(summarizeReferenceProfile(nextReferenceProfile, family));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [family?.babyBirthday, family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveRitualPatch = async (patch) => {
+    if (!family?.id || savingSettings) return;
+    const previous = ritualSettings;
+    const optimistic = normalizeRitualSettings({ ...previous, ...patch }, family);
+    setSavingSettings(true);
+    setRitualSettings(optimistic);
+    try {
+      const saved = await saveFamilyRitualSettings({
+        familyId: family.id,
+        family,
+        base: previous,
+        patch,
+      });
+      setRitualSettings(saved);
+    } catch (err) {
+      setRitualSettings(previous);
+      Alert.alert('Could not save ritual settings', err?.message || String(err));
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const ritualDetails = useMemo(() => ({
+    prompt: `Prompt at ${formatPromptTime(ritualSettings.dailyPromptTime)}`,
+    digest: `${formatDigestDay(ritualSettings.weeklyDigestDay)} summary from moments`,
+    monthiversary: formatMonthiversary(ritualSettings),
+  }), [ritualSettings]);
+
+  const setMode = (mode) => {
+    Haptics.selectionAsync();
+    theme.setMode(mode);
+  };
+
+  const setPalette = async (paletteName) => {
+    Haptics.selectionAsync();
+    theme.setPaletteName(paletteName);
+    if (family?.id) {
+      Family.update(family.id, { palettePreference: paletteName })
+        .then(() => refresh?.())
+        .catch((err) => console.warn('save palette preference', err?.message));
+    }
+  };
+
+  const go = (route) => {
+    Haptics.selectionAsync();
+    router.replace(route);
+  };
+
+  const resetReferenceProfile = () => {
+    if (!family?.id || !user?.id || clearingReferences) return;
+    Alert.alert(
+      'Reset local references?',
+      'This clears the reference photos stored on this device. Saved moments stay in the archive.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            setClearingReferences(true);
+            try {
+              await clearReferenceProfile({ familyId: family.id, userId: user.id });
+              setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
+              setActiveEditor(null);
+              router.replace('/reference');
+            } catch (err) {
+              Alert.alert('Could not reset references', err?.message || String(err));
+            } finally {
+              setClearingReferences(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <Screen bare>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        style={[styles.root, { backgroundColor: theme.semantic.card }]}
+        contentContainerStyle={styles.content}
+      >
+        <View style={styles.settingsTopBar}>
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Close settings"
+            style={[styles.settingsBackButton, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <Ionicons name="chevron-back" size={18} color={theme.semantic.textSoft} />
+          </Pressable>
+          <Title style={styles.settingsTopTitle}>Settings</Title>
+          <View style={styles.settingsTopSpacer} />
+        </View>
+        <FamilyHero family={family} />
+
+        <View style={[styles.themePanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+          <View style={styles.themePanelHeader}>
+            <View>
+              <Eyebrow>Theme</Eyebrow>
+              <Caption style={styles.themeCaption}>
+                {theme.paletteLabel} · {theme.mode === 'system' ? `Auto (${theme.scheme})` : theme.mode}
+              </Caption>
+            </View>
+            <View style={[styles.themePreview, { backgroundColor: theme.colors.bg, borderColor: theme.colors.border }]}>
+              <View style={[styles.themePreviewDot, { backgroundColor: theme.colors.primary }]} />
+              <View style={[styles.themePreviewDot, { backgroundColor: theme.colors.accent }]} />
+            </View>
+          </View>
+
+          <View style={styles.themeModeRow}>
+            {THEME_MODE_OPTIONS.map((option) => {
+              const active = theme.mode === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setMode(option.value)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${option.label} theme mode`}
+                  accessibilityState={{ checked: active }}
+                  android_ripple={{ color: theme.colors.primarySoft }}
+                  style={[
+                    styles.themeModeButton,
+                    {
+                      backgroundColor: active ? theme.semantic.primary : theme.semantic.card,
+                      borderColor: active ? theme.semantic.primary : theme.semantic.border,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={option.icon}
+                    size={14}
+                    color={active ? theme.colors.onPrimary : theme.semantic.textSoft}
+                  />
+                  <Caption
+                    style={[
+                      styles.themeModeText,
+                      { color: active ? theme.colors.onPrimary : theme.semantic.textSoft },
+                    ]}
+                  >
+                    {option.label}
+                  </Caption>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.paletteQuickRow}>
+            {PALETTE_NAMES.map((name) => {
+              const meta = palettes[name];
+              const slots = meta[theme.scheme];
+              const active = theme.paletteName === name;
+              return (
+                <Pressable
+                  key={name}
+                  onPress={() => setPalette(name)}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`Use ${meta.label} palette`}
+                  accessibilityState={{ checked: active }}
+                  style={[
+                    styles.paletteQuickButton,
+                    {
+                      backgroundColor: slots.bg,
+                      borderColor: active ? slots.primary : theme.semantic.border,
+                      borderWidth: active ? 2 : 1,
+                    },
+                  ]}
+                >
+                  <View style={styles.paletteQuickSwatches}>
+                    <View style={[styles.paletteQuickSwatch, { backgroundColor: slots.primary }]} />
+                    <View style={[styles.paletteQuickSwatch, { backgroundColor: slots.accent }]} />
+                  </View>
+                  {active ? <Ionicons name="checkmark" size={13} color={slots.ink} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+            <Pressable
+              onPress={() => go('/brand')}
+              accessibilityRole="button"
+              accessibilityLabel="Open brand sheet"
+              style={[styles.brandSheetLink, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+            >
+            <View style={styles.brandSheetCopy}>
+              <Caption>Brand sheet</Caption>
+              <Body style={styles.brandSheetLabel}>Marks, lockups, palettes, type</Body>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
+          </Pressable>
+        </View>
+
+        <View>
+          <Eyebrow>our family</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="person-circle-outline"
+              label={`${family?.babyName || 'Child'} profile`}
+              detail="Name, birthday, photo access"
+              onPress={() => go('/setup')}
+            />
+            <MenuItem
+              icon="person-add-outline"
+              label="Family circle"
+              detail={`${settingsCounts.sharedWithCount || 0} ${plural(settingsCounts.sharedWithCount, 'member', 'members')} · ${settingsCounts.circleCount || 0} view-only`}
+              onPress={() => go('/invite')}
+            />
+            <MenuItem
+              icon="sparkles"
+              label="Reference profile"
+              detail={referenceSummary.total
+                ? `${referenceSummary.total} local ${plural(referenceSummary.total, 'reference', 'references')} · ${referenceSummary.trusted} trusted`
+                : 'Pick one clear photo before automatic discovery'}
+              tint={theme.semantic.primary}
+              active={activeEditor === 'reference'}
+              onPress={() => setActiveEditor(activeEditor === 'reference' ? null : 'reference')}
+            />
+            <MenuItem
+              icon="images-outline"
+              label="Automatic discovery"
+              detail="Reference photo and scan settings"
+              onPress={() => go('/reference')}
+            />
+          </View>
+          {activeEditor === 'reference' ? (
+            <ReferenceProfilePanel
+              summary={referenceSummary}
+              clearing={clearingReferences}
+              onUpdate={() => go('/reference')}
+              onScan={() => go('/scan')}
+              onReset={resetReferenceProfile}
+            />
+          ) : null}
+        </View>
+
+        <View>
+          <Eyebrow>rituals</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="sparkles-outline"
+              label="Daily memory prompt"
+              detail={ritualDetails.prompt}
+              active={activeEditor === 'prompt'}
+              onPress={() => setActiveEditor(activeEditor === 'prompt' ? null : 'prompt')}
+            />
+            <MenuItem
+              icon="calendar-outline"
+              label="Weekly digest"
+              detail={ritualDetails.digest}
+              active={activeEditor === 'digest'}
+              onPress={() => setActiveEditor(activeEditor === 'digest' ? null : 'digest')}
+            />
+            <MenuItem
+              icon="moon-outline"
+              label="Monthiversary nudge"
+              detail={ritualDetails.monthiversary}
+              active={activeEditor === 'monthiversary'}
+              onPress={() => setActiveEditor(activeEditor === 'monthiversary' ? null : 'monthiversary')}
+            />
+          </View>
+          {['prompt', 'digest', 'monthiversary'].includes(activeEditor) ? (
+            <RitualEditor
+              type={activeEditor}
+              settings={ritualSettings}
+              saving={savingSettings}
+              family={family}
+              onSave={saveRitualPatch}
+            />
+          ) : null}
+        </View>
+
+        <View>
+          <Eyebrow>the archive</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="book-outline"
+              label="Library"
+              detail={`${settingsCounts.momentCount || 0} saved ${plural(settingsCounts.momentCount, 'moment', 'moments')} · search and places`}
+              onPress={() => go('/library')}
+            />
+            <MenuItem
+              icon="download-outline"
+              label="Export to photo book"
+              detail={`${settingsCounts.exportableMomentCount || 0} ${plural(settingsCounts.exportableMomentCount, 'moment', 'moments')} ready · ${settingsCounts.digestCount || 0} ${plural(settingsCounts.digestCount, 'digest', 'digests')}`}
+              onPress={() => go({ pathname: '/library', params: { segment: 'export' } })}
+            />
+            <MenuItem
+              icon="mail-outline"
+              label="Time capsules"
+              detail={`${settingsCounts.timeCapsuleCount || 0} sealed ${plural(settingsCounts.timeCapsuleCount, 'letter', 'letters')}`}
+              onPress={() => go('/letters')}
+            />
+            <MenuItem
+              icon="shield-checkmark-outline"
+              label="Privacy"
+              detail={`Shared with ${settingsCounts.sharedWithCount || 0} ${plural(settingsCounts.sharedWithCount, 'person', 'people')}`}
+              active={activeEditor === 'privacy'}
+              onPress={() => setActiveEditor(activeEditor === 'privacy' ? null : 'privacy')}
+            />
+          </View>
+          {activeEditor === 'privacy' ? (
+            <PrivacyPanel
+              counts={settingsCounts}
+              onManage={() => go('/invite')}
+              onReview={() => go({ pathname: '/library', params: { segment: 'search' } })}
+            />
+          ) : null}
+        </View>
+      </ScrollView>
+    </Screen>
+  );
+}
+
+function FamilyHero({ family }) {
+  const theme = useTheme();
+  const age = family?.babyBirthday ? formatAge(ageAt(family.babyBirthday, Date.now())) : '';
+  const initial = (family?.babyName || family?.name || 'O').slice(0, 1).toUpperCase();
+  return (
+    <View style={[styles.familyHero, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <View style={[styles.familyAvatar, { backgroundColor: theme.semantic.primary }]}>
+        <Title style={[styles.familyAvatarText, { color: theme.colors.onPrimary }]}>{initial}</Title>
+      </View>
+      <View style={styles.familyHeroText}>
+        <Caption>Our family</Caption>
+        <Title style={styles.familyHeroName}>{family?.babyName || 'Your little one'}</Title>
+        <Caption>
+          {family?.babyBirthday || 'Birthday not set'}{age ? ` · ${age} old` : ''}
+        </Caption>
+      </View>
+    </View>
+  );
+}
+
+function RitualEditor({ type, settings, saving, family, onSave }) {
+  const theme = useTheme();
+  if (type === 'prompt') {
+    return (
+      <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+        <Caption>Daily prompt time</Caption>
+        <SegmentedControl
+          value={settings.dailyPromptTime}
+          options={PROMPT_TIME_OPTIONS}
+          onChange={(dailyPromptTime) => onSave({ dailyPromptTime })}
+          style={styles.editorControl}
+        />
+        <Caption>{saving ? 'Saving...' : `Your prompt will surface around ${formatPromptTime(settings.dailyPromptTime)}.`}</Caption>
+      </View>
+    );
+  }
+  if (type === 'digest') {
+    return (
+      <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+        <Caption>Weekly digest day</Caption>
+        <SegmentedControl
+          value={settings.weeklyDigestDay}
+          options={WEEKDAY_OPTIONS}
+          onChange={(weeklyDigestDay) => onSave({ weeklyDigestDay })}
+          style={styles.editorControl}
+        />
+        <Caption>{saving ? 'Saving...' : `${formatDigestDay(settings.weeklyDigestDay)} is the family digest day.`}</Caption>
+      </View>
+    );
+  }
+
+  const dayOptions = monthiversaryDayOptions(family);
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <Caption>Monthiversary nudge</Caption>
+      <SegmentedControl
+        value={settings.monthiversaryEnabled ? 'on' : 'off'}
+        options={[
+          { value: 'on', label: 'On' },
+          { value: 'off', label: 'Off' },
+        ]}
+        onChange={(value) => onSave({ monthiversaryEnabled: value === 'on' })}
+        style={styles.editorControl}
+      />
+      {settings.monthiversaryEnabled ? (
+        <SegmentedControl
+          value={settings.monthiversaryDay}
+          options={dayOptions}
+          onChange={(monthiversaryDay) => onSave({ monthiversaryDay })}
+          style={styles.editorControl}
+        />
+      ) : null}
+      <Caption>{saving ? 'Saving...' : formatMonthiversary(settings)}</Caption>
+    </View>
+  );
+}
+
+function PrivacyPanel({ counts, onManage, onReview }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <Caption>Shared archive access</Caption>
+      <Title style={styles.panelMetric}>{counts.sharedWithCount || 0} {plural(counts.sharedWithCount, 'person', 'people')}</Title>
+      <Caption>{counts.circleCount || 0} view-only circle {plural(counts.circleCount, 'member', 'members')}</Caption>
+      <View style={styles.privacyPolicyList}>
+        <PrivacyPolicyRow
+          icon="create-outline"
+          title="Co-parents can add and edit"
+          body="The two family writers can save moments, prompts, letters, and archive details."
+        />
+        <PrivacyPolicyRow
+          icon="eye-outline"
+          title="Family circle is view-only"
+          body="Circle members can see moments that are shared to the circle, without writer controls."
+        />
+        <PrivacyPolicyRow
+          icon="lock-closed-outline"
+          title="Moments start private"
+          body="Saved moments stay between co-parents until a moment is shared to the circle."
+        />
+      </View>
+      <View style={styles.panelButtonRow}>
+        <Pressable
+          onPress={onManage}
+          accessibilityRole="button"
+          accessibilityLabel="Manage family circle"
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            { backgroundColor: theme.semantic.primary, borderColor: theme.semantic.primary },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.colors.onPrimary }]}>Manage circle</Caption>
+        </Pressable>
+        <Pressable
+          onPress={onReview}
+          accessibilityRole="button"
+          accessibilityLabel="Review shared moments"
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.semantic.textSoft }]}>Review moments</Caption>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PrivacyPolicyRow({ icon, title, body }) {
+  const theme = useTheme();
+  return (
+    <View style={styles.privacyPolicyRow}>
+      <View style={[styles.privacyPolicyIcon, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+        <Ionicons name={icon} size={15} color={theme.semantic.primary} />
+      </View>
+      <View style={styles.privacyPolicyText}>
+        <Body style={styles.privacyPolicyTitle}>{title}</Body>
+        <Caption>{body}</Caption>
+      </View>
+    </View>
+  );
+}
+
+function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset }) {
+  const theme = useTheme();
+  const ready = summary.total > 0;
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <View style={styles.referenceHeader}>
+        <View>
+          <Caption>Local discovery profile</Caption>
+          <Title style={styles.panelMetric}>{summary.total} {plural(summary.total, 'reference', 'references')}</Title>
+        </View>
+        <View style={[styles.referenceBadge, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name={ready ? 'sparkles' : 'image-outline'} size={18} color={theme.semantic.primary} />
+        </View>
+      </View>
+      <View style={styles.referenceStats}>
+        <ReferenceStat label="trusted" value={summary.trusted} />
+        <ReferenceStat label="picked" value={summary.seeded} />
+        <ReferenceStat label="latest" value={summary.latestAgeLabel} />
+      </View>
+      <Caption>{summary.latestSourceLabel}</Caption>
+      <View style={styles.panelButtonRow}>
+        <Pressable
+          onPress={onUpdate}
+          accessibilityRole="button"
+          accessibilityLabel={ready ? 'Update reference photo' : 'Pick reference photo'}
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            { backgroundColor: theme.semantic.primary, borderColor: theme.semantic.primary },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.colors.onPrimary }]}>
+            {ready ? 'Update photo' : 'Pick photo'}
+          </Caption>
+        </Pressable>
+        <Pressable
+          onPress={onScan}
+          disabled={!ready}
+          accessibilityRole="button"
+          accessibilityLabel="Scan with reference profile"
+          accessibilityState={{ disabled: !ready }}
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            {
+              backgroundColor: ready ? theme.semantic.card : theme.semantic.cardAlt,
+              borderColor: theme.semantic.border,
+              opacity: ready ? 1 : 0.45,
+            },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.semantic.textSoft }]}>Scan</Caption>
+        </Pressable>
+      </View>
+      {ready ? (
+        <Pressable
+          onPress={onReset}
+          disabled={clearing}
+          accessibilityRole="button"
+          accessibilityLabel="Reset local references and re-enroll"
+          accessibilityState={{ disabled: clearing }}
+          style={styles.referenceReset}
+        >
+          <Caption style={[styles.referenceResetText, { color: theme.semantic.textMuted }]}>
+            {clearing ? 'Resetting...' : 'Reset local references and re-enroll'}
+          </Caption>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function ReferenceStat({ label, value }) {
+  return (
+    <View style={styles.referenceStat}>
+      <Body style={styles.referenceStatValue}>{value}</Body>
+      <Caption>{label}</Caption>
+    </View>
+  );
+}
+
+function MenuItem({ icon, label, detail, onPress, tint, active = false }) {
+  const theme = useTheme();
+  const iconColor = tint || (active ? theme.semantic.primary : theme.semantic.textSoft);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. ${detail}`}
+      accessibilityState={active ? { expanded: true } : undefined}
+      android_ripple={{ color: theme.colors.primarySoft }}
+      style={({ pressed }) => [
+        styles.menuItem,
+        active && { backgroundColor: theme.semantic.cardAlt },
+        { opacity: pressed ? 0.72 : 1 },
+      ]}
+    >
+      <View style={[styles.menuItemIcon, { backgroundColor: theme.semantic.cardAlt }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
+      </View>
+      <View style={styles.menuItemText}>
+        <Body style={styles.menuItemLabel}>{label}</Body>
+        <Caption>{detail}</Caption>
+      </View>
+      <Ionicons name={active ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.semantic.textMuted} />
+    </Pressable>
+  );
+}
+
+function plural(count, singular, pluralValue = `${singular}s`) {
+  return Number(count) === 1 ? singular : pluralValue;
+}
+
+function ordinal(value) {
+  const day = Number(value);
+  if ([11, 12, 13].includes(day % 100)) return `${day}th`;
+  const suffix = day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
+  return `${day}${suffix}`;
+}
+
+function monthiversaryDayOptions(family) {
+  const birthDay = Number(String(family?.babyBirthday || '').split('-')[2]);
+  const values = [birthDay, ...MONTHIVERSARY_DAY_OPTIONS.map((option) => option.value)]
+    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 31);
+  return Array.from(new Set(values)).slice(0, 4).map((value) => ({
+    value,
+    label: value === birthDay ? 'Birth day' : ordinal(value),
+  }));
+}
+
+function summarizeReferenceProfile(profile, family) {
+  const references = Array.isArray(profile?.references) ? profile.references : [];
+  if (!references.length) return DEFAULT_REFERENCE_SUMMARY;
+  const trusted = references.filter((reference) => reference.source === 'trusted-save').length;
+  const seeded = references.length - trusted;
+  const latest = references[references.length - 1];
+  let latestAgeLabel = 'age unknown';
+  if (family?.babyBirthday && latest?.ageAtCaptureDays != null) {
+    const birthMs = new Date(`${family.babyBirthday}T00:00:00`).getTime();
+    const capturedMs = birthMs + latest.ageAtCaptureDays * 86400000;
+    latestAgeLabel = formatAge(ageAt(family.babyBirthday, capturedMs)) || 'age unknown';
+  }
+  const latestSourceLabel = trusted
+    ? `${trusted} trusted ${plural(trusted, 'save', 'saves')} now refresh future scans on this device.`
+    : 'Only picked reference photos are stored locally so far.';
+  return {
+    total: references.length,
+    trusted,
+    seeded,
+    latestAgeLabel,
+    latestSourceLabel,
+    updatedAt: profile?.updatedAt || null,
+  };
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: space.xl,
+    paddingTop: space.xl,
+    paddingBottom: space.xxl,
+    gap: space.lg,
+  },
+  settingsTopBar: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  settingsBackButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsTopTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 25,
+    lineHeight: 30,
+    fontStyle: 'italic',
+  },
+  settingsTopSpacer: {
+    width: 44,
+    height: 44,
+  },
+  familyHero: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  familyAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  familyAvatarText: {
+    fontSize: 24,
+    lineHeight: 30,
+  },
+  familyHeroText: {
+    flex: 1,
+  },
+  familyHeroName: {
+    fontSize: 21,
+    lineHeight: 26,
+    marginVertical: 2,
+  },
+  themePanel: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: space.md,
+  },
+  themePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  themeCaption: {
+    marginTop: 2,
+    textTransform: 'capitalize',
+    letterSpacing: 0,
+  },
+  themePreview: {
+    width: 48,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  themePreviewDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  themeModeRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  themeModeButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  themeModeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'none',
+    letterSpacing: 0,
+  },
+  paletteQuickRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+  },
+  paletteQuickButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paletteQuickSwatches: {
+    flexDirection: 'row',
+    gap: 3,
+  },
+  paletteQuickSwatch: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  brandSheetLink: {
+    minHeight: 54,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: space.md,
+    marginTop: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  brandSheetCopy: {
+    flex: 1,
+  },
+  brandSheetLabel: {
+    color: undefined,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  menuList: {
+    marginTop: space.sm,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    ...shadow.whisper,
+  },
+  menuItem: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: space.md,
+    gap: space.md,
+  },
+  menuItemIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemText: {
+    flex: 1,
+  },
+  menuItemLabel: {
+    color: undefined,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  editorPanel: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: space.md,
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  editorControl: {
+    marginTop: 2,
+  },
+  panelMetric: {
+    fontSize: 23,
+    lineHeight: 29,
+  },
+  privacyPolicyList: {
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  privacyPolicyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+  },
+  privacyPolicyIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  privacyPolicyText: {
+    flex: 1,
+  },
+  privacyPolicyTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  referenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  referenceBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  referenceStats: {
+    flexDirection: 'row',
+    gap: space.sm,
+  },
+  referenceStat: {
+    flex: 1,
+    minHeight: 54,
+    justifyContent: 'center',
+  },
+  referenceStatValue: {
+    color: undefined,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  panelButtonRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.xs,
+  },
+  panelButton: {
+    minHeight: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.lg,
+    marginTop: space.xs,
+  },
+  panelButtonInline: {
+    flex: 1,
+    borderWidth: 1,
+    marginTop: 0,
+  },
+  panelButtonText: {
+    fontWeight: '800',
+  },
+  referenceReset: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  referenceResetText: {
+    fontWeight: '700',
+  },
+});

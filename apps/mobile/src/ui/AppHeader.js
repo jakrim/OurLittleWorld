@@ -1,0 +1,82 @@
+import React from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
+
+import BrandMark from './BrandMark';
+import { Brand, Caption, Hero } from './Type';
+import { radius, shadow, space, useTheme } from './theme';
+
+export default function AppHeader({ title, subtitle, onSettings, right }) {
+  const theme = useTheme();
+  return (
+    <View style={styles.root}>
+      <View style={styles.brandRow}>
+        <View style={[styles.markFrame, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+          <BrandMark size={46} fillFrame />
+        </View>
+        <View style={styles.titleWrap}>
+          <Brand style={styles.brand}>our little world</Brand>
+          <Hero numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
+            {title}
+          </Hero>
+          {subtitle ? <Caption numberOfLines={1}>{subtitle}</Caption> : null}
+        </View>
+        {right}
+        <Pressable
+          onPress={onSettings}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+          style={[styles.iconButton, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+        >
+          <Ionicons name="settings-outline" size={18} color={theme.semantic.textSoft} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    paddingHorizontal: space.xl,
+    paddingTop: space.md,
+    paddingBottom: space.md,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  markFrame: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    overflow: 'hidden',
+    ...shadow.whisper,
+  },
+  titleWrap: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: space.sm,
+  },
+  brand: {
+    fontSize: 12,
+    lineHeight: 15,
+    opacity: 0.75,
+  },
+  title: {
+    fontSize: 25,
+    lineHeight: 29,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.whisper,
+  },
+});

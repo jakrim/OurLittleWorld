@@ -1,5 +1,7 @@
-node_modules/**/*
+node_modules/
+**/node_modules/
 .expo/
+.vercel/
 npm-debug.*
 *.jks
 *.p8
@@ -7,8 +9,12 @@ npm-debug.*
 *.key
 *.mobileprovision
 *.orig.*
+*.tsbuildinfo
 web-build/
 web-report/
+.next/
+.turbo/
+out/
 
 # macOS
 .DS_Store
@@ -27,17 +33,25 @@ tmp/
 # Generated native/build artifacts
 /ios/
 /android/
+apps/mobile/ios/
+apps/mobile/android/
 *.ipa
 *.apk
 *.aab
 /*.tar.gz
 build/
 dist/
+apps/*/build/
+apps/*/dist/
+apps/web/.next/
 ios/build/
 android/build/
+apps/mobile/ios/build/
+apps/mobile/android/build/
 
 # Optional seed face images for the simulator photo seeder
 scripts/seed-faces/
+apps/mobile/scripts/seed-faces/
 
 # Local agent skill installs
 .agents/
