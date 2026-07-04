@@ -3,8 +3,27 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails } from './photos';
+import * as mediaDb from './mediaDb';
+import {
+  assertVideoWithinPlan,
+  fileSizeOf,
+  finalizeMediaUpload,
+  isMediaPolicyError,
+  releaseMediaUpload,
+  reserveMediaUpload,
+} from './mediaPolicy';
 import { uuid } from './moments';
 import { supabase } from './supabase';
+
+// SQLite cache calls must never break the network path.
+function safeCache(fn) {
+  try {
+    return fn();
+  } catch (err) {
+    console.warn('mediaDb', err?.message);
+    return undefined;
+  }
+}
 
 /**
  * Cloud photo pipeline.
@@ -112,7 +131,7 @@ async function createVideoPoster({ info, match }) {
  * point of view: the tag row exists immediately (status='pending'), then
  * upload + status='ready' happen async.
  */
-export async function uploadForTag({ familyId, assetId, match = null }) {
+export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false }) {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
   if (!userId) throw new Error('Not signed in');
@@ -124,9 +143,37 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
   if (!localUri) {
     throw new Error(info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.');
   }
-  if (info.mediaType === 'video') {
-    return uploadVideoForTag({ familyId, assetId, userId, info, match });
+
+  // Persist the job so interrupted uploads survive an app restart.
+  const jobId = `${familyId}:${assetId}`;
+  safeCache(() => mediaDb.enqueueUploadJob({
+    id: jobId,
+    familyId,
+    localAssetId: assetId,
+    mediaType: info.mediaType === 'video' ? 'video' : 'image',
+    videoPosterOnly,
+  }));
+
+  try {
+    let result;
+    if (info.mediaType === 'video') {
+      result = videoPosterOnly
+        ? await savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match })
+        : await uploadVideoForTag({ familyId, assetId, userId, info, match });
+    } else {
+      result = await uploadImageForTag({ familyId, assetId, userId, info, match });
+    }
+    safeCache(() => mediaDb.markUploadJob(jobId, 'done'));
+    return result;
+  } catch (err) {
+    // Plan rejections are decisions, not retryable failures.
+    safeCache(() => mediaDb.markUploadJob(jobId, isMediaPolicyError(err) ? 'done' : 'failed', String(err?.message || err)));
+    throw err;
   }
+}
+
+async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
+  const localUri = info.localUri || info.uri;
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
@@ -209,6 +256,7 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
   );
   if (upsertErr) throw upsertErr;
 
+  let reservationId = null;
   try {
     // Chain: decode the (often 12MP) original once, downscale to "full"
     // size, then downscale that result to "thumb". Halves the JPEG decode
@@ -221,6 +269,9 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
       readAsArrayBuffer(thumb.uri),
     ]);
 
+    const derivativeBytes = (fullBuf.byteLength || 0) + (thumbBuf.byteLength || 0);
+    reservationId = await reserveMediaUpload({ familyId, mediaType: 'image', bytes: derivativeBytes });
+
     const opts = { contentType: 'image/jpeg', upsert: true };
     const [fullRes, thumbRes] = await Promise.all([
       supabase.storage.from(BUCKET).upload(fullPath, fullBuf, opts),
@@ -228,6 +279,9 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
     ]);
     if (fullRes.error) throw fullRes.error;
     if (thumbRes.error) throw thumbRes.error;
+
+    await finalizeMediaUpload(reservationId, { bytes: derivativeBytes });
+    reservationId = null;
 
     const [tagDone, mediaDone] = await Promise.all([
       supabase
@@ -260,6 +314,7 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
 
     return { fullId, thumbId };
   } catch (err) {
+    await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
@@ -277,6 +332,10 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
 }
 
 async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
+  const durationSec = info.duration ? Number(info.duration) / 1000 : null;
+  const sourceBytes = fileSizeOf(info.localUri || info.uri);
+  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
+
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
@@ -366,6 +425,13 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   );
   if (upsertErr) throw upsertErr;
 
+  const reservationId = await reserveMediaUpload({
+    familyId,
+    mediaType: 'video',
+    bytes: sourceBytes || 0,
+    durationSec: durationSec || 0,
+  });
+
   try {
     await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
 
@@ -410,14 +476,20 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
           metadata: { ...metadata, ...posterMetadata },
           upload_status: 'ready',
           upload_error: null,
+          quota_class: 'optimized',
+          source_bytes: sourceBytes,
+          optimized_bytes: sourceBytes,
+          playback_seconds: durationSec ? Math.round(durationSec) : null,
         })
         .eq('id', mediaId),
     ]);
     if (tagDone.error) throw tagDone.error;
     if (mediaDone.error) throw mediaDone.error;
 
+    await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
     return { fullId, posterId: posterObject };
   } catch (err) {
+    await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
@@ -432,6 +504,113 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     ]);
     throw err;
   }
+}
+
+/**
+ * Saves an auto-discovered video as a poster-only memory: poster + metadata
+ * now, no source upload. The user can promote it to a playable video later
+ * (uploadForTag without videoPosterOnly reuses the same moment/media ids).
+ */
+async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match }) {
+  const location = normalizeLocation(info.location);
+  const nowIso = new Date().toISOString();
+  const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
+  const durationSec = info.duration ? Number(info.duration) / 1000 : null;
+  const { data: existingTag, error: existingErr } = await supabase
+    .from('photo_tags')
+    .select('moment_id, moment_media_id')
+    .eq('family_id', familyId)
+    .eq('asset_owner_user_id', userId)
+    .eq('asset_id', assetId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  const momentId = existingTag?.moment_id || uuid();
+  const mediaId = existingTag?.moment_media_id || uuid();
+  const posterId = uuid();
+  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
+
+  if (!existingTag?.moment_id) {
+    const { error: momentErr } = await supabase.from('moments').insert({
+      id: momentId,
+      family_id: familyId,
+      author_user_id: userId,
+      captured_at: creationTime || nowIso,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      shared_with: [],
+    });
+    if (momentErr) throw momentErr;
+  }
+
+  const poster = await createVideoPoster({ info, match });
+  await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
+  const posterBytes = fileSizeOf(poster.uri);
+
+  const metadata = {
+    source: 'scan-auto-save',
+    localAssetId: assetId,
+    posterPath,
+    posterTimeMs: poster.timeMs,
+    posterWidth: poster.width,
+    posterHeight: poster.height,
+    posterSource: poster.source,
+    posterOnly: true,
+    sourceDurationSec: durationSec,
+    originalFileName: info.fileName || match?.fileName || null,
+  };
+
+  const { error: mediaErr } = await supabase.from('moment_media').upsert(
+    {
+      id: mediaId,
+      moment_id: momentId,
+      family_id: familyId,
+      owner_user_id: userId,
+      media_type: 'video',
+      local_identifier: assetId,
+      file_name: info.fileName || match?.fileName || null,
+      mime_type: mimeTypeForVideo(extensionForVideo(info)),
+      full_object: null,
+      poster_object: posterId,
+      width: info.width || null,
+      height: info.height || null,
+      duration_sec: durationSec,
+      metadata,
+      upload_status: 'ready',
+      upload_error: null,
+      quota_class: 'poster_only',
+      optimized_bytes: posterBytes,
+      sort_order: 0,
+    },
+    { onConflict: 'id' },
+  );
+  if (mediaErr) throw mediaErr;
+
+  const { error: upsertErr } = await supabase.from('photo_tags').upsert(
+    {
+      family_id: familyId,
+      asset_owner_user_id: userId,
+      asset_id: assetId,
+      tagged_by_user_id: userId,
+      tagged_at: nowIso,
+      creation_time: creationTime,
+      original_width: info.width || null,
+      original_height: info.height || null,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      location_fetched_at: location ? nowIso : null,
+      storage_object: null,
+      thumb_object: posterId,
+      upload_status: 'ready',
+      upload_error: null,
+      moment_id: momentId,
+      moment_media_id: mediaId,
+    },
+    { onConflict: 'family_id,asset_owner_user_id,asset_id' },
+  );
+  if (upsertErr) throw upsertErr;
+
+  return { posterId, posterOnly: true };
 }
 
 export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
@@ -477,6 +656,37 @@ export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
   if (row?.moment_id) {
     await deleteEmptyMoment({ familyId, momentId: row.moment_id });
   }
+
+  safeCache(() => mediaDb.removeCachedMedia({ familyId, assetOwnerUserId, assetId }));
+}
+
+/**
+ * Retries upload jobs persisted in SQLite ('queued' from an interrupted
+ * session or 'failed' with attempts left). Call on app/archive mount.
+ */
+export async function resumePendingUploadJobs({ familyId }) {
+  if (!familyId) return { resumed: 0, failed: 0 };
+  const jobs = safeCache(() => mediaDb.listPendingUploadJobs(familyId)) || [];
+  let resumed = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    if (!job.local_asset_id) {
+      safeCache(() => mediaDb.markUploadJob(job.id, 'done'));
+      continue;
+    }
+    try {
+      await uploadForTag({
+        familyId,
+        assetId: job.local_asset_id,
+        videoPosterOnly: job.target_plan_key === 'poster_only' || job.media_type === 'video',
+      });
+      resumed += 1;
+    } catch (err) {
+      failed += 1;
+      console.warn('resume upload job failed', job.id, err?.message);
+    }
+  }
+  return { resumed, failed };
 }
 
 async function deleteEmptyMoment({ familyId, momentId }) {
@@ -502,63 +712,172 @@ async function deleteEmptyMoment({ familyId, momentId }) {
   if (error) console.warn('deleteEmptyMoment', error.message);
 }
 
-/**
- * Returns the full ready-to-display family timeline (all members' tagged
- * photos), each row including pre-fetched signed URLs for thumb + full.
- *
- * Pages through Supabase in chunks because the JS client's PostgREST
- * connection caps each request at ~1000 rows. We keep paging until we run
- * dry or hit `maxRows` (defaults to 5000 — well past any single family's
- * realistic year of saved photos).
- */
-export async function listSharedTagged(familyId, { limit = 5000, pageSize = 1000 } = {}) {
-  if (!familyId) return [];
+const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, metadata)';
 
-  const all = [];
-  let from = 0;
-  while (all.length < limit) {
-    const to = Math.min(from + pageSize - 1, limit - 1);
-    const { data, error } = await supabase
-      .from('photo_tags')
-      .select(
-        'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, metadata)',
-      )
-      .eq('family_id', familyId)
-      .eq('upload_status', 'ready')
-      .order('creation_time', { ascending: false, nullsFirst: false })
-      .range(from, to);
-    if (error) {
-      console.warn('listSharedTagged', error.message);
-      break;
+function quoteFilterValue(value) {
+  return `"${String(value).replace(/"/g, '')}"`;
+}
+
+function normalizeTaggedRow(familyId, row) {
+  return {
+    ...row,
+    location: normalizeLocation(row),
+    media_type: row.moment_media?.media_type || 'image',
+    fullUrl: row.fullUrl || null,
+    thumbUrl: row.thumbUrl || null,
+  };
+}
+
+/**
+ * Keyset-paged family timeline. Orders by creation_time desc with
+ * (asset_owner_user_id, asset_id) as the stable tie-breaker; rows without a
+ * creation_time come last as their own cursor region. Returns raw rows —
+ * call hydrateMediaUrls() to sign only the variant the view needs.
+ */
+export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60 } = {}) {
+  if (!familyId) return { rows: [], nextCursor: null };
+
+  let query = supabase
+    .from('photo_tags')
+    .select(TAGGED_SELECT)
+    .eq('family_id', familyId)
+    .eq('upload_status', 'ready')
+    .order('creation_time', { ascending: false, nullsFirst: false })
+    .order('asset_owner_user_id', { ascending: true })
+    .order('asset_id', { ascending: true })
+    .limit(limit);
+
+  if (cursor?.nullRegion) {
+    query = query.is('creation_time', null);
+    if (cursor.o) {
+      query = query.or(
+        `asset_owner_user_id.gt.${quoteFilterValue(cursor.o)},and(asset_owner_user_id.eq.${quoteFilterValue(cursor.o)},asset_id.gt.${quoteFilterValue(cursor.a)})`,
+      );
     }
-    const batch = data || [];
-    all.push(...batch);
-    if (batch.length < pageSize) break;
-    from += pageSize;
+  } else {
+    query = query.not('creation_time', 'is', null);
+    if (cursor?.t) {
+      const t = quoteFilterValue(cursor.t);
+      const o = quoteFilterValue(cursor.o);
+      query = query.or(
+        `creation_time.lt.${t},and(creation_time.eq.${t},asset_owner_user_id.gt.${o}),and(creation_time.eq.${t},asset_owner_user_id.eq.${o},asset_id.gt.${quoteFilterValue(cursor.a)})`,
+      );
+    }
   }
 
-  if (!all.length) return [];
+  const { data, error } = await query;
+  if (error) {
+    console.warn('listSharedTaggedPage', error.message);
+    return { rows: [], nextCursor: null };
+  }
 
-  // Batch-sign every URL — Storage caps each `createSignedUrls` call too,
-  // so chunk those as well.
-  const SIGN_CHUNK = 200;
-  const fullPathArr = all.map((r) => pathForTaggedFull(familyId, r)).filter(Boolean);
-  const thumbPathArr = all.map((r) => pathForTaggedThumb(familyId, r)).filter(Boolean);
+  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
+  const last = rows[rows.length - 1];
+  let nextCursor = null;
+  if (rows.length === limit && last) {
+    nextCursor = cursor?.nullRegion || !last.creation_time
+      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
+      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
+  } else if (!cursor?.nullRegion) {
+    // Non-null region ran dry — the null-creation_time stragglers come next.
+    nextCursor = { nullRegion: true, o: '', a: '' };
+  }
+  return { rows, nextCursor };
+}
+
+/**
+ * Signs URLs for only the requested variant:
+ *  - 'thumb': grid views — thumbnail or video poster
+ *  - 'full':  detail/share/export — display or playback source
+ * Rows already hydrated for that variant are left untouched.
+ */
+export async function hydrateMediaUrls(rows, { variant = 'thumb' } = {}) {
+  const list = rows || [];
+  if (!list.length) return [];
+  const familyId = list[0]?.family_id;
+  const wantFull = variant === 'full' || variant === 'all';
+  const wantThumb = variant === 'thumb' || variant === 'all';
+
+  // Reuse unexpired signed URLs from the local variant cache first.
+  const cachedFor = (r, v) => safeCache(() => mediaDb.getCachedVariantUrl(r.moment_media_id, v)) || null;
 
   const fullByPath = new Map();
   const thumbByPath = new Map();
-  await Promise.all([
-    signInChunks(fullPathArr, SIGN_CHUNK, fullByPath),
-    signInChunks(thumbPathArr, SIGN_CHUNK, thumbByPath),
-  ]);
+  const jobs = [];
+  if (wantFull) {
+    const paths = list
+      .filter((r) => !r.fullUrl && !cachedFor(r, 'full'))
+      .map((r) => pathForTaggedFull(r.family_id || familyId, r))
+      .filter(Boolean);
+    jobs.push(signInChunks(paths, 200, fullByPath));
+  }
+  if (wantThumb) {
+    const paths = list
+      .filter((r) => !r.thumbUrl && !cachedFor(r, 'thumb'))
+      .map((r) => pathForTaggedThumb(r.family_id || familyId, r))
+      .filter(Boolean);
+    jobs.push(signInChunks(paths, 200, thumbByPath));
+  }
+  await Promise.all(jobs);
 
-  return all.map((r) => ({
-    ...r,
-    location: normalizeLocation(r),
-    media_type: r.moment_media?.media_type || 'image',
-    fullUrl: fullByPath.get(pathForTaggedFull(familyId, r)) || null,
-    thumbUrl: thumbByPath.get(pathForTaggedThumb(familyId, r)) || null,
-  }));
+  return list.map((r) => {
+    const fullUrl = r.fullUrl
+      || (wantFull ? cachedFor(r, 'full') || fullByPath.get(pathForTaggedFull(r.family_id || familyId, r)) : null)
+      || null;
+    const thumbUrl = r.thumbUrl
+      || (wantThumb ? cachedFor(r, 'thumb') || thumbByPath.get(pathForTaggedThumb(r.family_id || familyId, r)) : null)
+      || null;
+    if (r.moment_media_id) {
+      if (fullUrl && !r.fullUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'full', fullUrl, SIGNED_URL_TTL_SECONDS));
+      if (thumbUrl && !r.thumbUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'thumb', thumbUrl, SIGNED_URL_TTL_SECONDS));
+    }
+    return { ...r, fullUrl, thumbUrl };
+  });
+}
+
+/** Signs display/playback + poster URLs for one media item on detail open. */
+export async function getMediaDetailUrls(mediaId) {
+  if (!mediaId) return null;
+  const { data, error } = await supabase
+    .from('moment_media')
+    .select('id, family_id, media_type, metadata, quota_class')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const metadata = data.metadata || {};
+  const paths = [metadata.fullPath, metadata.thumbPath, metadata.posterPath].filter(Boolean);
+  const signed = new Map();
+  await signInChunks(paths, 200, signed);
+  return {
+    mediaId: data.id,
+    mediaType: data.media_type,
+    quotaClass: data.quota_class || 'optimized',
+    fullUrl: signed.get(metadata.fullPath) || null,
+    thumbUrl: signed.get(metadata.thumbPath) || null,
+    posterUrl: signed.get(metadata.posterPath) || null,
+  };
+}
+
+/**
+ * Legacy bounded-list read. Compatibility wrapper over listSharedTaggedPage
+ * for the ritual/firsts/library flows that want an in-memory list. Signs
+ * thumbnails only unless the caller opts into full URLs. Timeline uses the
+ * page API directly.
+ */
+export async function listSharedTagged(familyId, { limit = 5000, pageSize = 500, variant = 'thumb' } = {}) {
+  if (!familyId) return [];
+  const all = [];
+  let cursor = null;
+  while (all.length < limit) {
+    const { rows, nextCursor } = await listSharedTaggedPage(familyId, {
+      cursor,
+      limit: Math.min(pageSize, limit - all.length),
+    });
+    all.push(...rows);
+    if (!nextCursor) break;
+    cursor = nextCursor;
+  }
+  return hydrateMediaUrls(all, { variant });
 }
 
 function pathForTaggedFull(familyId, row) {

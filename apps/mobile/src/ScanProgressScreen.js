@@ -96,7 +96,15 @@ export default function ScanProgressScreen() {
         ? {
           threshold: autoSaveConfig.threshold,
           save: async (assetId, match) => {
-            await Tags.setBaby({ familyId: family.id, assetId, isBaby: true, match });
+            // Auto-discovered videos save poster + metadata only; the user
+            // promotes them to playable videos explicitly.
+            await Tags.setBaby({
+              familyId: family.id,
+              assetId,
+              isBaby: true,
+              match,
+              videoPosterOnly: match?.mediaType === 'video',
+            });
             await recordRecentAutoSave({
               familyId: family.id,
               userId: user.id,

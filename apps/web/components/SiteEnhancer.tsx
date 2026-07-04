@@ -18,9 +18,21 @@ const giftCheckoutEndpoint = process.env.NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT 
 const partnerInquiryEndpoint = process.env.NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT || functionUrl("partner-inquiry");
 
 const prices: Record<string, string> = {
-  monthly: "$4.99 monthly",
-  annual: "$47.88 yearly",
-  gift: "$48 gift year",
+  family_monthly: "$7.99 monthly",
+  family_yearly: "$69.99 yearly",
+  vault_monthly: "$14.99 monthly",
+  vault_yearly: "$149.99 yearly",
+  gift_year: "$70 gift year",
+  gift_vault_year: "$150 Vault gift year",
+};
+
+const planSummaries: Record<string, string> = {
+  family_monthly: "Family plan, billed monthly",
+  family_yearly: "Family plan, billed yearly",
+  vault_monthly: "Vault plan, billed monthly",
+  vault_yearly: "Vault plan, billed yearly",
+  gift_year: "Gift year of Our Little World",
+  gift_vault_year: "Vault gift year of Our Little World",
 };
 
 function formPayload(form: HTMLFormElement) {
@@ -162,15 +174,10 @@ export default function SiteEnhancer() {
     const giftNotePreview = document.querySelector("[data-gift-note-preview]");
 
     const updateGiftPreview = () => {
-      if (planSelect && planSummary) {
-        const value = planSelect.value || "gift";
-        planSummary.textContent =
-          value === "annual"
-            ? "One year of Our Little World"
-            : value === "monthly"
-              ? "First month of Our Little World"
-              : "Gift year of Our Little World";
-        if (planPrice) planPrice.textContent = prices[value] || prices.gift;
+      if (planSelect) {
+        const value = planSelect.value || "gift_year";
+        if (planSummary) planSummary.textContent = planSummaries[value] || planSummaries.gift_year;
+        if (planPrice) planPrice.textContent = prices[value] || prices.gift_year;
       }
 
       if (giftRecipient && giftRecipientName) {
@@ -211,7 +218,7 @@ export default function SiteEnhancer() {
         const payload = formPayload(form);
 
         if (kind === "self") {
-          const plan = payload.plan || "annual";
+          const plan = payload.plan || "family_yearly";
           if (checkoutEndpoint) {
             try {
               setStatus(status, "Opening secure checkout...");

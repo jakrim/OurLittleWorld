@@ -80,13 +80,28 @@ export default function TermsPage() {
           <PolicyItem title="Subscriptions and Payments">
             <p>
               One family subscription currently covers one private family space for one child and
-              the included caregiver features in the app. Launch pricing is $4.99 monthly or
-              $47.88 yearly unless another price is shown at checkout.
+              the included caregiver features in the app. The Family plan is $7.99 monthly or
+              $69.99 yearly. The Vault plan is $14.99 monthly or $149.99 yearly, unless another
+              price is shown at checkout.
             </p>
             <p>
               Native app subscriptions are managed by Apple App Store or Google Play. Website
               subscriptions and gift purchases are processed by Stripe. Our Little World does not
               store full card numbers.
+            </p>
+          </PolicyItem>
+
+          <PolicyItem title="Media Storage and Quality">
+            <p>
+              The Family plan stores optimized app-quality copies of photos and videos by default,
+              within the plan&apos;s included storage and video limits. The Vault plan additionally
+              includes original-quality backup for selected photos and videos. Our Little World is
+              not a full-device photo library backup unless original backup is enabled for
+              selected media on an eligible plan.
+            </p>
+            <p>
+              Video processing may include upload, encoding, storage, streaming, and delivery
+              through media infrastructure providers.
             </p>
           </PolicyItem>
 

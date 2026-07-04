@@ -13,9 +13,11 @@ import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
 import {
   FAMILY_MONTHLY_PRODUCT_ID,
-  FAMILY_PRODUCT_IDS,
   FAMILY_YEARLY_PRODUCT_ID,
+  SUBSCRIPTION_PRODUCT_IDS,
   SUPPORT_EMAIL,
+  VAULT_MONTHLY_PRODUCT_ID,
+  VAULT_YEARLY_PRODUCT_ID,
   verifyStorePurchase,
 } from './billing';
 import {
@@ -25,6 +27,7 @@ import {
   Eyebrow,
   Field,
   Screen,
+  SegmentedControl,
   Title,
   radius,
   shadow,
@@ -32,21 +35,46 @@ import {
   useTheme,
 } from './ui';
 
-const FALLBACK_PRODUCTS = [
+const TIERS = [
   {
-    id: FAMILY_YEARLY_PRODUCT_ID,
-    title: 'Yearly family plan',
-    displayPrice: '$47.88/year',
-    cadence: 'Best value',
-    detail: '$3.99 per month, billed yearly',
+    key: 'family',
+    name: 'Family',
+    badge: 'Best for most families',
+    tagline: 'Private baby book for the moments you choose to keep.',
+    cta: 'Start Family',
+    products: {
+      yearly: { id: FAMILY_YEARLY_PRODUCT_ID, displayPrice: '$69.99/year' },
+      monthly: { id: FAMILY_MONTHLY_PRODUCT_ID, displayPrice: '$7.99/month' },
+    },
+    features: [
+      '300 saved video minutes',
+      'App-quality photos and videos',
+      'One child and one invited co-parent',
+      'No original backup',
+    ],
   },
   {
-    id: FAMILY_MONTHLY_PRODUCT_ID,
-    title: 'Monthly family plan',
-    displayPrice: '$4.99/month',
-    cadence: 'Monthly',
-    detail: 'Start month to month',
+    key: 'vault',
+    name: 'Vault',
+    badge: 'For video-heavy families',
+    tagline: 'For families with lots of video and original keepsakes.',
+    cta: 'Start Vault',
+    products: {
+      yearly: { id: VAULT_YEARLY_PRODUCT_ID, displayPrice: '$149.99/year' },
+      monthly: { id: VAULT_MONTHLY_PRODUCT_ID, displayPrice: '$14.99/month' },
+    },
+    features: [
+      '1,000 saved video minutes',
+      'Longer videos',
+      'Original backup for selected media',
+      '100 GB family archive',
+    ],
   },
+];
+
+const CADENCE_OPTIONS = [
+  { value: 'yearly', label: 'Yearly' },
+  { value: 'monthly', label: 'Monthly' },
 ];
 
 export default function PurchaseScreen() {
@@ -54,7 +82,8 @@ export default function PurchaseScreen() {
   const { user } = useAuth();
   const { family } = useFamily();
   const { refresh, redeemCode } = useBilling();
-  const [selectedProductId, setSelectedProductId] = useState(FAMILY_YEARLY_PRODUCT_ID);
+  const [cadence, setCadence] = useState('yearly');
+  const [selectedTierKey, setSelectedTierKey] = useState('family');
   const [busyProductId, setBusyProductId] = useState(null);
   const [restoring, setRestoring] = useState(false);
   const [code, setCode] = useState('');
@@ -65,14 +94,14 @@ export default function PurchaseScreen() {
   const onPurchaseSuccess = useCallback(async (purchase) => {
     if (!family?.id || verifyingRef.current) return;
     verifyingRef.current = true;
-    setBusyProductId(purchase.productId || selectedProductId);
+    setBusyProductId(purchase.productId || null);
     setStatus('Verifying purchase...');
     try {
       await verifyStorePurchase({
         familyId: family.id,
         purchase,
         provider: Platform.OS === 'ios' ? 'apple' : 'google',
-        productId: purchase.productId || selectedProductId,
+        productId: purchase.productId,
       });
       await finishTransaction({ purchase, isConsumable: false });
       await refresh();
@@ -88,7 +117,7 @@ export default function PurchaseScreen() {
       verifyingRef.current = false;
       setBusyProductId(null);
     }
-  }, [family?.id, refresh, selectedProductId]);
+  }, [family?.id, refresh]);
 
   const onPurchaseError = useCallback((error) => {
     const message = String(error?.message || '');
@@ -114,29 +143,32 @@ export default function PurchaseScreen() {
 
   useEffect(() => {
     if (!connected) return;
-    fetchProducts({ skus: FAMILY_PRODUCT_IDS, type: 'subs' }).catch((err) => {
+    fetchProducts({ skus: SUBSCRIPTION_PRODUCT_IDS, type: 'subs' }).catch((err) => {
       setStatus(err?.message || 'Products are not available yet.');
     });
   }, [connected, fetchProducts]);
 
-  const products = useMemo(() => {
+  // Merge store products into the tier cards; fall back to plan pricing copy
+  // when the store hasn't answered yet.
+  const tiers = useMemo(() => {
     const byId = new Map((subscriptions || []).map((item) => [item.id, item]));
-    return FALLBACK_PRODUCTS.map((fallback) => {
-      const product = byId.get(fallback.id);
+    return TIERS.map((tier) => {
+      const base = tier.products[cadence];
+      const native = byId.get(base.id);
       return {
-        ...fallback,
-        native: product,
-        title: product?.displayName || product?.title || fallback.title,
-        displayPrice: product?.displayPrice || fallback.displayPrice,
+        ...tier,
+        productId: base.id,
+        displayPrice: native?.displayPrice ? `${native.displayPrice}/${cadence === 'yearly' ? 'year' : 'month'}` : base.displayPrice,
+        native,
       };
     });
-  }, [subscriptions]);
+  }, [subscriptions, cadence]);
 
-  const selectedProduct = products.find((item) => item.id === selectedProductId) || products[0];
+  const selectedProduct = tiers.find((tier) => tier.key === selectedTierKey) || tiers[0];
 
   const startPurchase = async () => {
     if (!family?.id || !user?.id || !selectedProduct) return;
-    setBusyProductId(selectedProduct.id);
+    setBusyProductId(selectedProduct.productId);
     setStatus('Opening store purchase...');
     try {
       const offerToken = firstGoogleOfferToken(selectedProduct.native);
@@ -144,14 +176,14 @@ export default function PurchaseScreen() {
         type: 'subs',
         request: {
           apple: {
-            sku: selectedProduct.id,
+            sku: selectedProduct.productId,
             appAccountToken: user.id,
           },
           google: {
-            skus: [selectedProduct.id],
+            skus: [selectedProduct.productId],
             obfuscatedAccountId: user.id,
             subscriptionOffers: offerToken
-              ? [{ sku: selectedProduct.id, offerToken }]
+              ? [{ sku: selectedProduct.productId, offerToken }]
               : undefined,
           },
         },
@@ -172,7 +204,7 @@ export default function PurchaseScreen() {
         onlyIncludeActiveItemsIOS: true,
       });
       const purchase = (purchases || [])
-        .filter((item) => FAMILY_PRODUCT_IDS.includes(item.productId))
+        .filter((item) => SUBSCRIPTION_PRODUCT_IDS.includes(item.productId))
         .sort((a, b) => Number(b.transactionDate || 0) - Number(a.transactionDate || 0))[0];
       if (!purchase) {
         setStatus('No active family subscription was found on this store account.');
@@ -231,27 +263,27 @@ export default function PurchaseScreen() {
           <Ionicons name="lock-closed" size={22} color={theme.colors.onPrimary} />
         </View>
         <Eyebrow>Private family archive</Eyebrow>
-        <Title style={styles.title}>Start your family plan.</Title>
+        <Title style={styles.title}>Choose the family archive that fits this season.</Title>
         <Body style={[styles.lead, { color: theme.semantic.textSoft }]}>
-          One subscription unlocks one private family space for {family?.babyName || 'your child'} and the co-parent you invite.
+          Every plan keeps your private baby book for one child and one invited co-parent. Family saves beautiful app-quality memories. Vault adds longer videos and original backup.
         </Body>
       </View>
 
+      <SegmentedControl
+        value={cadence}
+        options={CADENCE_OPTIONS}
+        onChange={setCadence}
+      />
+
       <View style={styles.planList}>
-        {products.map((product) => (
-          <PlanOption
-            key={product.id}
-            product={product}
-            active={selectedProductId === product.id}
-            onPress={() => setSelectedProductId(product.id)}
+        {tiers.map((tier) => (
+          <TierCard
+            key={tier.key}
+            tier={tier}
+            active={selectedTierKey === tier.key}
+            onPress={() => setSelectedTierKey(tier.key)}
           />
         ))}
-      </View>
-
-      <View style={styles.featureList}>
-        <Feature icon="images-outline" title="Photos, notes, firsts, voice, and letters in one private place" />
-        <Feature icon="people-outline" title="Creator and one co-parent share the same paid family space" />
-        <Feature icon="gift-outline" title="Redeem a gift or partner code from the website" />
       </View>
 
       <View style={styles.legalNotice}>
@@ -273,10 +305,10 @@ export default function PurchaseScreen() {
 
       <Button
         onPress={startPurchase}
-        loading={busyProductId === selectedProduct?.id}
+        loading={busyProductId === selectedProduct?.productId}
         disabled={!selectedProduct || !!busyProductId || redeeming || restoring}
       >
-        Continue with {selectedProduct.displayPrice}
+        {selectedProduct.cta} — {selectedProduct.displayPrice}
       </Button>
 
       <View style={styles.secondaryActions}>
@@ -322,12 +354,13 @@ export default function PurchaseScreen() {
   );
 }
 
-function PlanOption({ product, active, onPress }) {
+function TierCard({ tier, active, onPress }) {
   const theme = useTheme();
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="radio"
+      accessibilityLabel={`${tier.name} plan, ${tier.displayPrice}`}
       accessibilityState={{ checked: active }}
       style={[
         styles.planOption,
@@ -337,27 +370,29 @@ function PlanOption({ product, active, onPress }) {
         },
       ]}
     >
-      <View style={styles.planCopy}>
-        <Body style={styles.planTitle}>{product.title}</Body>
-        <Caption>{product.detail}</Caption>
+      <View style={styles.tierHeader}>
+        <View style={styles.planCopy}>
+          <Body style={styles.planTitle}>{tier.name}</Body>
+          <Caption>{tier.tagline}</Caption>
+        </View>
+        <View style={styles.planPrice}>
+          <Caption style={{ color: active ? theme.semantic.primary : theme.semantic.textMuted }}>{tier.badge}</Caption>
+          <Body style={styles.planAmount}>{tier.displayPrice}</Body>
+        </View>
       </View>
-      <View style={styles.planPrice}>
-        <Caption style={{ color: active ? theme.semantic.primary : theme.semantic.textMuted }}>{product.cadence}</Caption>
-        <Body style={styles.planAmount}>{product.displayPrice}</Body>
+      <View style={styles.tierFeatures}>
+        {tier.features.map((feature) => (
+          <View key={feature} style={styles.feature}>
+            <Ionicons
+              name={feature.startsWith('No ') ? 'remove-circle-outline' : 'checkmark-circle'}
+              size={15}
+              color={feature.startsWith('No ') ? theme.semantic.textMuted : theme.semantic.primary}
+            />
+            <Caption style={styles.featureText}>{feature}</Caption>
+          </View>
+        ))}
       </View>
     </Pressable>
-  );
-}
-
-function Feature({ icon, title }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.feature}>
-      <View style={[styles.featureIcon, { backgroundColor: theme.colors.primarySoft }]}>
-        <Ionicons name={icon} size={16} color={theme.semantic.primary} />
-      </View>
-      <Caption style={styles.featureText}>{title}</Caption>
-    </View>
   );
 }
 
@@ -402,10 +437,16 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: radius.lg,
     padding: space.lg,
+    gap: space.md,
+  },
+  tierHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: space.md,
+  },
+  tierFeatures: {
+    gap: space.xs,
   },
   planCopy: {
     flex: 1,
@@ -421,20 +462,10 @@ const styles = StyleSheet.create({
   planAmount: {
     fontWeight: '800',
   },
-  featureList: {
-    gap: space.md,
-  },
   feature: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
-  },
-  featureIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.sm,
   },
   featureText: {
     flex: 1,

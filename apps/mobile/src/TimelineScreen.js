@@ -39,7 +39,8 @@ import {
   radius,
   shadow,
 } from './ui';
-import { listSharedTagged, deleteForTag } from './photoSync';
+import * as mediaDb from './mediaDb';
+import { deleteForTag, hydrateMediaUrls, listSharedTaggedPage, resumePendingUploadJobs } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
 import { Tags, Memories } from './storage';
 import { useFamily } from './FamilyContext';
@@ -80,9 +81,12 @@ export default function TimelineScreen() {
   const [tab, setTab] = useState('timeline');
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Shared timeline (cloud)
+  // Shared timeline (cloud) — cursor-paged, thumbnails hydrated per page.
   const [shared, setShared] = useState([]);
   const [sharedLoading, setSharedLoading] = useState(false);
+  const [sharedLoadingMore, setSharedLoadingMore] = useState(false);
+  const sharedCursor = useRef(null);
+  const TIMELINE_PAGE_SIZE = 60;
 
   // Local browse
   const [photos, setPhotos] = useState([]);
@@ -107,25 +111,72 @@ export default function TimelineScreen() {
 
   // ─── Loaders ───────────────────────────────────────────────────────────────
 
+  const dedupeShared = (list) => {
+    const seen = new Set();
+    const deduped = [];
+    for (const p of list) {
+      const k = `${p.asset_owner_user_id}:${p.asset_id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(p);
+    }
+    return deduped;
+  };
+
   const loadShared = useCallback(async () => {
     if (!family) return;
     setSharedLoading(true);
     try {
-      const list = await listSharedTagged(family.id, { limit: 500 });
-      // Defensive dedupe by (owner:asset).
-      const seen = new Set();
-      const deduped = [];
-      for (const p of list) {
-        const k = `${p.asset_owner_user_id}:${p.asset_id}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        deduped.push(p);
-      }
-      setShared(deduped);
+      const { rows, nextCursor } = await listSharedTaggedPage(family.id, { limit: TIMELINE_PAGE_SIZE });
+      const hydrated = await hydrateMediaUrls(rows, { variant: 'thumb' });
+      sharedCursor.current = nextCursor;
+      setShared(dedupeShared(hydrated));
+      try {
+        mediaDb.cacheTaggedRows(family.id, rows);
+      } catch {}
     } finally {
       setSharedLoading(false);
     }
   }, [family]);
+
+  // Instant archive: render the SQLite cache before the network answers,
+  // and retry any upload jobs that survived a restart.
+  useEffect(() => {
+    if (!family?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const cached = mediaDb.readCachedTaggedRows(family.id, { limit: TIMELINE_PAGE_SIZE });
+        if (!alive || !cached.length) return;
+        const hydrated = await hydrateMediaUrls(cached, { variant: 'thumb' });
+        if (!alive) return;
+        setShared((prev) => (prev.length ? prev : dedupeShared(hydrated)));
+      } catch {}
+    })();
+    resumePendingUploadJobs({ familyId: family.id }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [family?.id]);
+
+  const loadMoreShared = useCallback(async () => {
+    if (!family || sharedLoading || sharedLoadingMore || !sharedCursor.current) return;
+    setSharedLoadingMore(true);
+    try {
+      const { rows, nextCursor } = await listSharedTaggedPage(family.id, {
+        cursor: sharedCursor.current,
+        limit: TIMELINE_PAGE_SIZE,
+      });
+      const hydrated = await hydrateMediaUrls(rows, { variant: 'thumb' });
+      sharedCursor.current = nextCursor;
+      if (hydrated.length) setShared((prev) => dedupeShared([...prev, ...hydrated]));
+      try {
+        mediaDb.cacheTaggedRows(family.id, rows);
+      } catch {}
+    } finally {
+      setSharedLoadingMore(false);
+    }
+  }, [family, sharedLoading, sharedLoadingMore]);
 
   const loadLocalInitial = useCallback(async () => {
     if (!family) return;
@@ -291,7 +342,12 @@ export default function TimelineScreen() {
   // ─── Actions ───────────────────────────────────────────────────────────────
 
   const onShareMoment = useCallback(async (photo) => {
-    const sourceUri = photo?.fullUrl || photo?.thumbUrl;
+    let sourceUri = photo?.fullUrl;
+    if (!sourceUri && photo) {
+      // Full URLs are no longer signed for the whole page — hydrate on demand.
+      const [hydrated] = await hydrateMediaUrls([photo], { variant: 'full' }).catch(() => []);
+      sourceUri = hydrated?.fullUrl || photo?.thumbUrl;
+    }
     if (!sourceUri) return;
     const photoKey = `${photo.asset_owner_user_id}:${photo.asset_id}`;
     const age = family?.babyBirthday && photo?.creation_time
@@ -505,6 +561,13 @@ export default function TimelineScreen() {
               />
             )}
             ItemSeparatorComponent={MonthSectionSeparator}
+            onEndReachedThreshold={0.8}
+            onEndReached={loadMoreShared}
+            ListFooterComponent={sharedLoadingMore ? (
+              <View style={{ paddingVertical: 24 }}>
+                <ActivityIndicator color={colors.coral} />
+              </View>
+            ) : null}
             ListHeaderComponent={(
               <TimelineHeader
                 forYou={forYou}

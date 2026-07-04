@@ -14,6 +14,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, shadow, space, useTheme } from './ui';
 import { useFamily } from './FamilyContext';
+import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { createMomentWithMedia } from './moments';
 
 const SECONDARY_ACTIONS = [
@@ -129,7 +130,7 @@ export default function AddSheetScreen() {
 
   const clearVoice = () => setVoice(null);
 
-  const saveMoment = async () => {
+  const saveMoment = async ({ videoPosterOnly = false } = {}) => {
     if (!family?.id) return;
     setSaving(true);
     try {
@@ -141,10 +142,18 @@ export default function AddSheetScreen() {
         tags,
         assets,
         voice,
+        videoPosterOnly,
       });
       router.replace('/timeline');
     } catch (err) {
-      Alert.alert('Could not save moment', err?.message || String(err));
+      if (isMediaPolicyError(err)) {
+        promptOverLimitVideo({
+          onPosterOnly: () => saveMoment({ videoPosterOnly: true }),
+          onSeeVault: () => router.push('/purchase'),
+        });
+      } else {
+        Alert.alert('Could not save moment', err?.message || String(err));
+      }
     } finally {
       setSaving(false);
     }

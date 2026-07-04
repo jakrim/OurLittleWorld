@@ -174,19 +174,48 @@ export async function assertFamilyWriter(familyId: string, userId: string) {
   }
 }
 
+export const SUBSCRIPTION_PLANS: Record<string, { planKey: string; priceEnv: string; label: string }> = {
+  family_monthly: { planKey: 'family_monthly', priceEnv: 'STRIPE_PRICE_FAMILY_MONTHLY', label: 'Family monthly' },
+  family_yearly: { planKey: 'family_yearly', priceEnv: 'STRIPE_PRICE_FAMILY_YEARLY', label: 'Family yearly' },
+  vault_monthly: { planKey: 'vault_monthly', priceEnv: 'STRIPE_PRICE_VAULT_MONTHLY', label: 'Vault monthly' },
+  vault_yearly: { planKey: 'vault_yearly', priceEnv: 'STRIPE_PRICE_VAULT_YEARLY', label: 'Vault yearly' },
+};
+
 export function planFromInput(plan: string | undefined) {
   const normalized = String(plan || '').trim().toLowerCase();
-  if (['monthly', 'family_monthly', 'month'].includes(normalized)) {
-    return {
-      planKey: 'family_monthly',
-      priceEnv: 'STRIPE_PRICE_FAMILY_MONTHLY',
-      label: 'Monthly family plan',
-    };
+  if (['monthly', 'family_monthly', 'month'].includes(normalized)) return SUBSCRIPTION_PLANS.family_monthly;
+  if (normalized === 'vault_monthly') return SUBSCRIPTION_PLANS.vault_monthly;
+  if (['vault_yearly', 'vault_annual'].includes(normalized)) return SUBSCRIPTION_PLANS.vault_yearly;
+  return SUBSCRIPTION_PLANS.family_yearly;
+}
+
+export function giftPlanFromInput(plan: string | undefined) {
+  const normalized = String(plan || '').trim().toLowerCase();
+  if (['gift_vault_year', 'vault'].includes(normalized)) {
+    return { planKey: 'gift_vault_year', priceEnv: 'STRIPE_PRICE_GIFT_VAULT_YEAR', kind: 'gift_vault_year', label: 'Vault gift year' };
   }
+  return { planKey: 'gift_year', priceEnv: 'STRIPE_PRICE_GIFT_YEAR', kind: 'gift_year', label: 'Family gift year' };
+}
+
+export function normalizePlanKey(value: unknown, fallback = 'family_yearly') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return SUBSCRIPTION_PLANS[normalized] ? normalized : fallback;
+}
+
+// Mirrors public.plan_storage_limits in the database; used to decorate
+// entitlement responses without an extra round trip.
+export function limitsForPlan(planKey: string | null | undefined) {
+  const vault = ['vault_monthly', 'vault_yearly', 'gift_vault_year'].includes(String(planKey || ''));
   return {
-    planKey: 'family_yearly',
-    priceEnv: 'STRIPE_PRICE_FAMILY_YEARLY',
-    label: 'Yearly family plan',
+    storage_tier: vault ? 'vault' : planKey === 'partner_year' ? 'partner' : planKey === 'comp_year' ? 'comp' : 'family',
+    media_quota_bytes: vault ? 100000000000 : 20000000000,
+    optimized_media_quota_bytes: vault ? 100000000000 : 20000000000,
+    original_quota_bytes: vault ? 100000000000 : 0,
+    video_quota_seconds: vault ? 60000 : 18000,
+    video_quota_bytes: vault ? 50000000000 : 10000000000,
+    originals_enabled: vault,
+    max_video_duration_sec: vault ? 600 : 120,
+    max_video_source_bytes: vault ? 2000000000 : 500000000,
   };
 }
 

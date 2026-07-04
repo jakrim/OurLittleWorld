@@ -1,0 +1,17 @@
+# OLW media gateway (plan: "R2 And Worker Media Gateway").
+# Deploy AFTER R2 is enabled and the olw-originals bucket exists:
+#   npx wrangler deploy
+#   npx wrangler secret put MEDIA_SESSION_SECRET   # must match the Supabase secret
+name = "olw-media-gateway"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+[[r2_buckets]]
+binding = "ORIGINALS"
+bucket_name = "olw-originals"
+
+[vars]
+STREAM_CUSTOMER_DOMAIN = "customer-jogvhkgc1pngb2is.cloudflarestream.com"
+
+[observability]
+enabled = true

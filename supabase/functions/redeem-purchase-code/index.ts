@@ -2,6 +2,7 @@ import {
   corsHeaders,
   errorResponse,
   json,
+  limitsForPlan,
   readJson,
   requireUser,
   rpc,
@@ -23,7 +24,10 @@ Deno.serve(async (req) => {
       target_family_id: familyId,
     }, token);
 
-    return json({ entitlement: Array.isArray(result) ? result[0] : result });
+    const entitlement = Array.isArray(result) ? result[0] : result;
+    return json({
+      entitlement: entitlement ? { ...entitlement, ...limitsForPlan(entitlement.plan_key) } : entitlement,
+    });
   } catch (error) {
     return errorResponse(error);
   }

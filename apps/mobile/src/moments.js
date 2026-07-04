@@ -2,6 +2,13 @@ import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
+import {
+  assertVideoWithinPlan,
+  fileSizeOf,
+  finalizeMediaUpload,
+  releaseMediaUpload,
+  reserveMediaUpload,
+} from './mediaPolicy';
 import { supabase } from './supabase';
 
 const BUCKET = 'family-photos';
@@ -177,13 +184,18 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
   });
   if (insertErr) throw insertErr;
 
+  let reservationId = null;
   try {
     const full = await resizeImage(asset.uri, asset.width, asset.height, FULL_MAX_DIM, FULL_QUALITY);
     const thumb = await resizeImage(full.uri, full.width, full.height, THUMB_MAX_DIM, THUMB_QUALITY);
+    const derivativeBytes = (fileSizeOf(full.uri) || 0) + (fileSizeOf(thumb.uri) || 0);
+    reservationId = await reserveMediaUpload({ familyId, mediaType: 'image', bytes: derivativeBytes });
     await Promise.all([
       uploadBuffer(fullPath, full.uri, 'image/jpeg'),
       uploadBuffer(thumbPath, thumb.uri, 'image/jpeg'),
     ]);
+    await finalizeMediaUpload(reservationId, { bytes: derivativeBytes });
+    reservationId = null;
 
     const { error: updateErr } = await supabase
       .from('moment_media')
@@ -222,6 +234,7 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
 
     return { id: mediaId, type: 'image', fullPath, thumbPath };
   } catch (err) {
+    await releaseMediaUpload(reservationId);
     await supabase
       .from('moment_media')
       .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
@@ -239,6 +252,8 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
   const fullPath = `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
   const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
+  const sourceBytes = asset.fileSize || fileSizeOf(asset.uri);
 
   const metadata = {
     source: 'manual-picker',
@@ -266,6 +281,13 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
     sort_order: index,
   });
   if (insertErr) throw insertErr;
+
+  const reservationId = await reserveMediaUpload({
+    familyId,
+    mediaType: 'video',
+    bytes: sourceBytes || 0,
+    durationSec: durationSec || 0,
+  });
 
   try {
     await uploadBuffer(fullPath, asset.uri, mimeType);
@@ -295,10 +317,83 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
         metadata: { ...metadata, ...posterMetadata },
         upload_status: 'ready',
         upload_error: null,
+        quota_class: 'optimized',
+        source_bytes: sourceBytes,
+        optimized_bytes: sourceBytes,
+        playback_seconds: durationSec ? Math.round(durationSec) : null,
       })
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
+    await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
     return { id: mediaId, type: 'video', fullPath, posterPath: posterMetadata.posterPath || null };
+  } catch (err) {
+    await releaseMediaUpload(reservationId);
+    await supabase
+      .from('moment_media')
+      .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
+      .eq('id', mediaId);
+    throw err;
+  }
+}
+
+/**
+ * Saves a picked video as a poster-only memory (no source upload). Used when
+ * a video is over the plan's playable limits and the user keeps the poster.
+ */
+async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, index }) {
+  const mediaId = uuid();
+  const posterId = uuid();
+  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
+  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
+
+  const poster = await createVideoPoster(asset);
+
+  const metadata = {
+    source: 'manual-picker',
+    pickerAssetId: asset.assetId || null,
+    posterPath,
+    posterTimeMs: poster.timeMs,
+    posterWidth: poster.width,
+    posterHeight: poster.height,
+    posterOnly: true,
+    sourceDurationSec: durationSec,
+    originalFileName: asset.fileName || null,
+    fileSize: asset.fileSize || null,
+  };
+
+  const { error: insertErr } = await supabase.from('moment_media').insert({
+    id: mediaId,
+    moment_id: momentId,
+    family_id: familyId,
+    owner_user_id: userId,
+    media_type: 'video',
+    local_identifier: localIdentifier,
+    file_name: asset.fileName || null,
+    mime_type: asset.mimeType || 'video/mp4',
+    poster_object: posterId,
+    width: asset.width || null,
+    height: asset.height || null,
+    duration_sec: durationSec,
+    metadata,
+    upload_status: 'uploading',
+    quota_class: 'poster_only',
+    sort_order: index,
+  });
+  if (insertErr) throw insertErr;
+
+  try {
+    await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
+    const { error: updateErr } = await supabase
+      .from('moment_media')
+      .update({
+        upload_status: 'ready',
+        upload_error: null,
+        optimized_bytes: fileSizeOf(poster.uri),
+      })
+      .eq('id', mediaId);
+    if (updateErr) throw updateErr;
+    return { id: mediaId, type: 'video', posterPath, posterOnly: true };
   } catch (err) {
     await supabase
       .from('moment_media')
@@ -358,6 +453,7 @@ export async function createMomentWithMedia({
   tags,
   assets = [],
   voice = null,
+  videoPosterOnly = false,
 }) {
   if (!familyId) throw new Error('No family selected');
   const cleanTitle = String(title || '').trim();
@@ -368,6 +464,19 @@ export async function createMomentWithMedia({
 
   if (!cleanTitle && !cleanNote && !pickedAssets.length && !voice?.uri) {
     throw new Error('Add a note, photo, video, or voice note first');
+  }
+
+  // Enforce video plan limits before anything is created, so an over-limit
+  // video leaves nothing half-saved and the caller can offer poster-only.
+  if (!videoPosterOnly) {
+    for (const asset of pickedAssets) {
+      if (mediaTypeFor(asset) !== 'video') continue;
+      await assertVideoWithinPlan({
+        familyId,
+        durationSec: asset.duration ? Number(asset.duration) / 1000 : null,
+        sourceBytes: asset.fileSize || fileSizeOf(asset.uri),
+      });
+    }
   }
 
   const userId = await currentUserId();
@@ -393,7 +502,9 @@ export async function createMomentWithMedia({
   for (let i = 0; i < pickedAssets.length; i += 1) {
     const asset = pickedAssets[i];
     const media = mediaTypeFor(asset) === 'video'
-      ? await uploadPickedVideo({ familyId, momentId, userId, asset, index: i })
+      ? (videoPosterOnly
+        ? await uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, index: i })
+        : await uploadPickedVideo({ familyId, momentId, userId, asset, index: i }))
       : await uploadPickedImage({ familyId, momentId, userId, asset, index: i, capturedAt });
     uploadedMedia.push(media);
   }
@@ -456,6 +567,7 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
         id,
         media_type,
         local_identifier,
+        owner_user_id,
         file_name,
         mime_type,
         width,
@@ -463,6 +575,7 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
         duration_sec,
         metadata,
         upload_status,
+        quota_class,
         sort_order
       ),
       voice_notes (
@@ -507,6 +620,7 @@ export async function getMomentDetail({ familyId, momentId }) {
         id,
         media_type,
         local_identifier,
+        owner_user_id,
         file_name,
         mime_type,
         width,
@@ -514,6 +628,7 @@ export async function getMomentDetail({ familyId, momentId }) {
         duration_sec,
         metadata,
         upload_status,
+        quota_class,
         sort_order
       ),
       voice_notes (

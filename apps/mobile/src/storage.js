@@ -57,14 +57,14 @@ export const Tags = {
    * their library. Awaiting this resolves once the upload (or deletion)
    * is complete; callers may opt to render an optimistic UI in parallel.
    */
-  async setBaby({ familyId, assetId, isBaby, match = null }) {
+  async setBaby({ familyId, assetId, isBaby, match = null, videoPosterOnly = false }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
     if (!assetId) throw new Error('Missing asset id');
 
     if (isBaby) {
-      await uploadForTag({ familyId, assetId, match });
+      await uploadForTag({ familyId, assetId, match, videoPosterOnly });
     } else {
       await deleteForTag({ familyId, assetOwnerUserId: userId, assetId });
     }

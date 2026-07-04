@@ -2,6 +2,7 @@ import {
   corsHeaders,
   errorResponse,
   json,
+  normalizePlanKey,
   recordBillingEvent,
   restInsert,
   restPatch,
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
 
 async function handleCheckoutCompleted(session: Record<string, any>) {
   const kind = session.metadata?.kind;
-  if (kind === 'gift_year') {
+  if (kind === 'gift_year' || kind === 'gift_vault_year') {
     await provisionGift(session);
     return;
   }
@@ -63,7 +64,7 @@ async function handleCheckoutCompleted(session: Record<string, any>) {
     ...(subscription?.metadata || {}),
     ...(session.metadata || {}),
   };
-  const planKey = metadata.plan_key === 'family_monthly' ? 'family_monthly' : 'family_yearly';
+  const planKey = normalizePlanKey(metadata.plan_key);
   const status = mapStripeStatus(subscription?.status || 'active');
 
   await restInsert('billing_subscriptions', {
@@ -75,8 +76,8 @@ async function handleCheckoutCompleted(session: Record<string, any>) {
     claim_code_hash: metadata.claim_code_hash || null,
     claim_code_hint: metadata.claim_code_hint || null,
     status,
-    current_period_start: unixToIso(subscription?.current_period_start),
-    current_period_end: unixToIso(subscription?.current_period_end),
+    current_period_start: unixToIso(periodStart(subscription)),
+    current_period_end: unixToIso(periodEnd(subscription)),
     cancel_at_period_end: Boolean(subscription?.cancel_at_period_end),
     latest_receipt: subscription || session,
     metadata,
@@ -108,6 +109,7 @@ async function provisionGift(session: Record<string, any>) {
     code_hash: metadata.code_hash,
     code_hint: metadata.code_hint || null,
     status: 'available',
+    plan_key: session.metadata?.kind === 'gift_vault_year' ? 'gift_vault_year' : 'gift_year',
     duration_days: 365,
     metadata: {
       stripe_checkout_session_id: session.id,
@@ -129,7 +131,7 @@ async function handleSubscription(subscription: Record<string, any>, eventType: 
     ...(existing?.metadata || {}),
     ...(subscription.metadata || {}),
   };
-  const planKey = metadata.plan_key === 'family_monthly' ? 'family_monthly' : 'family_yearly';
+  const planKey = normalizePlanKey(metadata.plan_key);
   const status = eventType === 'customer.subscription.deleted'
     ? 'canceled'
     : mapStripeStatus(subscription.status);
@@ -141,8 +143,8 @@ async function handleSubscription(subscription: Record<string, any>, eventType: 
     product_id: metadata.stripe_price_id || existing?.product_id || null,
     plan_key: planKey,
     status,
-    current_period_start: unixToIso(subscription.current_period_start),
-    current_period_end: unixToIso(subscription.current_period_end),
+    current_period_start: unixToIso(periodStart(subscription)),
+    current_period_end: unixToIso(periodEnd(subscription)),
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
     latest_receipt: subscription,
     metadata,
@@ -158,8 +160,8 @@ async function handleSubscription(subscription: Record<string, any>, eventType: 
       next_billing_owner_user_id: saved.purchaser_user_id || null,
       next_billing_owner_email: null,
       next_provider_subscription_id: subscriptionId,
-      next_starts_at: unixToIso(subscription.current_period_start),
-      next_expires_at: unixToIso(subscription.current_period_end),
+      next_starts_at: unixToIso(periodStart(subscription)),
+      next_expires_at: unixToIso(periodEnd(subscription)),
       next_grace_ends_at: null,
       next_metadata: { stripe_subscription_id: subscriptionId },
     });
@@ -217,6 +219,20 @@ async function handleChargeRefunded(charge: Record<string, any>) {
       { status: 'revoked' },
     );
   }
+}
+
+// Newer Stripe API versions report the current period on subscription items
+// rather than the subscription itself.
+function periodStart(subscription: Record<string, any> | null) {
+  return subscription?.current_period_start
+    ?? subscription?.items?.data?.[0]?.current_period_start
+    ?? null;
+}
+
+function periodEnd(subscription: Record<string, any> | null) {
+  return subscription?.current_period_end
+    ?? subscription?.items?.data?.[0]?.current_period_end
+    ?? null;
 }
 
 function mapStripeStatus(status?: string) {
