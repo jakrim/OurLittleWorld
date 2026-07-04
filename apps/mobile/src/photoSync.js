@@ -644,63 +644,155 @@ async function deleteEmptyMoment({ familyId, momentId }) {
   if (error) console.warn('deleteEmptyMoment', error.message);
 }
 
-/**
- * Returns the full ready-to-display family timeline (all members' tagged
- * photos), each row including pre-fetched signed URLs for thumb + full.
- *
- * Pages through Supabase in chunks because the JS client's PostgREST
- * connection caps each request at ~1000 rows. We keep paging until we run
- * dry or hit `maxRows` (defaults to 5000 — well past any single family's
- * realistic year of saved photos).
- */
-export async function listSharedTagged(familyId, { limit = 5000, pageSize = 1000 } = {}) {
-  if (!familyId) return [];
+const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, metadata)';
 
-  const all = [];
-  let from = 0;
-  while (all.length < limit) {
-    const to = Math.min(from + pageSize - 1, limit - 1);
-    const { data, error } = await supabase
-      .from('photo_tags')
-      .select(
-        'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, metadata)',
-      )
-      .eq('family_id', familyId)
-      .eq('upload_status', 'ready')
-      .order('creation_time', { ascending: false, nullsFirst: false })
-      .range(from, to);
-    if (error) {
-      console.warn('listSharedTagged', error.message);
-      break;
+function quoteFilterValue(value) {
+  return `"${String(value).replace(/"/g, '')}"`;
+}
+
+function normalizeTaggedRow(familyId, row) {
+  return {
+    ...row,
+    location: normalizeLocation(row),
+    media_type: row.moment_media?.media_type || 'image',
+    fullUrl: row.fullUrl || null,
+    thumbUrl: row.thumbUrl || null,
+  };
+}
+
+/**
+ * Keyset-paged family timeline. Orders by creation_time desc with
+ * (asset_owner_user_id, asset_id) as the stable tie-breaker; rows without a
+ * creation_time come last as their own cursor region. Returns raw rows —
+ * call hydrateMediaUrls() to sign only the variant the view needs.
+ */
+export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60 } = {}) {
+  if (!familyId) return { rows: [], nextCursor: null };
+
+  let query = supabase
+    .from('photo_tags')
+    .select(TAGGED_SELECT)
+    .eq('family_id', familyId)
+    .eq('upload_status', 'ready')
+    .order('creation_time', { ascending: false, nullsFirst: false })
+    .order('asset_owner_user_id', { ascending: true })
+    .order('asset_id', { ascending: true })
+    .limit(limit);
+
+  if (cursor?.nullRegion) {
+    query = query.is('creation_time', null);
+    if (cursor.o) {
+      query = query.or(
+        `asset_owner_user_id.gt.${quoteFilterValue(cursor.o)},and(asset_owner_user_id.eq.${quoteFilterValue(cursor.o)},asset_id.gt.${quoteFilterValue(cursor.a)})`,
+      );
     }
-    const batch = data || [];
-    all.push(...batch);
-    if (batch.length < pageSize) break;
-    from += pageSize;
+  } else {
+    query = query.not('creation_time', 'is', null);
+    if (cursor?.t) {
+      const t = quoteFilterValue(cursor.t);
+      const o = quoteFilterValue(cursor.o);
+      query = query.or(
+        `creation_time.lt.${t},and(creation_time.eq.${t},asset_owner_user_id.gt.${o}),and(creation_time.eq.${t},asset_owner_user_id.eq.${o},asset_id.gt.${quoteFilterValue(cursor.a)})`,
+      );
+    }
   }
 
-  if (!all.length) return [];
+  const { data, error } = await query;
+  if (error) {
+    console.warn('listSharedTaggedPage', error.message);
+    return { rows: [], nextCursor: null };
+  }
 
-  // Batch-sign every URL — Storage caps each `createSignedUrls` call too,
-  // so chunk those as well.
-  const SIGN_CHUNK = 200;
-  const fullPathArr = all.map((r) => pathForTaggedFull(familyId, r)).filter(Boolean);
-  const thumbPathArr = all.map((r) => pathForTaggedThumb(familyId, r)).filter(Boolean);
+  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
+  const last = rows[rows.length - 1];
+  let nextCursor = null;
+  if (rows.length === limit && last) {
+    nextCursor = cursor?.nullRegion || !last.creation_time
+      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
+      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
+  } else if (!cursor?.nullRegion) {
+    // Non-null region ran dry — the null-creation_time stragglers come next.
+    nextCursor = { nullRegion: true, o: '', a: '' };
+  }
+  return { rows, nextCursor };
+}
+
+/**
+ * Signs URLs for only the requested variant:
+ *  - 'thumb': grid views — thumbnail or video poster
+ *  - 'full':  detail/share/export — display or playback source
+ * Rows already hydrated for that variant are left untouched.
+ */
+export async function hydrateMediaUrls(rows, { variant = 'thumb' } = {}) {
+  const list = rows || [];
+  if (!list.length) return [];
+  const familyId = list[0]?.family_id;
+  const wantFull = variant === 'full' || variant === 'all';
+  const wantThumb = variant === 'thumb' || variant === 'all';
 
   const fullByPath = new Map();
   const thumbByPath = new Map();
-  await Promise.all([
-    signInChunks(fullPathArr, SIGN_CHUNK, fullByPath),
-    signInChunks(thumbPathArr, SIGN_CHUNK, thumbByPath),
-  ]);
+  const jobs = [];
+  if (wantFull) {
+    const paths = list.filter((r) => !r.fullUrl).map((r) => pathForTaggedFull(r.family_id || familyId, r)).filter(Boolean);
+    jobs.push(signInChunks(paths, 200, fullByPath));
+  }
+  if (wantThumb) {
+    const paths = list.filter((r) => !r.thumbUrl).map((r) => pathForTaggedThumb(r.family_id || familyId, r)).filter(Boolean);
+    jobs.push(signInChunks(paths, 200, thumbByPath));
+  }
+  await Promise.all(jobs);
 
-  return all.map((r) => ({
+  return list.map((r) => ({
     ...r,
-    location: normalizeLocation(r),
-    media_type: r.moment_media?.media_type || 'image',
-    fullUrl: fullByPath.get(pathForTaggedFull(familyId, r)) || null,
-    thumbUrl: thumbByPath.get(pathForTaggedThumb(familyId, r)) || null,
+    fullUrl: r.fullUrl || fullByPath.get(pathForTaggedFull(r.family_id || familyId, r)) || null,
+    thumbUrl: r.thumbUrl || thumbByPath.get(pathForTaggedThumb(r.family_id || familyId, r)) || null,
   }));
+}
+
+/** Signs display/playback + poster URLs for one media item on detail open. */
+export async function getMediaDetailUrls(mediaId) {
+  if (!mediaId) return null;
+  const { data, error } = await supabase
+    .from('moment_media')
+    .select('id, family_id, media_type, metadata, quota_class')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const metadata = data.metadata || {};
+  const paths = [metadata.fullPath, metadata.thumbPath, metadata.posterPath].filter(Boolean);
+  const signed = new Map();
+  await signInChunks(paths, 200, signed);
+  return {
+    mediaId: data.id,
+    mediaType: data.media_type,
+    quotaClass: data.quota_class || 'optimized',
+    fullUrl: signed.get(metadata.fullPath) || null,
+    thumbUrl: signed.get(metadata.thumbPath) || null,
+    posterUrl: signed.get(metadata.posterPath) || null,
+  };
+}
+
+/**
+ * Legacy bounded-list read. Compatibility wrapper over listSharedTaggedPage
+ * for the ritual/firsts/library flows that want an in-memory list. Signs
+ * thumbnails only unless the caller opts into full URLs. Timeline uses the
+ * page API directly.
+ */
+export async function listSharedTagged(familyId, { limit = 5000, pageSize = 500, variant = 'thumb' } = {}) {
+  if (!familyId) return [];
+  const all = [];
+  let cursor = null;
+  while (all.length < limit) {
+    const { rows, nextCursor } = await listSharedTaggedPage(familyId, {
+      cursor,
+      limit: Math.min(pageSize, limit - all.length),
+    });
+    all.push(...rows);
+    if (!nextCursor) break;
+    cursor = nextCursor;
+  }
+  return hydrateMediaUrls(all, { variant });
 }
 
 function pathForTaggedFull(familyId, row) {

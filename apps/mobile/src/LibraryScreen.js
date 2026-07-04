@@ -70,7 +70,7 @@ export default function LibraryScreen() {
   const loadShared = useCallback(async () => {
     if (!family?.id) return;
     const [sharedRows, tagRows, momentRows, recentRows, uploadStatus] = await Promise.all([
-      listSharedTagged(family.id, { limit: 240 }).catch(() => []),
+      listSharedTagged(family.id, { limit: 90 }).catch(() => []),
       Tags.all(family.id).catch(() => ({})),
       listMomentArchive(family.id, { limit: 500 }).catch(() => []),
       user?.id ? getRecentAutoSaves({ familyId: family.id, userId: user.id }).catch(() => []) : [],

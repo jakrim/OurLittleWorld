@@ -36,7 +36,7 @@ export default function FirstLookRevealScreen() {
       setLoading(true);
       try {
         const [shared, members] = await Promise.all([
-          listSharedTagged(family.id, { limit: 2000 }),
+          listSharedTagged(family.id, { limit: 2000, variant: 'all' }),
           Family.members(family.id).catch(() => []),
         ]);
         if (!alive) return;
