@@ -195,6 +195,7 @@ export default function AddSheetScreen() {
           <Button
             variant="ghost"
             onPress={pickMedia}
+            testID="add-media-button"
             icon={<Ionicons name="images-outline" size={17} color={theme.semantic.primary} />}
           >
             Add photos or videos

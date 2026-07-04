@@ -33,12 +33,16 @@ export default {
       return withMetrics(new Response('Original backup is not included in this plan', { status: 403 }), 'denied');
     }
 
-    // 5. Stream playback: redirect to the HLS manifest.
+    // 5. Stream playback: redirect to a signed HLS manifest. Videos are
+    // uploaded with requireSignedURLs, so the raw UID URL never plays —
+    // only tokens minted here (after session auth) do.
     if (variant === 'stream') {
       if (!env.STREAM_CUSTOMER_DOMAIN) {
         return withMetrics(new Response('Stream is not configured', { status: 503 }), 'miss');
       }
-      const playback = `https://${env.STREAM_CUSTOMER_DOMAIN}/${objectId}/manifest/video.m3u8`;
+      const playbackToken = await signStreamToken(objectId, env);
+      const path = playbackToken || objectId;
+      const playback = `https://${env.STREAM_CUSTOMER_DOMAIN}/${path}/manifest/video.m3u8`;
       return withMetrics(Response.redirect(playback, 302), 'redirect');
     }
 
@@ -89,6 +93,46 @@ async function verifySession(token, secret) {
   } catch {
     return null;
   }
+}
+
+// Signs a short-lived Stream playback JWT (RS256 with the account signing
+// key). Returns null when signing is not configured, falling back to the
+// bare UID (which only works for videos without requireSignedURLs).
+async function signStreamToken(videoUid, env) {
+  try {
+    if (!env.STREAM_SIGNING_KEY_ID || !env.STREAM_SIGNING_JWK) return null;
+    const jwk = JSON.parse(new TextDecoder().decode(base64urlToBytes(env.STREAM_SIGNING_JWK)));
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const enc = (obj) => base64urlFromBytes(new TextEncoder().encode(JSON.stringify(obj)));
+    const header = enc({ alg: 'RS256', kid: env.STREAM_SIGNING_KEY_ID });
+    const payload = enc({
+      sub: videoUid,
+      kid: env.STREAM_SIGNING_KEY_ID,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const signature = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      new TextEncoder().encode(`${header}.${payload}`),
+    );
+    return `${header}.${payload}.${base64urlFromBytes(new Uint8Array(signature))}`;
+  } catch {
+    return null;
+  }
+}
+
+function base64urlFromBytes(bytes) {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 // 6. Emit cache hit/miss/request outcomes for the metrics pipeline.

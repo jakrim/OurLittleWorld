@@ -9,6 +9,13 @@ import {
   releaseMediaUpload,
   reserveMediaUpload,
 } from './mediaPolicy';
+import {
+  STREAM_SIMPLE_UPLOAD_MAX_BYTES,
+  createStreamUpload,
+  getMediaSession,
+  streamPlaybackUrl,
+  uploadToStream,
+} from './mediaSession';
 import { supabase } from './supabase';
 
 const BUCKET = 'family-photos';
@@ -249,16 +256,20 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
   const posterId = uuid();
   const ext = extensionFor({ mimeType: asset.mimeType, fileName: asset.fileName, fallback: 'mp4' });
   const mimeType = asset.mimeType || (ext === 'mov' ? 'video/quicktime' : 'video/mp4');
-  const fullPath = `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
   const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
   const sourceBytes = asset.fileSize || fileSizeOf(asset.uri);
 
+  // New playable videos go to Cloudflare Stream; sources past the simple
+  // upload cap stay on the legacy Supabase byte plane until tus lands.
+  const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
+  const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
+
   const metadata = {
     source: 'manual-picker',
     pickerAssetId: asset.assetId || null,
-    fullPath,
+    ...(fullPath ? { fullPath } : {}),
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
   };
@@ -272,25 +283,39 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
     local_identifier: localIdentifier,
     file_name: asset.fileName || null,
     mime_type: mimeType,
-    full_object: fullId,
+    full_object: useStream ? null : fullId,
     width: asset.width || null,
     height: asset.height || null,
-    duration_sec: asset.duration ? Number(asset.duration) / 1000 : null,
+    duration_sec: durationSec,
     metadata,
     upload_status: 'uploading',
     sort_order: index,
   });
   if (insertErr) throw insertErr;
 
-  const reservationId = await reserveMediaUpload({
-    familyId,
-    mediaType: 'video',
-    bytes: sourceBytes || 0,
-    durationSec: durationSec || 0,
-  });
-
+  let reservationId = null;
+  let streamUid = null;
   try {
-    await uploadBuffer(fullPath, asset.uri, mimeType);
+    if (useStream) {
+      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
+      reservationId = upload.reservationId;
+      streamUid = upload.uid;
+      await uploadToStream({
+        uploadURL: upload.uploadURL,
+        uri: asset.uri,
+        fileName: asset.fileName,
+        mimeType,
+      });
+    } else {
+      reservationId = await reserveMediaUpload({
+        familyId,
+        mediaType: 'video',
+        bytes: sourceBytes || 0,
+        durationSec: durationSec || 0,
+      });
+      await uploadBuffer(fullPath, asset.uri, mimeType);
+    }
+
     let posterMetadata = {};
     let posterObject = null;
     try {
@@ -318,6 +343,9 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
         upload_status: 'ready',
         upload_error: null,
         quota_class: 'optimized',
+        storage_provider: useStream ? 'stream' : 'supabase',
+        playback_provider: useStream ? 'stream' : 'supabase',
+        stream_uid: streamUid,
         source_bytes: sourceBytes,
         optimized_bytes: sourceBytes,
         playback_seconds: durationSec ? Math.round(durationSec) : null,
@@ -325,7 +353,7 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
-    return { id: mediaId, type: 'video', fullPath, posterPath: posterMetadata.posterPath || null };
+    return { id: mediaId, type: 'video', streamUid, posterPath: posterMetadata.posterPath || null };
   } catch (err) {
     await releaseMediaUpload(reservationId);
     await supabase
@@ -576,6 +604,9 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
         metadata,
         upload_status,
         quota_class,
+        storage_provider,
+        playback_provider,
+        stream_uid,
         sort_order
       ),
       voice_notes (
@@ -629,6 +660,9 @@ export async function getMomentDetail({ familyId, momentId }) {
         metadata,
         upload_status,
         quota_class,
+        storage_provider,
+        playback_provider,
+        stream_uid,
         sort_order
       ),
       voice_notes (
@@ -777,16 +811,21 @@ export async function deleteMoment({ familyId, momentId }) {
 
 async function hydrateMomentRows(familyId, rows) {
   const paths = [];
+  let hasStreamMedia = false;
   for (const moment of rows || []) {
     for (const media of moment.moment_media || []) {
       paths.push(media.metadata?.fullPath, media.metadata?.thumbPath, media.metadata?.posterPath);
+      if (media.stream_uid) hasStreamMedia = true;
     }
     for (const voice of moment.voice_notes || []) {
       const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
       if (voice.audio_object) paths.push(`${familyId}/moments/${moment.id}/voice/${voice.audio_object}.${ext}`);
     }
   }
-  const signed = await signPaths(paths);
+  const [signed, mediaSessionToken] = await Promise.all([
+    signPaths(paths),
+    hasStreamMedia ? getMediaSession(familyId).catch(() => null) : Promise.resolve(null),
+  ]);
 
   return (rows || []).map((moment) => ({
     ...moment,
@@ -797,7 +836,9 @@ async function hydrateMomentRows(familyId, rows) {
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
       .map((media) => ({
         ...media,
-        fullUrl: signed.get(media.metadata?.fullPath) || null,
+        fullUrl: media.stream_uid
+          ? streamPlaybackUrl(familyId, media.stream_uid, mediaSessionToken)
+          : signed.get(media.metadata?.fullPath) || null,
         thumbUrl: signed.get(media.metadata?.thumbPath) || null,
         posterUrl: signed.get(media.metadata?.posterPath) || null,
       })),

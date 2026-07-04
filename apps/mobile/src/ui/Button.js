@@ -32,6 +32,7 @@ export default function Button({
   fullWidth = true,
   style,
   haptic = 'selection',
+  testID,
   accessibilityLabel,
   accessibilityHint,
   accessibilityState,
@@ -73,6 +74,7 @@ export default function Button({
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         disabled={isDisabled}
+        testID={testID}
         accessibilityRole="button"
         accessibilityLabel={buttonLabel}
         accessibilityHint={accessibilityHint}

@@ -12,6 +12,13 @@ import {
   releaseMediaUpload,
   reserveMediaUpload,
 } from './mediaPolicy';
+import {
+  STREAM_SIMPLE_UPLOAD_MAX_BYTES,
+  createStreamUpload,
+  getMediaSession,
+  streamPlaybackUrl,
+  uploadToStream,
+} from './mediaSession';
 import { uuid } from './moments';
 import { supabase } from './supabase';
 
@@ -354,12 +361,15 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   const posterId = uuid();
   const ext = extensionForVideo(info);
   const mimeType = mimeTypeForVideo(ext);
-  const fullPath = `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
+  // New playable videos go to Cloudflare Stream; sources past the simple
+  // upload cap stay on the legacy Supabase byte plane until tus lands.
+  const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
+  const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
   const metadata = {
     source: 'library-review',
     localAssetId: assetId,
-    fullPath,
+    ...(fullPath ? { fullPath } : {}),
     posterPath,
     recognitionFrameTimeMs: match?.frameTimeMs ?? null,
     recognitionCandidateId: match?.candidateId || null,
@@ -389,7 +399,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
       local_identifier: assetId,
       file_name: info.fileName || match?.fileName || null,
       mime_type: mimeType,
-      full_object: fullId,
+      full_object: useStream ? null : fullId,
       poster_object: null,
       width: info.width || null,
       height: info.height || null,
@@ -425,15 +435,28 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   );
   if (upsertErr) throw upsertErr;
 
-  const reservationId = await reserveMediaUpload({
-    familyId,
-    mediaType: 'video',
-    bytes: sourceBytes || 0,
-    durationSec: durationSec || 0,
-  });
-
+  let reservationId = null;
+  let streamUid = null;
   try {
-    await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
+    if (useStream) {
+      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
+      reservationId = upload.reservationId;
+      streamUid = upload.uid;
+      await uploadToStream({
+        uploadURL: upload.uploadURL,
+        uri: info.localUri || info.uri,
+        fileName: info.fileName || match?.fileName,
+        mimeType,
+      });
+    } else {
+      reservationId = await reserveMediaUpload({
+        familyId,
+        mediaType: 'video',
+        bytes: sourceBytes || 0,
+        durationSec: durationSec || 0,
+      });
+      await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
+    }
 
     let posterObject = null;
     let posterMetadata = {};
@@ -459,7 +482,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
       supabase
         .from('photo_tags')
         .update({
-          storage_object: fullId,
+          storage_object: useStream ? null : fullId,
           thumb_object: posterObject,
           upload_status: 'ready',
           upload_error: null,
@@ -477,6 +500,9 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
           upload_status: 'ready',
           upload_error: null,
           quota_class: 'optimized',
+          storage_provider: useStream ? 'stream' : 'supabase',
+          playback_provider: useStream ? 'stream' : 'supabase',
+          stream_uid: streamUid,
           source_bytes: sourceBytes,
           optimized_bytes: sourceBytes,
           playback_seconds: durationSec ? Math.round(durationSec) : null,
@@ -487,7 +513,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     if (mediaDone.error) throw mediaDone.error;
 
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
-    return { fullId, posterId: posterObject };
+    return { fullId: useStream ? null : fullId, streamUid, posterId: posterObject };
   } catch (err) {
     await releaseMediaUpload(reservationId);
     await Promise.all([
@@ -712,7 +738,7 @@ async function deleteEmptyMoment({ familyId, momentId }) {
   if (error) console.warn('deleteEmptyMoment', error.message);
 }
 
-const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, metadata)';
+const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, stream_uid, metadata)';
 
 function quoteFilterValue(value) {
   return `"${String(value).replace(/"/g, '')}"`;
@@ -801,12 +827,19 @@ export async function hydrateMediaUrls(rows, { variant = 'thumb' } = {}) {
   // Reuse unexpired signed URLs from the local variant cache first.
   const cachedFor = (r, v) => safeCache(() => mediaDb.getCachedVariantUrl(r.moment_media_id, v)) || null;
 
+  // Stream playback URLs come from the media gateway, not Supabase signing.
+  const streamUidOf = (r) => r.stream_uid || r.moment_media?.stream_uid || null;
+  let mediaSessionToken = null;
+  if (wantFull && list.some((r) => streamUidOf(r))) {
+    mediaSessionToken = await getMediaSession(familyId).catch(() => null);
+  }
+
   const fullByPath = new Map();
   const thumbByPath = new Map();
   const jobs = [];
   if (wantFull) {
     const paths = list
-      .filter((r) => !r.fullUrl && !cachedFor(r, 'full'))
+      .filter((r) => !r.fullUrl && !streamUidOf(r) && !cachedFor(r, 'full'))
       .map((r) => pathForTaggedFull(r.family_id || familyId, r))
       .filter(Boolean);
     jobs.push(signInChunks(paths, 200, fullByPath));
@@ -821,14 +854,17 @@ export async function hydrateMediaUrls(rows, { variant = 'thumb' } = {}) {
   await Promise.all(jobs);
 
   return list.map((r) => {
+    const streamUid = streamUidOf(r);
     const fullUrl = r.fullUrl
+      || (wantFull && streamUid ? streamPlaybackUrl(r.family_id || familyId, streamUid, mediaSessionToken) : null)
       || (wantFull ? cachedFor(r, 'full') || fullByPath.get(pathForTaggedFull(r.family_id || familyId, r)) : null)
       || null;
     const thumbUrl = r.thumbUrl
       || (wantThumb ? cachedFor(r, 'thumb') || thumbByPath.get(pathForTaggedThumb(r.family_id || familyId, r)) : null)
       || null;
     if (r.moment_media_id) {
-      if (fullUrl && !r.fullUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'full', fullUrl, SIGNED_URL_TTL_SECONDS));
+      // Gateway stream URLs carry a short-lived session token — never cache those.
+      if (fullUrl && !r.fullUrl && !streamUid) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'full', fullUrl, SIGNED_URL_TTL_SECONDS));
       if (thumbUrl && !r.thumbUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'thumb', thumbUrl, SIGNED_URL_TTL_SECONDS));
     }
     return { ...r, fullUrl, thumbUrl };
