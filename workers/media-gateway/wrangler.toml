@@ -11,8 +11,7 @@ binding = "ORIGINALS"
 bucket_name = "olw-originals"
 
 [vars]
-# Cloudflare Stream customer subdomain, e.g. "customer-abc123.cloudflarestream.com"
-STREAM_CUSTOMER_DOMAIN = ""
+STREAM_CUSTOMER_DOMAIN = "customer-jogvhkgc1pngb2is.cloudflarestream.com"
 
 [observability]
 enabled = true

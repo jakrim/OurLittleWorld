@@ -62,26 +62,26 @@ export default {
 };
 
 async function verifySession(token, secret) {
-  if (!token || !secret) return null;
-  const [body, signature] = token.split('.');
-  if (!body || !signature) return null;
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
-  const valid = await crypto.subtle.verify(
-    'HMAC',
-    key,
-    base64urlToBytes(signature),
-    new TextEncoder().encode(body),
-  );
-  if (!valid) return null;
-
   try {
+    if (!token || !secret) return null;
+    const [body, signature] = token.split('.');
+    if (!body || !signature) return null;
+
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      base64urlToBytes(signature),
+      new TextEncoder().encode(body),
+    );
+    if (!valid) return null;
+
     const payload = JSON.parse(new TextDecoder().decode(base64urlToBytes(body)));
     if (!payload?.f || !payload?.exp) return null;
     if (payload.exp * 1000 < Date.now()) return null;
