@@ -24,10 +24,13 @@ import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
 import {
-  FAMILY_PRODUCT_IDS,
+  SUBSCRIPTION_PRODUCT_IDS,
   SUPPORT_EMAIL,
   createBillingPortal,
   entitlementStatusLabel,
+  formatBytes,
+  formatVideoMinutes,
+  getFamilyStorageUsage,
   openManageSubscription,
   verifyStorePurchase,
 } from './billing';
@@ -78,6 +81,16 @@ export default function SettingsMenuSheetScreen() {
   const [clearingReferences, setClearingReferences] = useState(false);
   const [billingBusy, setBillingBusy] = useState(null);
   const [purchaseCode, setPurchaseCode] = useState('');
+  const [storageUsage, setStorageUsage] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (activeEditor !== 'billing' || !family?.id) return () => { alive = false; };
+    getFamilyStorageUsage(family.id)
+      .then((usage) => { if (alive) setStorageUsage(usage); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activeEditor, family?.id]);
 
   useEffect(() => {
     let alive = true;
@@ -191,7 +204,7 @@ export default function SettingsMenuSheetScreen() {
         onlyIncludeActiveItemsIOS: true,
       });
       const purchase = (purchases || [])
-        .filter((item) => FAMILY_PRODUCT_IDS.includes(item.productId))
+        .filter((item) => SUBSCRIPTION_PRODUCT_IDS.includes(item.productId))
         .sort((a, b) => Number(b.transactionDate || 0) - Number(a.transactionDate || 0))[0];
       if (!purchase) {
         Alert.alert('No active purchase found', 'No active family subscription was found on this store account.');
@@ -461,6 +474,7 @@ export default function SettingsMenuSheetScreen() {
           {activeEditor === 'billing' ? (
             <BillingPanel
               entitlement={entitlement}
+              usage={storageUsage}
               code={purchaseCode}
               busy={billingBusy}
               onCodeChange={setPurchaseCode}
@@ -569,13 +583,14 @@ function FamilyHero({ family }) {
   );
 }
 
-function BillingPanel({ entitlement, code, busy, onCodeChange, onRedeem, onManage, onSupport }) {
+function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, onManage, onSupport }) {
   const theme = useTheme();
   const active = entitlement?.isActive;
   const ownerCopy = entitlement?.isBillingOwner
     ? 'You are the billing owner for this family.'
     : 'Billing owner changes are handled by support.';
   const expiry = entitlement?.expiresAt ? formatShortDate(entitlement.expiresAt) : null;
+  const showUsage = active && usage;
 
   return (
     <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
@@ -597,6 +612,27 @@ function BillingPanel({ entitlement, code, busy, onCodeChange, onRedeem, onManag
         One family subscription currently covers one child and one invited co-parent.
       </Caption>
       <Caption>{ownerCopy}</Caption>
+      {showUsage ? (
+        <View style={styles.referenceStats}>
+          <ReferenceStat
+            label={`of ${formatBytes(entitlement.optimizedMediaQuotaBytes)} used`}
+            value={formatBytes(usage.optimizedMediaBytes)}
+          />
+          <ReferenceStat
+            label={`of ${formatVideoMinutes(entitlement.videoQuotaSeconds)} video`}
+            value={formatVideoMinutes(usage.videoSeconds)}
+          />
+          <ReferenceStat
+            label="memories"
+            value={usage.objectCount}
+          />
+        </View>
+      ) : null}
+      {showUsage && entitlement.originalsEnabled ? (
+        <Caption>
+          Original backup: {formatBytes(usage.originalMediaBytes)} of {formatBytes(entitlement.originalQuotaBytes)} used.
+        </Caption>
+      ) : null}
 
       <Field
         label="Gift, website, or partner code"

@@ -5,6 +5,7 @@ import {
   env,
   errorResponse,
   json,
+  limitsForPlan,
   msToIso,
   readJson,
   recordBillingEvent,
@@ -14,7 +15,12 @@ import {
   unixToIso,
 } from '../_shared/billing.ts';
 
-const PRODUCT_IDS = new Set(['olw.family.monthly', 'olw.family.yearly']);
+const PLAN_BY_PRODUCT: Record<string, string> = {
+  'olw.family.monthly': 'family_monthly',
+  'olw.family.yearly': 'family_yearly',
+  'olw.vault.monthly': 'vault_monthly',
+  'olw.vault.yearly': 'vault_yearly',
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
@@ -29,7 +35,7 @@ Deno.serve(async (req) => {
     const provider = normalizeProvider(String(body.provider || purchase.store || purchase.platform || '').trim());
 
     if (!familyId) throw new HttpError(400, 'Family is required.');
-    if (!PRODUCT_IDS.has(productId)) throw new HttpError(400, 'Product is not allowed.');
+    if (!PLAN_BY_PRODUCT[productId]) throw new HttpError(400, 'Product is not allowed.');
     if (!provider) throw new HttpError(400, 'Store provider is required.');
     await assertFamilyWriter(familyId, user.id);
 
@@ -37,7 +43,7 @@ Deno.serve(async (req) => {
       ? await verifyApplePurchase({ purchase, productId, userId: user.id })
       : await verifyGooglePurchase({ purchase, productId, userId: user.id });
 
-    const planKey = productId.endsWith('.monthly') ? 'family_monthly' : 'family_yearly';
+    const planKey = PLAN_BY_PRODUCT[productId];
     const rows = await restInsert('billing_subscriptions', {
       family_id: familyId,
       purchaser_user_id: user.id,
@@ -88,6 +94,7 @@ Deno.serve(async (req) => {
         source: provider,
         plan_key: planKey,
         expires_at: verified.expiresAt,
+        ...limitsForPlan(planKey),
       },
     });
   } catch (error) {

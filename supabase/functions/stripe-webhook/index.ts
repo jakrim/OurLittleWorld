@@ -2,6 +2,7 @@ import {
   corsHeaders,
   errorResponse,
   json,
+  normalizePlanKey,
   recordBillingEvent,
   restInsert,
   restPatch,
@@ -43,7 +44,7 @@ Deno.serve(async (req) => {
 
 async function handleCheckoutCompleted(session: Record<string, any>) {
   const kind = session.metadata?.kind;
-  if (kind === 'gift_year') {
+  if (kind === 'gift_year' || kind === 'gift_vault_year') {
     await provisionGift(session);
     return;
   }
@@ -63,7 +64,7 @@ async function handleCheckoutCompleted(session: Record<string, any>) {
     ...(subscription?.metadata || {}),
     ...(session.metadata || {}),
   };
-  const planKey = metadata.plan_key === 'family_monthly' ? 'family_monthly' : 'family_yearly';
+  const planKey = normalizePlanKey(metadata.plan_key);
   const status = mapStripeStatus(subscription?.status || 'active');
 
   await restInsert('billing_subscriptions', {
@@ -108,6 +109,7 @@ async function provisionGift(session: Record<string, any>) {
     code_hash: metadata.code_hash,
     code_hint: metadata.code_hint || null,
     status: 'available',
+    plan_key: session.metadata?.kind === 'gift_vault_year' ? 'gift_vault_year' : 'gift_year',
     duration_days: 365,
     metadata: {
       stripe_checkout_session_id: session.id,
@@ -129,7 +131,7 @@ async function handleSubscription(subscription: Record<string, any>, eventType: 
     ...(existing?.metadata || {}),
     ...(subscription.metadata || {}),
   };
-  const planKey = metadata.plan_key === 'family_monthly' ? 'family_monthly' : 'family_yearly';
+  const planKey = normalizePlanKey(metadata.plan_key);
   const status = eventType === 'customer.subscription.deleted'
     ? 'canceled'
     : mapStripeStatus(subscription.status);

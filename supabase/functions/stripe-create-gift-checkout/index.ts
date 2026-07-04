@@ -3,6 +3,7 @@ import {
   corsHeaders,
   errorResponse,
   generateCode,
+  giftPlanFromInput,
   hashCode,
   json,
   originFromRequest,
@@ -23,7 +24,8 @@ Deno.serve(async (req) => {
       return json({ error: 'Giver and recipient email are required.' }, 400);
     }
 
-    const priceId = requiredEnv('STRIPE_PRICE_GIFT_YEAR');
+    const giftPlan = giftPlanFromInput(String(body.plan || 'gift_year'));
+    const priceId = requiredEnv(giftPlan.priceEnv);
     const origin = originFromRequest(req);
     const giftCode = generateCode('GIFT');
     const giftCodeHash = await hashCode(giftCode);
@@ -38,7 +40,8 @@ Deno.serve(async (req) => {
     params.set('cancel_url', cancelUrl);
     params.set('line_items[0][price]', priceId);
     params.set('line_items[0][quantity]', '1');
-    params.set('metadata[kind]', 'gift_year');
+    params.set('metadata[kind]', giftPlan.kind);
+    params.set('metadata[plan_key]', giftPlan.planKey);
     params.set('metadata[stripe_price_id]', priceId);
     params.set('metadata[giver_name]', String(body.giver_name || '').slice(0, 120));
     params.set('metadata[giver_email]', giverEmail);

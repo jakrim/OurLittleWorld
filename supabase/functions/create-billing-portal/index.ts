@@ -38,6 +38,8 @@ Deno.serve(async (req) => {
     const params = new URLSearchParams();
     params.set('customer', customerId);
     params.set('return_url', String(body.returnUrl || body.return_url || 'https://ourlittleworld.me/pricing/'));
+    const configuration = Deno.env.get('STRIPE_BILLING_PORTAL_CONFIGURATION');
+    if (configuration) params.set('configuration', configuration);
 
     const session = await stripeFormRequest('/v1/billing_portal/sessions', params);
     return json({ url: session.url });
