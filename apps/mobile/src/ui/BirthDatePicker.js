@@ -72,7 +72,14 @@ export function isValidBirthIso(iso) {
  * Native calendar / spinner date picker; stores YYYY-MM-DD.
  * Web falls back to typed entry with the same validation at the screen level.
  */
-export default function BirthDatePicker({ value, onChange, error, caption }) {
+export default function BirthDatePicker({
+  value,
+  onChange,
+  error,
+  caption,
+  placeholder = 'Choose birth date',
+  accessibilityLabel = 'Baby birth date',
+}) {
   const theme = useTheme();
   const [showIOSPicker, setShowIOSPicker] = useState(false);
   const [showAndroid, setShowAndroid] = useState(false);
@@ -151,7 +158,7 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
           !value ? styles.rowMuted : null,
         ]}
         accessibilityRole="button"
-        accessibilityLabel="Baby birth date"
+        accessibilityLabel={accessibilityLabel}
         accessibilityHint="Opens the date picker"
       >
         <Text
@@ -162,7 +169,7 @@ export default function BirthDatePicker({ value, onChange, error, caption }) {
           ]}
           numberOfLines={2}
         >
-          {displayLabel || 'Choose birth date'}
+          {displayLabel || placeholder}
         </Text>
         <Ionicons name="calendar-outline" size={22} color={theme.semantic.primary} />
       </Pressable>

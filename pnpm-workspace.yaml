@@ -2,5 +2,6 @@ packages:
   - apps/*
   - packages/*
 
-patchedDependencies:
-  expo-modules-jsi@56.0.10: patches/expo-modules-jsi@56.0.10.patch
+allowBuilds:
+  sharp: true
+  unrs-resolver: true

@@ -32,14 +32,10 @@ The official App Store Connect public API can edit an existing availability reco
 
 ### 2. Privacy Policy URL
 
-Publish `app-store/privacy.html` to:
-
-`https://ourlittleworld.me/privacy`
-
-Then verify:
+Verify the published website privacy policy:
 
 ```bash
-curl -s -I https://ourlittleworld.me/privacy
+curl -s -I https://ourlittleworld.me/privacy/
 ```
 
 After it returns `200 OK`, set the App Store privacy URL:
@@ -49,7 +45,7 @@ After it returns `200 OK`, set the App Store privacy URL:
   --app 6781823693 \
   --type app-info \
   --locale en-US \
-  --privacy-policy-url https://ourlittleworld.me/privacy \
+  --privacy-policy-url https://ourlittleworld.me/privacy/ \
   --pretty
 ```
 

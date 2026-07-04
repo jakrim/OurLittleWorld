@@ -18,6 +18,7 @@ import {
 import { Caveat_400Regular } from '@expo-google-fonts/caveat';
 
 import { AuthProvider } from '../src/AuthContext';
+import { BillingProvider } from '../src/BillingContext';
 import { FamilyProvider } from '../src/FamilyContext';
 import LaunchScreen from '../src/LaunchScreen';
 import {
@@ -63,29 +64,31 @@ export default function RootLayout() {
         <ThemeProvider>
           <AuthProvider>
             <FamilyProvider>
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  gestureEnabled: true,
-                  animation: launchVisible ? 'none' : 'fade_from_bottom',
-                }}
-              >
-                <Stack.Screen name="add" options={nativeAddSheetOptions} />
-                <Stack.Screen name="prompt" options={nativePromptSheetOptions} />
-                <Stack.Screen name="first-compose" options={nativeComposeSheetOptions} />
-                <Stack.Screen name="letter-compose" options={nativeComposeSheetOptions} />
-                <Stack.Screen name="letter-detail" options={nativeDetailSheetOptions} />
-                <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
-                <Stack.Screen name="settings-menu" options={nativeMenuSheetOptions} />
-              </Stack>
-              <Modal
-                visible={launchVisible}
-                transparent
-                animationType="none"
-                statusBarTranslucent
-              >
-                <LaunchScreen onDone={() => setLaunchVisible(false)} />
-              </Modal>
+              <BillingProvider>
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    gestureEnabled: true,
+                    animation: launchVisible ? 'none' : 'fade_from_bottom',
+                  }}
+                >
+                  <Stack.Screen name="add" options={nativeAddSheetOptions} />
+                  <Stack.Screen name="prompt" options={nativePromptSheetOptions} />
+                  <Stack.Screen name="first-compose" options={nativeComposeSheetOptions} />
+                  <Stack.Screen name="letter-compose" options={nativeComposeSheetOptions} />
+                  <Stack.Screen name="letter-detail" options={nativeDetailSheetOptions} />
+                  <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
+                  <Stack.Screen name="settings-menu" options={nativeMenuSheetOptions} />
+                </Stack>
+                <Modal
+                  visible={launchVisible}
+                  transparent
+                  animationType="none"
+                  statusBarTranslucent
+                >
+                  <LaunchScreen onDone={() => setLaunchVisible(false)} />
+                </Modal>
+              </BillingProvider>
             </FamilyProvider>
           </AuthProvider>
         </ThemeProvider>

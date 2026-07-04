@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
+import { finishTransaction, getAvailablePurchases as getStorePurchases } from 'expo-iap';
 
 import {
   Body,
   Caption,
   Eyebrow,
+  Field,
   Screen,
   SegmentedControl,
   Title,
@@ -19,7 +21,16 @@ import {
   useTheme,
 } from './ui';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
+import {
+  FAMILY_PRODUCT_IDS,
+  SUPPORT_EMAIL,
+  createBillingPortal,
+  entitlementStatusLabel,
+  openManageSubscription,
+  verifyStorePurchase,
+} from './billing';
 import { Family } from './families';
 import { ageAt, formatAge } from './photos';
 import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
@@ -56,7 +67,8 @@ const DEFAULT_REFERENCE_SUMMARY = {
 export default function SettingsMenuSheetScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const { family, refresh } = useFamily();
+  const { family, refresh: refreshFamily } = useFamily();
+  const { entitlement, refresh: refreshBilling, redeemCode } = useBilling();
   const { user } = useAuth();
   const [ritualSettings, setRitualSettings] = useState(() => normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS));
   const [settingsCounts, setSettingsCounts] = useState(DEFAULT_SETTINGS_COUNTS);
@@ -64,6 +76,8 @@ export default function SettingsMenuSheetScreen() {
   const [activeEditor, setActiveEditor] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [clearingReferences, setClearingReferences] = useState(false);
+  const [billingBusy, setBillingBusy] = useState(null);
+  const [purchaseCode, setPurchaseCode] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -130,7 +144,7 @@ export default function SettingsMenuSheetScreen() {
     theme.setPaletteName(paletteName);
     if (family?.id) {
       Family.update(family.id, { palettePreference: paletteName })
-        .then(() => refresh?.())
+        .then(() => refreshFamily?.())
         .catch((err) => console.warn('save palette preference', err?.message));
     }
   };
@@ -166,6 +180,75 @@ export default function SettingsMenuSheetScreen() {
         },
       ],
     );
+  };
+
+  const restoreStorePurchases = async () => {
+    if (!family?.id || billingBusy) return;
+    setBillingBusy('restore');
+    try {
+      const purchases = await getStorePurchases({
+        alsoPublishToEventListenerIOS: false,
+        onlyIncludeActiveItemsIOS: true,
+      });
+      const purchase = (purchases || [])
+        .filter((item) => FAMILY_PRODUCT_IDS.includes(item.productId))
+        .sort((a, b) => Number(b.transactionDate || 0) - Number(a.transactionDate || 0))[0];
+      if (!purchase) {
+        Alert.alert('No active purchase found', 'No active family subscription was found on this store account.');
+        return;
+      }
+      await verifyStorePurchase({
+        familyId: family.id,
+        purchase,
+        provider: Platform.OS === 'ios' ? 'apple' : 'google',
+        productId: purchase.productId,
+      });
+      await finishTransaction({ purchase, isConsumable: false });
+      await refreshBilling?.();
+      Alert.alert('Purchase restored', 'Your family plan is active.');
+    } catch (err) {
+      Alert.alert('Restore failed', err?.message || String(err));
+    } finally {
+      setBillingBusy(null);
+    }
+  };
+
+  const manageSubscription = async () => {
+    if (billingBusy) return;
+    setBillingBusy('manage');
+    try {
+      if (entitlement?.source === 'stripe') {
+        const url = await createBillingPortal({ familyId: family?.id });
+        if (url) {
+          await Linking.openURL(url);
+          return;
+        }
+      }
+      await openManageSubscription({ source: entitlement?.source });
+    } catch (err) {
+      Alert.alert('Could not open billing', err?.message || String(err));
+    } finally {
+      setBillingBusy(null);
+    }
+  };
+
+  const redeemBillingCode = async () => {
+    const trimmed = purchaseCode.trim();
+    if (!trimmed || billingBusy) return;
+    setBillingBusy('redeem');
+    try {
+      await redeemCode(trimmed);
+      setPurchaseCode('');
+      Alert.alert('Code redeemed', 'Your family plan is active.');
+    } catch (err) {
+      Alert.alert('Code could not be redeemed', err?.message || String(err));
+    } finally {
+      setBillingBusy(null);
+    }
+  };
+
+  const contactSupport = () => {
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
   };
 
   return (
@@ -329,6 +412,66 @@ export default function SettingsMenuSheetScreen() {
         </View>
 
         <View>
+          <Eyebrow>billing</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="card-outline"
+              label="Subscription"
+              detail={entitlementStatusLabel(entitlement)}
+              active={activeEditor === 'billing'}
+              onPress={() => setActiveEditor(activeEditor === 'billing' ? null : 'billing')}
+            />
+            <MenuItem
+              icon="refresh-outline"
+              label="Restore purchases"
+              detail={billingBusy === 'restore' ? 'Checking store account...' : 'Apple App Store or Google Play'}
+              onPress={restoreStorePurchases}
+            />
+            <MenuItem
+              icon="settings-outline"
+              label="Manage subscription"
+              detail={entitlement?.source === 'stripe' ? 'Website billing portal' : 'Store subscription settings'}
+              onPress={manageSubscription}
+            />
+            <MenuItem
+              icon="document-text-outline"
+              label="Terms"
+              detail="Subscription, cancellation, refund, and gift terms"
+              onPress={() => Linking.openURL('https://ourlittleworld.me/terms/')}
+            />
+            <MenuItem
+              icon="receipt-outline"
+              label="Refunds"
+              detail="Cancellation, duplicate purchase, and gift refund policy"
+              onPress={() => Linking.openURL('https://ourlittleworld.me/refunds/')}
+            />
+            <MenuItem
+              icon="shield-checkmark-outline"
+              label="Privacy"
+              detail="Private family archive policy"
+              onPress={() => Linking.openURL('https://ourlittleworld.me/privacy/')}
+            />
+            <MenuItem
+              icon="mail-outline"
+              label="Contact support"
+              detail={SUPPORT_EMAIL}
+              onPress={contactSupport}
+            />
+          </View>
+          {activeEditor === 'billing' ? (
+            <BillingPanel
+              entitlement={entitlement}
+              code={purchaseCode}
+              busy={billingBusy}
+              onCodeChange={setPurchaseCode}
+              onRedeem={redeemBillingCode}
+              onManage={manageSubscription}
+              onSupport={contactSupport}
+            />
+          ) : null}
+        </View>
+
+        <View>
           <Eyebrow>rituals</Eyebrow>
           <View style={styles.menuList}>
             <MenuItem
@@ -422,6 +565,91 @@ function FamilyHero({ family }) {
           {family?.babyBirthday || 'Birthday not set'}{age ? ` · ${age} old` : ''}
         </Caption>
       </View>
+    </View>
+  );
+}
+
+function BillingPanel({ entitlement, code, busy, onCodeChange, onRedeem, onManage, onSupport }) {
+  const theme = useTheme();
+  const active = entitlement?.isActive;
+  const ownerCopy = entitlement?.isBillingOwner
+    ? 'You are the billing owner for this family.'
+    : 'Billing owner changes are handled by support.';
+  const expiry = entitlement?.expiresAt ? formatShortDate(entitlement.expiresAt) : null;
+
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <View style={styles.billingHeader}>
+        <View>
+          <Caption>Family access</Caption>
+          <Title style={styles.panelMetric}>{entitlementStatusLabel(entitlement)}</Title>
+        </View>
+        <View style={[styles.billingBadge, { backgroundColor: active ? theme.colors.primarySoft : theme.semantic.card }]}>
+          <Ionicons
+            name={active ? 'checkmark-circle' : 'alert-circle-outline'}
+            size={20}
+            color={active ? theme.semantic.primary : theme.semantic.textMuted}
+          />
+        </View>
+      </View>
+      <Caption>
+        {expiry ? `Access through ${expiry}. ` : ''}
+        One family subscription currently covers one child and one invited co-parent.
+      </Caption>
+      <Caption>{ownerCopy}</Caption>
+
+      <Field
+        label="Gift, website, or partner code"
+        value={code}
+        onChangeText={onCodeChange}
+        autoCapitalize="characters"
+        inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
+        containerStyle={styles.billingCodeField}
+      />
+      <View style={styles.panelButtonRow}>
+        <Pressable
+          onPress={onRedeem}
+          disabled={busy === 'redeem'}
+          accessibilityRole="button"
+          accessibilityLabel="Redeem purchase code"
+          accessibilityState={{ disabled: busy === 'redeem' }}
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            { backgroundColor: theme.semantic.primary, borderColor: theme.semantic.primary },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.colors.onPrimary }]}>
+            {busy === 'redeem' ? 'Redeeming...' : 'Redeem'}
+          </Caption>
+        </Pressable>
+        <Pressable
+          onPress={onManage}
+          disabled={busy === 'manage'}
+          accessibilityRole="button"
+          accessibilityLabel="Manage subscription"
+          accessibilityState={{ disabled: busy === 'manage' }}
+          style={[
+            styles.panelButton,
+            styles.panelButtonInline,
+            { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+          ]}
+        >
+          <Caption style={[styles.panelButtonText, { color: theme.semantic.textSoft }]}>
+            {busy === 'manage' ? 'Opening...' : 'Manage'}
+          </Caption>
+        </Pressable>
+      </View>
+      <Pressable
+        onPress={onSupport}
+        accessibilityRole="button"
+        accessibilityLabel="Contact support about billing"
+        style={styles.referenceReset}
+      >
+        <Caption style={[styles.referenceResetText, { color: theme.semantic.textMuted }]}>
+          Contact support for billing owner changes or duplicate purchases
+        </Caption>
+      </Pressable>
     </View>
   );
 }
@@ -670,6 +898,12 @@ function ordinal(value) {
   if ([11, 12, 13].includes(day % 100)) return `${day}th`;
   const suffix = day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
   return `${day}${suffix}`;
+}
+
+function formatShortDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function monthiversaryDayOptions(family) {
@@ -942,6 +1176,22 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  billingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  billingBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  billingCodeField: {
+    marginTop: space.sm,
   },
   referenceStats: {
     flexDirection: 'row',

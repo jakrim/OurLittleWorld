@@ -757,8 +757,8 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
   return (
     <View style={styles.searchStack}>
       <Card>
-        <View style={styles.sectionHeader}>
-          <View>
+        <View style={styles.exportHeader}>
+          <View style={styles.resultText}>
             <Eyebrow>Export</Eyebrow>
             <Title style={styles.cardTitle}>Photo book and year-in-review queue.</Title>
           </View>
@@ -1144,7 +1144,11 @@ const styles = StyleSheet.create({
   exportActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: space.xs,
+  },
+  exportHeader: {
+    gap: space.md,
   },
   exportFileBox: {
     minHeight: 54,

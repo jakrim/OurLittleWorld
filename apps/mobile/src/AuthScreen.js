@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   Image,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -22,6 +23,9 @@ import { useAuth } from './AuthContext';
 const DEV_LOGIN_EMAIL = 'jesse.krim@gmail.com';
 const INVALID_CODE_MESSAGE = 'That code is invalid. Try again.';
 const VERIFY_CODE_ERROR_MESSAGE = 'Could not verify that code. Try again.';
+const HOME_URL = 'https://ourlittleworld.me/';
+const PRIVACY_URL = 'https://ourlittleworld.me/privacy/';
+const TERMS_URL = 'https://ourlittleworld.me/terms/';
 
 /**
  * Email + 6-digit OTP. Two screens of one field each, soft transition
@@ -233,6 +237,8 @@ export default function AuthScreen() {
                   Use dev code
                 </FooterLink>
               ) : null}
+
+              <LegalNotice colors={authColors} />
             </View>
           </View>
         ) : (
@@ -545,6 +551,38 @@ function FooterLink({ children, onPress, disabled, colors, emphasis = false }) {
   );
 }
 
+function LegalNotice({ colors }) {
+  return (
+    <Text style={[styles.legalText, { color: colors.muted }]}>
+      By continuing, you agree to the{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(PRIVACY_URL)}
+        style={[styles.legalLink, { color: colors.primary }]}
+      >
+        Privacy Policy
+      </Text>
+      {' '}and{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(TERMS_URL)}
+        style={[styles.legalLink, { color: colors.primary }]}
+      >
+        Terms of Service
+      </Text>
+      . Visit the{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(HOME_URL)}
+        style={[styles.legalLink, { color: colors.primary }]}
+      >
+        website
+      </Text>
+      .
+    </Text>
+  );
+}
+
 async function getFunctionErrorMessage(error) {
   try {
     const body = await error?.context?.json?.();
@@ -802,6 +840,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '600',
     letterSpacing: 0,
+  },
+  legalText: {
+    maxWidth: 340,
+    alignSelf: 'center',
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 19,
+    letterSpacing: 0,
+  },
+  legalLink: {
+    fontWeight: '800',
+    textDecorationLine: 'underline',
   },
   disabledLink: {
     opacity: 0.45,

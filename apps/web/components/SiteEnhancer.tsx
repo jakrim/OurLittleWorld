@@ -4,14 +4,18 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { createIcons, icons } from "lucide";
 
-const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "jesse.krim@gmail.com";
+const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "support@ourlittleworld.me";
 const checkoutLinks = {
   monthly: process.env.NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY || "",
   annual: process.env.NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL || "",
   gift: process.env.NEXT_PUBLIC_OLW_CHECKOUT_GIFT || "",
 };
-const giftCheckoutEndpoint = process.env.NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT || "";
-const partnerInquiryEndpoint = process.env.NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT || "";
+const supabaseFunctionsBase = process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL
+  || (process.env.NEXT_PUBLIC_SUPABASE_URL ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1` : "");
+const functionUrl = (name: string) => (supabaseFunctionsBase ? `${supabaseFunctionsBase}/${name}` : "");
+const checkoutEndpoint = process.env.NEXT_PUBLIC_OLW_CHECKOUT_ENDPOINT || functionUrl("stripe-create-checkout");
+const giftCheckoutEndpoint = process.env.NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT || functionUrl("stripe-create-gift-checkout");
+const partnerInquiryEndpoint = process.env.NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT || functionUrl("partner-inquiry");
 
 const prices: Record<string, string> = {
   monthly: "$4.99 monthly",
@@ -208,6 +212,27 @@ export default function SiteEnhancer() {
 
         if (kind === "self") {
           const plan = payload.plan || "annual";
+          if (checkoutEndpoint) {
+            try {
+              setStatus(status, "Opening secure checkout...");
+              const result = await postJson(checkoutEndpoint, payload);
+              if (result.url) {
+                window.location.href = result.url;
+                return;
+              }
+              setStatus(status, "Checkout could not be prepared. Please try email instead.", {
+                label: "Email us to start",
+                href: mailtoUrl("Start Our Little World", payload),
+              });
+            } catch {
+              setStatus(status, "Checkout could not be prepared. Please try email instead.", {
+                label: "Email us to start",
+                href: mailtoUrl("Start Our Little World", payload),
+              });
+            }
+            return;
+          }
+
           const checkoutUrl = checkoutLinks[plan as keyof typeof checkoutLinks];
           if (checkoutUrl) {
             setStatus(status, "Opening secure checkout...");

@@ -123,6 +123,8 @@ export default function ReferencePhotoScreen() {
     else router.replace('/timeline');
   };
 
+  const hasUsableReference = !isNative ? !!picked : !!embedding?.embedding?.length;
+
   const onClearReference = async () => {
     if (!family || !user) return;
     Alert.alert(
@@ -213,7 +215,7 @@ export default function ReferencePhotoScreen() {
 
         <Spacer h={space.md} />
 
-        <Button onPress={onContinue} loading={busy} disabled={!picked}>
+        <Button onPress={onContinue} loading={busy} disabled={!hasUsableReference || busy}>
           {restored ? 'Continue with this reference' : 'Start review scan'}
         </Button>
 

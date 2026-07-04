@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit --incremental false",
-    "test": "pnpm typecheck"
+    "test": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "lucide": "^0.468.0",

@@ -5,6 +5,7 @@
     "dev": "turbo dev",
     "dev:web": "pnpm --filter @ourlittleworld/web dev",
     "dev:mobile": "pnpm --filter @ourlittleworld/mobile dev",
+    "dev:mobile:mcp": "pnpm --filter @ourlittleworld/mobile start:mcp",
     "build": "turbo build",
     "build:web": "pnpm --filter @ourlittleworld/web build",
     "lint": "turbo lint",
@@ -19,11 +20,6 @@
   "devDependencies": {
     "turbo": "^2.9.0",
     "typescript": "~6.0.3"
-  },
-  "pnpm": {
-    "patchedDependencies": {
-      "expo-modules-jsi@56.0.10": "patches/expo-modules-jsi@56.0.10.patch"
-    }
   },
   "packageManager": "pnpm@10.30.3",
   "engines": {

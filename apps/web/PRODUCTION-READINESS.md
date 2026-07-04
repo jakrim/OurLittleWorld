@@ -4,32 +4,30 @@ Last reviewed: June 23, 2026
 
 ## Current Status
 
-The website is now a production-shaped Next.js marketing site, but it is not yet a production commerce site.
+The website is now a production-shaped Next.js marketing site with first-pass commerce endpoints.
 
-Users can browse the homepage, story, pricing, gift, partners, and privacy pages. They cannot complete a real purchase or gift unless checkout links or endpoints are configured in Vercel environment variables.
+Users can browse the homepage, story, pricing, gift, partners, privacy, terms, and refunds pages. Pricing and gift forms can create Stripe Checkout Sessions through Supabase Edge Functions once Stripe price IDs and secrets are configured.
 
 ## Critical Launch Blockers
 
-1. Real checkout is not connected.
-   - Monthly and annual plan buttons need payment links or a checkout endpoint.
-   - Set `NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY` and `NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL` in Vercel.
+1. Live Stripe credentials and price IDs are not configured in this repo.
+   - Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FAMILY_MONTHLY`, `STRIPE_PRICE_FAMILY_YEARLY`, and `STRIPE_PRICE_GIFT_YEAR` in Supabase.
+   - Set `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL` in Vercel.
 
-2. Gift purchase needs fulfillment logic.
-   - A simple payment link can charge for a gift, but it will not automatically store recipient email, gift note, delivery day, redemption status, or delivery.
-   - For a real "purchase for a friend" flow, use `NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT` or an equivalent backend.
+2. Gift delivery email is not connected.
+   - Gift checkout creates a single-use redemption code and success page.
+   - Scheduled recipient delivery still needs an email provider/job before relying on delayed delivery dates.
 
-3. Partner inquiries need a destination.
-   - The partner form needs a form endpoint, CRM endpoint, or mail handling flow.
-   - Until configured, it falls back to an email link.
-   - Set `NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT` when ready.
+3. Partner operations need production process.
+   - Partner inquiries are logged through a Supabase function.
+   - Bulk code generation exists behind `OLW_BILLING_ADMIN_SECRET`, but package pricing and fulfillment ops still need owner approval.
 
-4. Legal pages are incomplete for paid launch.
-   - Privacy policy exists.
-   - Terms of Service, subscription terms, cancellation policy, refund policy, and gift terms still need review and publication.
+4. Legal pages need review.
+   - Privacy, Terms, and Refunds pages exist.
+   - Subscription, cancellation, refund, gift, child data, and privacy terms still need legal review before taking real money.
 
-5. Post-purchase provisioning is undefined.
-   - After payment, users need a clear handoff: App Store download, account creation, magic link, invite flow, or gift redemption.
-   - Gift buyers need confirmation and recipient delivery status.
+5. End-to-end live payment QA is still required.
+   - Stripe webhooks, App Store sandbox purchases, Google Play test purchases, refunds, restore, and code redemption must pass against real provider credentials.
 
 ## Page Flow Audit
 
@@ -63,10 +61,9 @@ Current flow:
 - Form prepares checkout once configured.
 
 Missing before paid launch:
-- Real checkout links.
-- Cancellation/refund language.
-- What happens after checkout.
-- Whether pricing is introductory, permanent, or limited.
+- Live Stripe secrets and price IDs.
+- Stripe webhook configured to `stripe-webhook`.
+- End-to-end test of the post-checkout claim-code page.
 
 ### Gift
 
@@ -78,9 +75,7 @@ Current flow:
 - Preview makes the gift feel personal.
 
 Missing before paid launch:
-- Gift checkout endpoint or payment link.
 - Recipient email delivery.
-- Redemption code or invite creation.
 - Gift confirmation email.
 - Refund/cancellation handling.
 
@@ -94,9 +89,8 @@ Current flow:
 - Copy has been softened so it does not overclaim built systems.
 
 Missing before outreach:
-- Form endpoint.
 - Partner package/pricing.
-- Fulfillment model for codes, bulk gifts, and redemption tracking.
+- Fulfillment operations for issued bulk codes.
 - Examples or sample campaign mockups.
 
 ### Story
@@ -120,15 +114,25 @@ Current flow:
 
 Missing before launch:
 - Legal review.
-- Terms link.
-- Support/account deletion process details.
+- Confirm support/account deletion response process and timing.
+
+### Terms and Refunds
+
+Purpose: set customer expectations for paid subscriptions, website checkout, native app purchases, gift codes, partner codes, cancellation, and support.
+
+Current flow:
+- Expanded Terms of Service covers accounts, private family spaces, child/family information, user content rights, subscriptions, gifts, exports, acceptable use, and service limitations.
+- Standalone Cancellation and Refund Policy covers Stripe subscriptions, App Store/Google Play purchases, gifts, duplicate purchases, partner codes, and billing owner changes.
+
+Missing before launch:
+- Legal review.
+- Final owner/entity name after LLC formation.
 
 ## Recommended Pre-Deploy Checklist
 
-- Configure monthly and annual checkout links.
-- Build or connect gift checkout fulfillment.
-- Connect partner inquiry endpoint.
-- Add Terms, refund/cancellation, and gift terms.
+- Configure Stripe and Supabase function secrets.
+- Connect gift delivery email.
+- Legal-review Privacy, Terms, and Refunds.
 - Add App Store download or waitlist handoff.
 - Add analytics for CTA clicks, form starts, form submits, and checkout redirects.
 - Confirm production domain, SSL, and Open Graph image.

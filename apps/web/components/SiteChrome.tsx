@@ -10,6 +10,7 @@ const navItems = [
   { href: "/gift/", label: "Gift" },
   { href: "/partners/", label: "Partners" },
   { href: "/privacy/", label: "Privacy" },
+  { href: "/terms/", label: "Terms" },
 ];
 
 export default function SiteChrome({ children }: { children: ReactNode }) {
@@ -66,12 +67,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
                 <Link href="/story/">Story</Link>
                 <Link href="/pricing/">Pricing</Link>
                 <Link href="/gift/">Gift</Link>
+                <Link href="/terms/">Terms</Link>
+                <Link href="/refunds/">Refunds</Link>
               </div>
               <div>
                 <p className="footer-h">Company</p>
                 <Link href="/partners/">Partners</Link>
                 <Link href="/privacy/">Privacy</Link>
-                <a href="mailto:jesse.krim@gmail.com">Contact</a>
+                <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
               <div>
                 <p className="footer-h">Promise</p>

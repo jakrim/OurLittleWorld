@@ -34,6 +34,8 @@ pnpm dev
 - `/gift/`
 - `/partners/`
 - `/privacy/`
+- `/terms/`
+- `/refunds/`
 
 `Begin Chapter One` points to `/pricing/#chapter-one`.
 `Gift the first year` points to `/gift/`.

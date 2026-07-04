@@ -41,7 +41,7 @@ Our Little World is designed for parents and guardians to create a private recor
 
 ## Contact
 
-For support or privacy requests, contact: jesse.krim@gmail.com
+For support or privacy requests, contact: support@ourlittleworld.me
 
 ## Changes
 

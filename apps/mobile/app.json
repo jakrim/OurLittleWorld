@@ -55,6 +55,7 @@
       }
     },
     "android": {
+      "package": "com.jessekrim.ourlittleworld",
       "adaptiveIcon": {
         "foregroundImage": "./assets/brand/adaptive-icon.png",
         "backgroundColor": "#FAF4EE"
@@ -121,6 +122,7 @@
           }
         }
       ],
+      "expo-iap",
       "expo-video"
     ],
     "owner": "jakrim",

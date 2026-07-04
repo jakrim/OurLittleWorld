@@ -134,7 +134,13 @@ export default function FirstComposeSheetScreen() {
           placeholder="Target age or window, optional"
           autoCapitalize="sentences"
         />
-        <BirthDatePicker value={date} onChange={setDate} caption={null} />
+        <BirthDatePicker
+          value={date}
+          onChange={setDate}
+          caption={null}
+          placeholder="When did it happen?"
+          accessibilityLabel="First happened date"
+        />
         <Field as="textarea" value={note} onChangeText={setNote} placeholder="What happened around it?" />
         <View>
           <Caption>Attach a saved photo, optional</Caption>

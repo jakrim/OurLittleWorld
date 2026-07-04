@@ -28,7 +28,7 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://ourlittleworld.app"),
+  metadataBase: new URL("https://ourlittleworld.me"),
   title: {
     default: "Our Little World | Private baby book for family",
     template: "%s | Our Little World",

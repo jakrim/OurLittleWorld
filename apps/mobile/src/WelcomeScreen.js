@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Animated, Easing, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Animated, Easing, StyleSheet, ScrollView, Pressable, Text, Linking } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { useRouter } from 'expo-router';
 
@@ -36,6 +36,10 @@ const SLIDES = [
     body: 'Invite your partner, keep it all in one quiet place, and leave the feeds and likes outside.',
   },
 ];
+
+const HOME_URL = 'https://ourlittleworld.me/';
+const PRIVACY_URL = 'https://ourlittleworld.me/privacy/';
+const TERMS_URL = 'https://ourlittleworld.me/terms/';
 
 /**
  * The first thing a new visitor sees. A swipeable intro that frames the
@@ -210,10 +214,42 @@ export default function WelcomeScreen() {
         <Animated.View style={{ opacity: ctaO, width: '100%' }}>
           <Button onPress={onBegin}>Start your baby book</Button>
           <Spacer h={space.md} />
-          <Caption align="center">Private for your family. No feed. No algorithm.</Caption>
+          <LegalNotice />
         </Animated.View>
       </View>
     </Screen>
+  );
+}
+
+function LegalNotice() {
+  return (
+    <Caption align="center" style={styles.legalText}>
+      By continuing, you agree to the{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(PRIVACY_URL)}
+        style={styles.legalLink}
+      >
+        Privacy Policy
+      </Text>
+      {' '}and{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(TERMS_URL)}
+        style={styles.legalLink}
+      >
+        Terms of Service
+      </Text>
+      . Visit the{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => Linking.openURL(HOME_URL)}
+        style={styles.legalLink}
+      >
+        website
+      </Text>
+      .
+    </Caption>
   );
 }
 
@@ -835,5 +871,17 @@ const styles = StyleSheet.create({
   dotActive: {
     width: 24,
     backgroundColor: colors.coral,
+  },
+  legalText: {
+    maxWidth: 340,
+    alignSelf: 'center',
+    color: colors.plum,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  legalLink: {
+    color: colors.coral,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
   },
 });

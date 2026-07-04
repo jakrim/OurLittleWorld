@@ -27,6 +27,11 @@ __pycache__/
 .env
 .env.local
 
+# Local/private planning notes
+.claude/
+docs/private/
+TODO.md
+
 # Simulator scratch (seeded photos + screenshots)
 tmp/
 

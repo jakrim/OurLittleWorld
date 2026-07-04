@@ -4,12 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRootNavigationState, useRouter } from 'expo-router';
 
 import { useAuth } from '../AuthContext';
+import { useBilling } from '../BillingContext';
 import { useFamily } from '../FamilyContext';
 import { firstLookStorageKey, shouldShowFirstLook } from '../reveal';
 import { BrandMark, useTheme } from '../ui';
 import useReducedMotion from '../ui/useReducedMotion';
 import FamilyOnboardingScreen from '../FamilyOnboardingScreen';
 import FirstLookRevealScreen from '../FirstLookRevealScreen';
+import PurchaseScreen from '../PurchaseScreen';
 import SetupScreen from '../SetupScreen';
 import TodayScreen from '../TodayScreen';
 import WelcomeScreen from '../WelcomeScreen';
@@ -60,6 +62,7 @@ export function AppGate() {
   if (gate.reason === 'needs-family') return <FamilyOnboardingScreen />;
   if (gate.reason === 'needs-setup') return <SetupScreen />;
   if (gate.reason === 'needs-first-look') return <FirstLookRevealScreen />;
+  if (gate.reason === 'needs-subscription') return <PurchaseScreen />;
   return <TodayScreen />;
 }
 
@@ -75,6 +78,7 @@ export function ProtectedRoute({
   allowMissingFamily = false,
   allowIncompleteSetup = false,
   allowFirstLook = false,
+  allowMissingSubscription = false,
 }) {
   const gate = useAppGate();
 
@@ -83,6 +87,7 @@ export function ProtectedRoute({
   if (!allowMissingFamily && gate.reason === 'needs-family') return <RouteRedirect href="/onboarding" />;
   if (!allowIncompleteSetup && gate.reason === 'needs-setup') return <RouteRedirect href="/setup" />;
   if (!allowFirstLook && gate.reason === 'needs-first-look') return <RouteRedirect href="/first-look" />;
+  if (!allowMissingSubscription && gate.reason === 'needs-subscription') return <RouteRedirect href="/purchase" />;
 
   return children;
 }
@@ -105,6 +110,7 @@ function RouteRedirect({ href }) {
 export function useAppGate() {
   const { session, user, loading: authLoading } = useAuth();
   const { family, loading: familyLoading } = useFamily();
+  const { entitlement, loading: billingLoading } = useBilling();
   const [firstLookSeen, setFirstLookSeen] = useState(true);
 
   useEffect(() => {
@@ -131,7 +137,16 @@ export function useAppGate() {
     };
   }, [session, family, user]);
 
-  if (authLoading || (session && familyLoading) || firstLookSeen === null) {
+  const setupComplete = Boolean(family?.babyName && family?.babyBirthday);
+  const waitingForBilling = Boolean(
+    session
+    && family
+    && setupComplete
+    && firstLookSeen
+    && billingLoading,
+  );
+
+  if (authLoading || (session && familyLoading) || firstLookSeen === null || waitingForBilling) {
     return { loading: true };
   }
 
@@ -146,6 +161,9 @@ export function useAppGate() {
   }
   if (shouldShowFirstLook({ family, user }) && !firstLookSeen) {
     return { loading: false, reason: 'needs-first-look', href: '/first-look' };
+  }
+  if (!entitlement?.isActive) {
+    return { loading: false, reason: 'needs-subscription', href: '/purchase' };
   }
   return { loading: false, reason: 'ready', href: '/timeline' };
 }

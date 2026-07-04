@@ -15,7 +15,7 @@ Secondary category: Photo & Video
 Copyright: 2026 Get Mentors, Inc.
 
 Support URL: https://ourlittleworld.me
-Privacy Policy URL: TODO - publish a real privacy policy page before submission.
+Privacy Policy URL: https://ourlittleworld.me/privacy/
 Privacy Policy text: uploaded to App Store Connect app-info localization.
 
 ## Version Metadata
@@ -74,8 +74,7 @@ Screenshots:
 
 See `app-store/final-submission-runbook.md` for exact links and commands.
 
-- Publish a privacy policy URL, ideally at `https://ourlittleworld.me/privacy`.
-- A publish-ready HTML version is available at `app-store/privacy.html`; `https://ourlittleworld.me/privacy` currently returns 404.
+- Verify the published privacy policy at `https://ourlittleworld.me/privacy/` returns `200 OK`.
 - App Review contact details have been submitted in App Store Connect.
 - Create initial App Availability in App Store Connect. The public API can edit availability after it exists, but cannot create the first availability record.
 - Confirm App Privacy answers in App Store Connect using `app-store/app-privacy-worksheet.md`; the public API cannot fully verify the published privacy questionnaire.

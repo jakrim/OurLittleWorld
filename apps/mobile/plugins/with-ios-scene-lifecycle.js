@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { withDangerousMod, withInfoPlist } = require('@expo/config-plugins');
+const { withDangerousMod, withInfoPlist } = require('expo/config-plugins');
 
 const sceneManifest = {
   UIApplicationSupportsMultipleScenes: false,

@@ -3,7 +3,7 @@
 App Store Connect app: `6781823693`
 Bundle ID: `com.jessekrim.ourlittleworld`
 Version/build reviewed: `1.1.0` / `1.1.1`
-Review date: June 22, 2026
+Review date: July 2, 2026
 
 This worksheet maps the current shipped iOS code to the App Store Connect App Privacy questionnaire. It is intended as a practical checklist for the owner to confirm in App Store Connect before submission.
 
@@ -15,7 +15,7 @@ Rationale:
 
 - No advertising SDK, tracking SDK, analytics SDK, or cross-app/site tracking code was found in the app code or dependencies scan.
 - The app does not sell user data and does not use third-party advertising.
-- The uploaded privacy policy draft says data is used to provide the private family timeline, library, milestones, prompts, letters, and invite features.
+- The published privacy policy says data is used to provide the private family timeline, library, milestones, prompts, letters, invite features, billing support, and account support.
 
 ## Data Linked to the User
 
@@ -30,6 +30,7 @@ Select data types below as collected and linked to the user. Recommended purpose
 | User Content: Other User Content | Yes | Memory notes, daily prompt responses, firsts, letters, tags, family profile and invite details | Text users create or save inside the private family space. |
 | Location: Precise Location | Yes | Photo metadata latitude/longitude when present | The app stores raw coordinates from photo library metadata when available. It does not request live device location. |
 | Identifiers: User ID | Yes | Supabase auth UUIDs and family/member IDs | Used to scope private family data and access control. |
+| Purchases: Purchase History | Yes | Store purchase verification and Supabase billing entitlements | Used to verify subscriptions, restore purchases, redeem codes, and provide billing support. |
 
 For each selected data type above:
 
@@ -52,7 +53,6 @@ Review these before publishing the questionnaire:
 
 Do not select these unless there is collection outside this codebase:
 
-- Purchases
 - Financial Info
 - Health and Fitness
 - Sensitive Info
@@ -80,4 +80,4 @@ Do not select these unless there is collection outside this codebase:
 Before submission, the owner should confirm:
 
 - Whether any diagnostics, analytics, or crash reporting is configured outside this repo.
-- Whether the published privacy policy at `https://ourlittleworld.me/privacy` matches these answers.
+- Whether the published privacy policy at `https://ourlittleworld.me/privacy/` matches these answers.
