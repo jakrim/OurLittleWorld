@@ -112,7 +112,13 @@ export default function ReviewMatchesScreen() {
         const m = queue.shift();
         if (!m) return;
         try {
-          await Tags.setBaby({ familyId: family.id, assetId: m.assetId, isBaby: true, match: m });
+          await Tags.setBaby({
+            familyId: family.id,
+            assetId: m.assetId,
+            isBaby: true,
+            match: m,
+            videoPosterOnly: m.mediaType === 'video',
+          });
           savedIds.push(m.assetId);
         } catch (e) {
           console.warn('save match failed', m.assetId, e?.message);

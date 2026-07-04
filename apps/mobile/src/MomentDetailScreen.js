@@ -13,7 +13,9 @@ import { useFamily } from './FamilyContext';
 import { Family } from './families';
 import { Firsts } from './rituals';
 import { ageAt, formatAge } from './photos';
+import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { deleteMoment, deleteVoiceNote, getMomentDetail, setMomentSharedWith, toggleMomentReaction, updateMoment } from './moments';
+import { uploadForTag } from './photoSync';
 import { shareMemoryMoment } from './shareMoment';
 import PhotoActionSheet from './PhotoActionSheet';
 
@@ -61,6 +63,7 @@ export default function MomentDetailScreen() {
   const [editTags, setEditTags] = useState('');
   const [sharingCircle, setSharingCircle] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [promotingVideo, setPromotingVideo] = useState(false);
 
   const voice = moment?.voiceNotes?.find((item) => item.audioUrl) || null;
   const player = useAudioPlayer(voice?.audioUrl ? { uri: voice.audioUrl } : null, { updateInterval: 250 });
@@ -74,6 +77,33 @@ export default function MomentDetailScreen() {
       setMoment(next);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Promote a poster-only video candidate into a playable video. Only works
+  // on the device that owns the local asset.
+  const promoteVideo = async (media) => {
+    if (!family?.id || promotingVideo) return;
+    if (media?.owner_user_id && user?.id && media.owner_user_id !== user.id) {
+      Alert.alert('Saved on another device', 'The playable video can be saved from the family member who took it.');
+      return;
+    }
+    const assetId = media?.local_identifier;
+    if (!assetId) return;
+    setPromotingVideo(true);
+    try {
+      await uploadForTag({ familyId: family.id, assetId });
+      await load();
+    } catch (err) {
+      if (isMediaPolicyError(err)) {
+        promptOverLimitVideo({
+          onSeeVault: () => router.push('/purchase'),
+        });
+      } else {
+        Alert.alert('Could not save playable video', err?.message || String(err));
+      }
+    } finally {
+      setPromotingVideo(false);
     }
   };
 
@@ -339,7 +369,7 @@ export default function MomentDetailScreen() {
   return (
     <Screen variant="dark" scroll bare edges={{ top: true, bottom: false }} contentStyle={styles.detailContent}>
       <View style={styles.detailHero}>
-        <MediaMosaic media={moment.media || []} theme={theme} />
+        <MediaMosaic media={moment.media || []} theme={theme} onPromoteVideo={promoteVideo} promotingVideo={promotingVideo} />
         <LinearGradient
           pointerEvents="none"
           colors={[glass.mediaScrim, glass.mediaScrimClear, glass.mediaScrim]}
@@ -544,7 +574,7 @@ function reactionLabel(reaction) {
   return REACTION_LABELS[reaction.key] || reaction.key;
 }
 
-function MediaMosaic({ media, theme }) {
+function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo }) {
   if (!media.length) {
     return (
       <View style={[styles.heroMedia, { backgroundColor: theme.semantic.cardAlt }]}>
@@ -557,7 +587,17 @@ function MediaMosaic({ media, theme }) {
     <View style={styles.mediaWrap}>
       <View style={[styles.heroMedia, { backgroundColor: theme.semantic.cardAlt }]}>
         {first.media_type === 'video' ? (
-          first.fullUrl ? <VideoPlayerTile media={first} theme={theme} /> : <VideoPlaceholder media={first} theme={theme} large />
+          first.fullUrl
+            ? <VideoPlayerTile media={first} theme={theme} />
+            : (
+              <VideoPlaceholder
+                media={first}
+                theme={theme}
+                large
+                onPromote={onPromoteVideo}
+                promoting={promotingVideo}
+              />
+            )
         ) : first.fullUrl || first.thumbUrl ? (
           <Image source={{ uri: first.fullUrl || first.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
@@ -573,7 +613,23 @@ function MediaMosaic({ media, theme }) {
   );
 }
 
-function VideoPlaceholder({ media, theme, large = false }) {
+function VideoPlaceholder({ media, theme, large = false, onPromote, promoting = false }) {
+  const posterOnly = Boolean(media.metadata?.posterOnly || media.quota_class === 'poster_only');
+  const canPromote = posterOnly && onPromote && media.local_identifier;
+  const promoteButton = canPromote ? (
+    <Pressable
+      onPress={() => onPromote(media)}
+      disabled={promoting}
+      accessibilityRole="button"
+      accessibilityLabel="Save playable video"
+      style={[styles.promoteVideoButton, { backgroundColor: theme.semantic.primary, opacity: promoting ? 0.6 : 1 }]}
+    >
+      <Caption style={[styles.promoteVideoText, { color: theme.colors.onPrimary }]}>
+        {promoting ? 'Saving video...' : 'Save playable video'}
+      </Caption>
+    </Pressable>
+  ) : null;
+
   if (media.posterUrl) {
     return (
       <View style={styles.videoPlaceholder}>
@@ -581,8 +637,9 @@ function VideoPlaceholder({ media, theme, large = false }) {
         <View style={styles.videoOverlay}>
           <Ionicons name="play-circle" size={large ? 52 : 28} color={theme.colors.onPrimary} />
           <Caption style={[styles.videoOverlayLabel, { color: theme.colors.onPrimary }]}>
-            Video {formatSeconds(media.duration_sec)}
+            {posterOnly ? 'Video moment waiting to save' : `Video ${formatSeconds(media.duration_sec)}`}
           </Caption>
+          {promoteButton}
         </View>
       </View>
     );
@@ -591,8 +648,9 @@ function VideoPlaceholder({ media, theme, large = false }) {
     <View style={styles.videoPlaceholder}>
       <Ionicons name="play-circle" size={large ? 52 : 26} color={theme.semantic.primary} />
       <Caption style={{ color: theme.semantic.textSoft, marginTop: 4 }}>
-        Video {formatSeconds(media.duration_sec)}
+        {posterOnly ? 'Video moment waiting to save' : `Video ${formatSeconds(media.duration_sec)}`}
       </Caption>
+      {promoteButton}
     </View>
   );
 }
@@ -808,6 +866,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textShadowColor: glass.mediaTextShadow,
     textShadowRadius: 6,
+  },
+  promoteVideoButton: {
+    marginTop: space.sm,
+    minHeight: 40,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promoteVideoText: {
+    fontWeight: '800',
   },
   title: {
     fontSize: 25,

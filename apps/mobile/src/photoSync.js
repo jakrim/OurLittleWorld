@@ -3,6 +3,13 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails } from './photos';
+import {
+  assertVideoWithinPlan,
+  fileSizeOf,
+  finalizeMediaUpload,
+  releaseMediaUpload,
+  reserveMediaUpload,
+} from './mediaPolicy';
 import { uuid } from './moments';
 import { supabase } from './supabase';
 
@@ -112,7 +119,7 @@ async function createVideoPoster({ info, match }) {
  * point of view: the tag row exists immediately (status='pending'), then
  * upload + status='ready' happen async.
  */
-export async function uploadForTag({ familyId, assetId, match = null }) {
+export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false }) {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
   if (!userId) throw new Error('Not signed in');
@@ -125,6 +132,9 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
     throw new Error(info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.');
   }
   if (info.mediaType === 'video') {
+    if (videoPosterOnly) {
+      return savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match });
+    }
     return uploadVideoForTag({ familyId, assetId, userId, info, match });
   }
   const location = normalizeLocation(info.location);
@@ -209,6 +219,7 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
   );
   if (upsertErr) throw upsertErr;
 
+  let reservationId = null;
   try {
     // Chain: decode the (often 12MP) original once, downscale to "full"
     // size, then downscale that result to "thumb". Halves the JPEG decode
@@ -221,6 +232,9 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
       readAsArrayBuffer(thumb.uri),
     ]);
 
+    const derivativeBytes = (fullBuf.byteLength || 0) + (thumbBuf.byteLength || 0);
+    reservationId = await reserveMediaUpload({ familyId, mediaType: 'image', bytes: derivativeBytes });
+
     const opts = { contentType: 'image/jpeg', upsert: true };
     const [fullRes, thumbRes] = await Promise.all([
       supabase.storage.from(BUCKET).upload(fullPath, fullBuf, opts),
@@ -228,6 +242,9 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
     ]);
     if (fullRes.error) throw fullRes.error;
     if (thumbRes.error) throw thumbRes.error;
+
+    await finalizeMediaUpload(reservationId, { bytes: derivativeBytes });
+    reservationId = null;
 
     const [tagDone, mediaDone] = await Promise.all([
       supabase
@@ -260,6 +277,7 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
 
     return { fullId, thumbId };
   } catch (err) {
+    await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
@@ -277,6 +295,10 @@ export async function uploadForTag({ familyId, assetId, match = null }) {
 }
 
 async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
+  const durationSec = info.duration ? Number(info.duration) / 1000 : null;
+  const sourceBytes = fileSizeOf(info.localUri || info.uri);
+  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
+
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
@@ -366,6 +388,13 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   );
   if (upsertErr) throw upsertErr;
 
+  const reservationId = await reserveMediaUpload({
+    familyId,
+    mediaType: 'video',
+    bytes: sourceBytes || 0,
+    durationSec: durationSec || 0,
+  });
+
   try {
     await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
 
@@ -410,14 +439,20 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
           metadata: { ...metadata, ...posterMetadata },
           upload_status: 'ready',
           upload_error: null,
+          quota_class: 'optimized',
+          source_bytes: sourceBytes,
+          optimized_bytes: sourceBytes,
+          playback_seconds: durationSec ? Math.round(durationSec) : null,
         })
         .eq('id', mediaId),
     ]);
     if (tagDone.error) throw tagDone.error;
     if (mediaDone.error) throw mediaDone.error;
 
+    await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
     return { fullId, posterId: posterObject };
   } catch (err) {
+    await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
@@ -432,6 +467,113 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     ]);
     throw err;
   }
+}
+
+/**
+ * Saves an auto-discovered video as a poster-only memory: poster + metadata
+ * now, no source upload. The user can promote it to a playable video later
+ * (uploadForTag without videoPosterOnly reuses the same moment/media ids).
+ */
+async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match }) {
+  const location = normalizeLocation(info.location);
+  const nowIso = new Date().toISOString();
+  const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
+  const durationSec = info.duration ? Number(info.duration) / 1000 : null;
+  const { data: existingTag, error: existingErr } = await supabase
+    .from('photo_tags')
+    .select('moment_id, moment_media_id')
+    .eq('family_id', familyId)
+    .eq('asset_owner_user_id', userId)
+    .eq('asset_id', assetId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+
+  const momentId = existingTag?.moment_id || uuid();
+  const mediaId = existingTag?.moment_media_id || uuid();
+  const posterId = uuid();
+  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
+
+  if (!existingTag?.moment_id) {
+    const { error: momentErr } = await supabase.from('moments').insert({
+      id: momentId,
+      family_id: familyId,
+      author_user_id: userId,
+      captured_at: creationTime || nowIso,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      shared_with: [],
+    });
+    if (momentErr) throw momentErr;
+  }
+
+  const poster = await createVideoPoster({ info, match });
+  await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
+  const posterBytes = fileSizeOf(poster.uri);
+
+  const metadata = {
+    source: 'scan-auto-save',
+    localAssetId: assetId,
+    posterPath,
+    posterTimeMs: poster.timeMs,
+    posterWidth: poster.width,
+    posterHeight: poster.height,
+    posterSource: poster.source,
+    posterOnly: true,
+    sourceDurationSec: durationSec,
+    originalFileName: info.fileName || match?.fileName || null,
+  };
+
+  const { error: mediaErr } = await supabase.from('moment_media').upsert(
+    {
+      id: mediaId,
+      moment_id: momentId,
+      family_id: familyId,
+      owner_user_id: userId,
+      media_type: 'video',
+      local_identifier: assetId,
+      file_name: info.fileName || match?.fileName || null,
+      mime_type: mimeTypeForVideo(extensionForVideo(info)),
+      full_object: null,
+      poster_object: posterId,
+      width: info.width || null,
+      height: info.height || null,
+      duration_sec: durationSec,
+      metadata,
+      upload_status: 'ready',
+      upload_error: null,
+      quota_class: 'poster_only',
+      optimized_bytes: posterBytes,
+      sort_order: 0,
+    },
+    { onConflict: 'id' },
+  );
+  if (mediaErr) throw mediaErr;
+
+  const { error: upsertErr } = await supabase.from('photo_tags').upsert(
+    {
+      family_id: familyId,
+      asset_owner_user_id: userId,
+      asset_id: assetId,
+      tagged_by_user_id: userId,
+      tagged_at: nowIso,
+      creation_time: creationTime,
+      original_width: info.width || null,
+      original_height: info.height || null,
+      latitude: location?.latitude ?? null,
+      longitude: location?.longitude ?? null,
+      location_fetched_at: location ? nowIso : null,
+      storage_object: null,
+      thumb_object: posterId,
+      upload_status: 'ready',
+      upload_error: null,
+      moment_id: momentId,
+      moment_media_id: mediaId,
+    },
+    { onConflict: 'family_id,asset_owner_user_id,asset_id' },
+  );
+  if (upsertErr) throw upsertErr;
+
+  return { posterId, posterOnly: true };
 }
 
 export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
