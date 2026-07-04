@@ -3,15 +3,27 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails } from './photos';
+import * as mediaDb from './mediaDb';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
   finalizeMediaUpload,
+  isMediaPolicyError,
   releaseMediaUpload,
   reserveMediaUpload,
 } from './mediaPolicy';
 import { uuid } from './moments';
 import { supabase } from './supabase';
+
+// SQLite cache calls must never break the network path.
+function safeCache(fn) {
+  try {
+    return fn();
+  } catch (err) {
+    console.warn('mediaDb', err?.message);
+    return undefined;
+  }
+}
 
 /**
  * Cloud photo pipeline.
@@ -131,12 +143,37 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   if (!localUri) {
     throw new Error(info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.');
   }
-  if (info.mediaType === 'video') {
-    if (videoPosterOnly) {
-      return savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match });
+
+  // Persist the job so interrupted uploads survive an app restart.
+  const jobId = `${familyId}:${assetId}`;
+  safeCache(() => mediaDb.enqueueUploadJob({
+    id: jobId,
+    familyId,
+    localAssetId: assetId,
+    mediaType: info.mediaType === 'video' ? 'video' : 'image',
+    videoPosterOnly,
+  }));
+
+  try {
+    let result;
+    if (info.mediaType === 'video') {
+      result = videoPosterOnly
+        ? await savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match })
+        : await uploadVideoForTag({ familyId, assetId, userId, info, match });
+    } else {
+      result = await uploadImageForTag({ familyId, assetId, userId, info, match });
     }
-    return uploadVideoForTag({ familyId, assetId, userId, info, match });
+    safeCache(() => mediaDb.markUploadJob(jobId, 'done'));
+    return result;
+  } catch (err) {
+    // Plan rejections are decisions, not retryable failures.
+    safeCache(() => mediaDb.markUploadJob(jobId, isMediaPolicyError(err) ? 'done' : 'failed', String(err?.message || err)));
+    throw err;
   }
+}
+
+async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
+  const localUri = info.localUri || info.uri;
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
@@ -619,6 +656,37 @@ export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
   if (row?.moment_id) {
     await deleteEmptyMoment({ familyId, momentId: row.moment_id });
   }
+
+  safeCache(() => mediaDb.removeCachedMedia({ familyId, assetOwnerUserId, assetId }));
+}
+
+/**
+ * Retries upload jobs persisted in SQLite ('queued' from an interrupted
+ * session or 'failed' with attempts left). Call on app/archive mount.
+ */
+export async function resumePendingUploadJobs({ familyId }) {
+  if (!familyId) return { resumed: 0, failed: 0 };
+  const jobs = safeCache(() => mediaDb.listPendingUploadJobs(familyId)) || [];
+  let resumed = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    if (!job.local_asset_id) {
+      safeCache(() => mediaDb.markUploadJob(job.id, 'done'));
+      continue;
+    }
+    try {
+      await uploadForTag({
+        familyId,
+        assetId: job.local_asset_id,
+        videoPosterOnly: job.target_plan_key === 'poster_only' || job.media_type === 'video',
+      });
+      resumed += 1;
+    } catch (err) {
+      failed += 1;
+      console.warn('resume upload job failed', job.id, err?.message);
+    }
+  }
+  return { resumed, failed };
 }
 
 async function deleteEmptyMoment({ familyId, momentId }) {
@@ -730,24 +798,41 @@ export async function hydrateMediaUrls(rows, { variant = 'thumb' } = {}) {
   const wantFull = variant === 'full' || variant === 'all';
   const wantThumb = variant === 'thumb' || variant === 'all';
 
+  // Reuse unexpired signed URLs from the local variant cache first.
+  const cachedFor = (r, v) => safeCache(() => mediaDb.getCachedVariantUrl(r.moment_media_id, v)) || null;
+
   const fullByPath = new Map();
   const thumbByPath = new Map();
   const jobs = [];
   if (wantFull) {
-    const paths = list.filter((r) => !r.fullUrl).map((r) => pathForTaggedFull(r.family_id || familyId, r)).filter(Boolean);
+    const paths = list
+      .filter((r) => !r.fullUrl && !cachedFor(r, 'full'))
+      .map((r) => pathForTaggedFull(r.family_id || familyId, r))
+      .filter(Boolean);
     jobs.push(signInChunks(paths, 200, fullByPath));
   }
   if (wantThumb) {
-    const paths = list.filter((r) => !r.thumbUrl).map((r) => pathForTaggedThumb(r.family_id || familyId, r)).filter(Boolean);
+    const paths = list
+      .filter((r) => !r.thumbUrl && !cachedFor(r, 'thumb'))
+      .map((r) => pathForTaggedThumb(r.family_id || familyId, r))
+      .filter(Boolean);
     jobs.push(signInChunks(paths, 200, thumbByPath));
   }
   await Promise.all(jobs);
 
-  return list.map((r) => ({
-    ...r,
-    fullUrl: r.fullUrl || fullByPath.get(pathForTaggedFull(r.family_id || familyId, r)) || null,
-    thumbUrl: r.thumbUrl || thumbByPath.get(pathForTaggedThumb(r.family_id || familyId, r)) || null,
-  }));
+  return list.map((r) => {
+    const fullUrl = r.fullUrl
+      || (wantFull ? cachedFor(r, 'full') || fullByPath.get(pathForTaggedFull(r.family_id || familyId, r)) : null)
+      || null;
+    const thumbUrl = r.thumbUrl
+      || (wantThumb ? cachedFor(r, 'thumb') || thumbByPath.get(pathForTaggedThumb(r.family_id || familyId, r)) : null)
+      || null;
+    if (r.moment_media_id) {
+      if (fullUrl && !r.fullUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'full', fullUrl, SIGNED_URL_TTL_SECONDS));
+      if (thumbUrl && !r.thumbUrl) safeCache(() => mediaDb.setCachedVariantUrl(r.moment_media_id, 'thumb', thumbUrl, SIGNED_URL_TTL_SECONDS));
+    }
+    return { ...r, fullUrl, thumbUrl };
+  });
 }
 
 /** Signs display/playback + poster URLs for one media item on detail open. */

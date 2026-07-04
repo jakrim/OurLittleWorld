@@ -39,7 +39,8 @@ import {
   radius,
   shadow,
 } from './ui';
-import { deleteForTag, hydrateMediaUrls, listSharedTaggedPage } from './photoSync';
+import * as mediaDb from './mediaDb';
+import { deleteForTag, hydrateMediaUrls, listSharedTaggedPage, resumePendingUploadJobs } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
 import { Tags, Memories } from './storage';
 import { useFamily } from './FamilyContext';
@@ -130,10 +131,33 @@ export default function TimelineScreen() {
       const hydrated = await hydrateMediaUrls(rows, { variant: 'thumb' });
       sharedCursor.current = nextCursor;
       setShared(dedupeShared(hydrated));
+      try {
+        mediaDb.cacheTaggedRows(family.id, rows);
+      } catch {}
     } finally {
       setSharedLoading(false);
     }
   }, [family]);
+
+  // Instant archive: render the SQLite cache before the network answers,
+  // and retry any upload jobs that survived a restart.
+  useEffect(() => {
+    if (!family?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const cached = mediaDb.readCachedTaggedRows(family.id, { limit: TIMELINE_PAGE_SIZE });
+        if (!alive || !cached.length) return;
+        const hydrated = await hydrateMediaUrls(cached, { variant: 'thumb' });
+        if (!alive) return;
+        setShared((prev) => (prev.length ? prev : dedupeShared(hydrated)));
+      } catch {}
+    })();
+    resumePendingUploadJobs({ familyId: family.id }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [family?.id]);
 
   const loadMoreShared = useCallback(async () => {
     if (!family || sharedLoading || sharedLoadingMore || !sharedCursor.current) return;
@@ -146,6 +170,9 @@ export default function TimelineScreen() {
       const hydrated = await hydrateMediaUrls(rows, { variant: 'thumb' });
       sharedCursor.current = nextCursor;
       if (hydrated.length) setShared((prev) => dedupeShared([...prev, ...hydrated]));
+      try {
+        mediaDb.cacheTaggedRows(family.id, rows);
+      } catch {}
     } finally {
       setSharedLoadingMore(false);
     }
