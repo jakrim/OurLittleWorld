@@ -5,7 +5,7 @@ import StaticPage from "@/components/StaticPage";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Choose a private baby book plan for your family, starting at $4.99 monthly or $3.99/month when billed yearly.",
+    "Family at $7.99/month or $69.99/year for the private baby book most families keep up with. Vault at $14.99/month adds longer videos and original backup.",
 };
 
 export default function PricingPage() {

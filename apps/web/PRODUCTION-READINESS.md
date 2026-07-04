@@ -10,8 +10,8 @@ Users can browse the homepage, story, pricing, gift, partners, privacy, terms, a
 
 ## Critical Launch Blockers
 
-1. Live Stripe credentials and price IDs are not configured in this repo.
-   - Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FAMILY_MONTHLY`, `STRIPE_PRICE_FAMILY_YEARLY`, and `STRIPE_PRICE_GIFT_YEAR` in Supabase.
+1. Live Stripe credentials and price IDs are not configured in this repo (test mode IS fully provisioned).
+   - Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FAMILY_MONTHLY`, `STRIPE_PRICE_FAMILY_YEARLY`, `STRIPE_PRICE_VAULT_MONTHLY`, `STRIPE_PRICE_VAULT_YEARLY`, `STRIPE_PRICE_GIFT_YEAR`, and `STRIPE_PRICE_GIFT_VAULT_YEAR` in Supabase.
    - Set `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL` in Vercel.
 
 2. Gift delivery email is not connected.
@@ -52,18 +52,16 @@ Missing before scale:
 
 ### Pricing
 
-Purpose: help a family choose monthly/yearly or route gift buyers.
+Purpose: help a family choose Family vs Vault (monthly/yearly) or route gift buyers.
 
 Current flow:
-- Monthly, yearly, and gift year are clear.
-- Launch pricing is intentionally low: $4.99 monthly, $3.99/month when billed yearly, and $48 for a gift year.
-- Yearly is framed as best value.
-- Form prepares checkout once configured.
+- Two tiers: Family ($7.99 monthly / $69.99 yearly, recommended) and Vault ($14.99 monthly / $149.99 yearly) for video-heavy families who want original backup.
+- Gift years: Family $70, Vault $150.
+- Checkout form submits explicit plan keys (`family_monthly`, `family_yearly`, `vault_monthly`, `vault_yearly`; gifts use `gift_year` / `gift_vault_year`).
 
 Missing before paid launch:
-- Live Stripe secrets and price IDs.
-- Stripe webhook configured to `stripe-webhook`.
-- End-to-end test of the post-checkout claim-code page.
+- Live-mode Stripe secrets and price IDs.
+- End-to-end test of the post-checkout claim-code page in live mode.
 
 ### Gift
 

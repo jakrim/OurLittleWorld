@@ -21,7 +21,7 @@ Our Little World asks for photo access so you can build a private baby timeline 
 
 ## Service Providers
 
-The app uses service providers for authentication, database, storage, and app infrastructure. These providers process information only as needed to run the app.
+The app uses service providers for authentication, database, storage, and app infrastructure. These providers process information only as needed to run the app. Video processing may include upload, encoding, storage, streaming, and delivery through media infrastructure providers, including Cloudflare. The Family plan stores optimized app-quality copies of saved photos and videos; the Vault plan additionally stores original-quality copies for selected media. Our Little World is not a full-device photo library backup unless original backup is enabled for selected media.
 
 ## Data Sharing
 

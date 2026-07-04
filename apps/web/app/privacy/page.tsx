@@ -114,6 +114,21 @@ export default function PrivacyPage() {
             </p>
           </PolicyItem>
 
+          <PolicyItem title="Media Storage and Processing">
+            <p>
+              The Family plan stores optimized app-quality copies of the photos and videos you
+              save. The Vault plan additionally stores original-quality copies for selected
+              media. Our Little World is not a full-device photo library backup unless original
+              backup is enabled for selected media.
+            </p>
+            <p>
+              Video processing may include upload, encoding, storage, streaming, and delivery
+              through media infrastructure providers. In addition to our other service
+              providers, we may use Cloudflare for video streaming, media storage, and content
+              delivery.
+            </p>
+          </PolicyItem>
+
           <PolicyItem title="How Information Is Shared">
             <ul>
               <li>With invited users in your family space, based on their role and the memories you share.</li>
