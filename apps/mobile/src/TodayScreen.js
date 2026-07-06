@@ -27,7 +27,7 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { dismissCatchupGoal } from './catchupDismissals';
 import { selectDayCardNudge } from './dayCardNudge';
-import { ageAt, formatAge } from './photos';
+import { ageAt, formatAge, localCalendarDayDiff, localDateFromISODate } from './ageModel.js';
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
@@ -807,8 +807,9 @@ function Metric({ label, value }) {
 
 function daysSince(isoDate) {
   if (!isoDate) return null;
-  const start = new Date(`${isoDate}T00:00:00`);
-  return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
+  const start = localDateFromISODate(isoDate);
+  if (!start) return null;
+  return Math.max(0, localCalendarDayDiff(start, new Date()));
 }
 
 function formatAgeLine(label) {

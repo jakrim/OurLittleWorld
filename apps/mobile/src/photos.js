@@ -8,6 +8,8 @@ import {
 } from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
+export { ageAt, formatAge } from './ageModel.js';
+
 /**
  * Helpers that talk to the photo library on behalf of Our Little World.
  * All expo-media-library access goes through this module (SDK 56 Query + Asset API).
@@ -364,52 +366,4 @@ export async function getAssetDetails(assetId, { downloadFromNetwork: _downloadF
       downloadError: String(err?.message || err || 'Could not load photo from library'),
     };
   }
-}
-
-/**
- * Compute baby age at a given timestamp.
- * Returns a structured object so callers can format flexibly.
- */
-export function ageAt(birthdayISO, takenAtMs) {
-  if (!birthdayISO || !takenAtMs) return null;
-  const birth = new Date(birthdayISO);
-  const taken = new Date(takenAtMs);
-  if (Number.isNaN(birth.getTime()) || Number.isNaN(taken.getTime())) return null;
-
-  let years = taken.getFullYear() - birth.getFullYear();
-  let months = taken.getMonth() - birth.getMonth();
-  let days = taken.getDate() - birth.getDate();
-
-  if (days < 0) {
-    months -= 1;
-    const lastMonth = new Date(taken.getFullYear(), taken.getMonth(), 0);
-    days += lastMonth.getDate();
-  }
-  if (months < 0) {
-    years -= 1;
-    months += 12;
-  }
-
-  const diffMs = taken.getTime() - birth.getTime();
-  const totalDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const beforeBirth = diffMs < 0;
-
-  return { years, months, days, totalDays, beforeBirth };
-}
-
-export function formatAge(age) {
-  if (!age) return '';
-  if (age.beforeBirth) return 'before they were born';
-  if (age.totalDays === 0) return 'birth day';
-  if (age.years === 0 && age.months === 0) {
-    return `${age.totalDays} day${age.totalDays === 1 ? '' : 's'} old`;
-  }
-  if (age.years === 0) {
-    const m = `${age.months} month${age.months === 1 ? '' : 's'}`;
-    const d = age.days ? `, ${age.days} day${age.days === 1 ? '' : 's'}` : '';
-    return `${m}${d}`;
-  }
-  const y = `${age.years} year${age.years === 1 ? '' : 's'}`;
-  const m = age.months ? `, ${age.months} month${age.months === 1 ? '' : 's'}` : '';
-  return `${y}${m}`;
 }
