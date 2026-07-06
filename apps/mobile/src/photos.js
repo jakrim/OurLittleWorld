@@ -16,6 +16,7 @@ export { ageAt, formatAge } from './ageModel.js';
  */
 
 const DESC_CREATION = { key: AssetField.CREATION_TIME, ascending: false };
+const ASC_CREATION = { key: AssetField.CREATION_TIME, ascending: true };
 const VIDEO_FRAME_SAMPLE_LIMIT = 3;
 
 export function normalizeMediaLibraryAssetId(assetId) {
@@ -24,10 +25,10 @@ export function normalizeMediaLibraryAssetId(assetId) {
   return raw.startsWith('ph://') ? raw.slice('ph://'.length) : raw;
 }
 
-function mediaQuery(mediaType, createdAfterMs, createdBeforeMs) {
+function mediaQuery(mediaType, createdAfterMs, createdBeforeMs, { ascending = false } = {}) {
   let q = new Query()
     .eq(AssetField.MEDIA_TYPE, mediaType)
-    .orderBy(DESC_CREATION);
+    .orderBy(ascending ? ASC_CREATION : DESC_CREATION);
   if (createdAfterMs != null && Number.isFinite(createdAfterMs)) {
     q = q.gte(AssetField.CREATION_TIME, createdAfterMs);
   }
@@ -37,12 +38,12 @@ function mediaQuery(mediaType, createdAfterMs, createdBeforeMs) {
   return q;
 }
 
-function imageQuery(createdAfterMs, createdBeforeMs) {
-  return mediaQuery(MediaType.IMAGE, createdAfterMs, createdBeforeMs);
+function imageQuery(createdAfterMs, createdBeforeMs, options) {
+  return mediaQuery(MediaType.IMAGE, createdAfterMs, createdBeforeMs, options);
 }
 
-function videoQuery(createdAfterMs, createdBeforeMs) {
-  return mediaQuery(MediaType.VIDEO, createdAfterMs, createdBeforeMs);
+function videoQuery(createdAfterMs, createdBeforeMs, options) {
+  return mediaQuery(MediaType.VIDEO, createdAfterMs, createdBeforeMs, options);
 }
 
 /** iOS Vision module expects ph:// URIs; asset ids are local identifiers. */
@@ -169,10 +170,11 @@ export async function fetchPhotosPage({
   pageSize = 60,
   createdAfterMs,
   createdBeforeMs,
+  sortAscending = false,
 } = {}) {
   const offset = after != null && after !== '' ? parseInt(String(after), 10) : 0;
   const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-  const rows = await imageQuery(createdAfterMs, createdBeforeMs).limit(pageSize).offset(safeOffset).exe();
+  const rows = await imageQuery(createdAfterMs, createdBeforeMs, { ascending: sortAscending }).limit(pageSize).offset(safeOffset).exe();
   const assets = await Promise.all(rows.map(mapAssetToLegacy));
   return {
     assets,

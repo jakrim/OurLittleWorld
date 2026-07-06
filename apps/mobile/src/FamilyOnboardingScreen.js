@@ -214,6 +214,7 @@ function CreateFlow({
         value={name}
         onChangeText={setName}
         placeholder="Papa"
+        caption="Shown beside your letters, prompts, and saved memories."
         autoCapitalize="words"
         returnKeyType="done"
         onSubmitEditing={onSubmit}
@@ -270,6 +271,7 @@ function JoinFlow({
         value={code}
         onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
         placeholder="A1B2C3D4"
+        caption="Use the code or link your co-parent shared."
         autoCapitalize="characters"
         autoCorrect={false}
         maxLength={8}
@@ -287,6 +289,7 @@ function JoinFlow({
         value={name}
         onChangeText={setName}
         placeholder="Mama"
+        caption="Shown beside your letters, prompts, and saved memories."
         autoCapitalize="words"
         returnKeyType="done"
         onSubmitEditing={onSubmit}

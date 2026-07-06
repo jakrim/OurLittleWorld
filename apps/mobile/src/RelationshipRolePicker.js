@@ -10,7 +10,7 @@ export default function RelationshipRolePicker({
   customValue,
   onChangeCustomValue,
   label = 'Your role in the relationship',
-  caption,
+  caption = 'Shown on letters, prompts, and family memories.',
   columns = 3,
   customPlaceholder = 'What should your partner see?',
   customFieldSize = 'md',
@@ -39,6 +39,7 @@ export default function RelationshipRolePicker({
             value={customValue}
             onChangeText={onChangeCustomValue}
             placeholder={customPlaceholder}
+            caption="Use the relationship name your family should see."
             autoCapitalize="words"
             returnKeyType="done"
             size={customFieldSize}

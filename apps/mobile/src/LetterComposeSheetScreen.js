@@ -50,13 +50,19 @@ export default function LetterComposeSheetScreen() {
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
         <Title>write a letter</Title>
         <Body>A few honest lines for the eighteenth birthday are enough.</Body>
-        <Field value={title} onChangeText={setTitle} placeholder="Title, optional" />
+        <Field
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Title, optional"
+          caption="Optional. The letter can be sealed with just the message."
+        />
         <Field
           inputRef={bodyInputRef}
           as="textarea"
           value={body}
           onChangeText={setBody}
           placeholder="Start with what you want them to know."
+          caption="Required. This stays sealed until the date below."
           inputProps={{
             autoCorrect: true,
             spellCheck: true,

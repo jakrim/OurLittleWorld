@@ -332,6 +332,7 @@ export default function PurchaseScreen() {
           label="Gift or partner code"
           value={code}
           onChangeText={setCode}
+          caption="Enter the code from a gift, website purchase, or partner access email."
           autoCapitalize="characters"
           inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         />

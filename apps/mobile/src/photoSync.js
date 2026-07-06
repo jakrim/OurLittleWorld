@@ -943,6 +943,36 @@ export async function listSharedTagged(familyId, { limit = 5000, pageSize = 500,
   return hydrateMediaUrls(all, { variant });
 }
 
+export async function listSharedTaggedChronological(familyId, {
+  limit = 60,
+  capturedOnOrAfter = null,
+  capturedBefore = null,
+  variant = 'thumb',
+} = {}) {
+  if (!familyId) return [];
+  let query = supabase
+    .from('photo_tags')
+    .select(TAGGED_SELECT)
+    .eq('family_id', familyId)
+    .eq('upload_status', 'ready')
+    .not('creation_time', 'is', null)
+    .order('creation_time', { ascending: true, nullsFirst: false })
+    .order('asset_owner_user_id', { ascending: true })
+    .order('asset_id', { ascending: true })
+    .limit(limit);
+
+  if (capturedOnOrAfter) query = query.gte('creation_time', capturedOnOrAfter);
+  if (capturedBefore) query = query.lt('creation_time', capturedBefore);
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn('listSharedTaggedChronological', error.message);
+    return [];
+  }
+
+  return hydrateMediaUrls((data || []).map((row) => normalizeTaggedRow(familyId, row)), { variant });
+}
+
 function pathForTaggedFull(familyId, row) {
   return row?.moment_media?.metadata?.fullPath
     || (row?.storage_object ? `${familyId}/full/${row.storage_object}.jpg` : null);

@@ -420,10 +420,34 @@ export default function MomentDetailScreen() {
           <Card variant="muted">
             <Caption>Edit moment</Caption>
             <V gap="sm" style={styles.editFields}>
-              <Field value={editTitle} onChangeText={setEditTitle} placeholder="Title" autoCapitalize="sentences" />
-              <Field value={editPlace} onChangeText={setEditPlace} placeholder="Place" autoCapitalize="words" />
-              <Field as="textarea" value={editNote} onChangeText={setEditNote} placeholder="Note" />
-              <Field value={editTags} onChangeText={setEditTags} placeholder="Tags, separated by commas" autoCapitalize="none" />
+              <Field
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Title"
+                caption="Shown on this memory card."
+                autoCapitalize="sentences"
+              />
+              <Field
+                value={editPlace}
+                onChangeText={setEditPlace}
+                placeholder="Place"
+                caption="Optional. Helps group this memory by location."
+                autoCapitalize="words"
+              />
+              <Field
+                as="textarea"
+                value={editNote}
+                onChangeText={setEditNote}
+                placeholder="Note"
+                caption="Private to this family archive."
+              />
+              <Field
+                value={editTags}
+                onChangeText={setEditTags}
+                placeholder="Tags, separated by commas"
+                caption="Separate with commas; we clean up duplicates and #tags."
+                autoCapitalize="none"
+              />
             </V>
             <View style={styles.editActions}>
               <Button variant="ghost" size="sm" fullWidth={false} onPress={() => setEditOpen(false)}>Cancel</Button>

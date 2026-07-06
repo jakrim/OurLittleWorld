@@ -30,6 +30,17 @@
         "resourceClass": "m-medium"
       }
     },
+    "production-internal": {
+      "extends": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "extends": "base",
       "autoIncrement": true

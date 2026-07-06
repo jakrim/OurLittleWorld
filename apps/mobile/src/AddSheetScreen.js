@@ -294,14 +294,32 @@ export default function AddSheetScreen() {
         ) : null}
 
         <View style={styles.fields}>
-          <Field value={title} onChangeText={setTitle} placeholder="Moment title, optional" />
-          <Field as="textarea" value={note} onChangeText={setNote} placeholder="What happened?" />
-          <Field value={place} onChangeText={setPlace} placeholder="Place, optional" />
+          <Field
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Moment title, optional"
+            caption="Optional. Leave it blank if the photo already says enough."
+          />
+          <Field
+            as="textarea"
+            value={note}
+            onChangeText={setNote}
+            placeholder="What happened?"
+            caption="Optional. A sentence or two helps this memory make sense later."
+          />
+          <Field
+            value={place}
+            onChangeText={setPlace}
+            placeholder="Place, optional"
+            caption="Optional. Helps Library group memories by where they happened."
+          />
           <Field
             value={tagText}
             onChangeText={setTagText}
             placeholder="Tags, comma separated"
-            caption={tags.length ? tags.map((tag) => `#${tag}`).join(' ') : undefined}
+            caption={tags.length
+              ? tags.map((tag) => `#${tag}`).join(' ')
+              : 'Separate with commas; we clean up duplicates and #tags.'}
             autoCapitalize="none"
           />
         </View>

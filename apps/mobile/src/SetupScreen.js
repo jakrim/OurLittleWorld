@@ -406,6 +406,7 @@ function ProfileCard({ eyebrow, title, name, onChangeName }) {
         value={name}
         onChangeText={onChangeName}
         placeholder="e.g. Noa"
+        caption="Used across prompts, firsts, letters, and photo ages."
         autoCapitalize="words"
         returnKeyType="next"
         size="lg"
@@ -426,7 +427,7 @@ function BirthdayCard({ eyebrow, title, caption, birthday, onChangeBirthday, val
       <BirthDatePicker
         value={birthday}
         onChange={onChangeBirthday}
-        caption={null}
+        caption="This powers age labels, first suggestions, monthiversaries, and photo discovery."
         error={
           birthday && !validBirthday
             ? 'Pick a real calendar date between 1970 and today.'

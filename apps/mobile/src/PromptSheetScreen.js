@@ -149,6 +149,7 @@ export default function PromptSheetScreen() {
           value={value}
           onChangeText={setValue}
           placeholder="A few lines are enough."
+          caption="Answer in text, voice, or both."
           autoFocus
         />
         <View style={[styles.voiceCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>

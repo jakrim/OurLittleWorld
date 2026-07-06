@@ -829,6 +829,7 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
             </Pressable>
           ) : null}
         </View>
+        <Caption>Search across titles, places, tags, dates, and voice-note text.</Caption>
         <View style={styles.filterRow}>
           {ARCHIVE_FILTERS.map((option) => {
             const active = filter === option.value;

@@ -50,7 +50,6 @@ import {
 import {
   DEFAULT_RITUAL_SETTINGS,
   DEFAULT_SETTINGS_COUNTS,
-  MONTHIVERSARY_DAY_OPTIONS,
   PROMPT_TIME_OPTIONS,
   WEEKDAY_OPTIONS,
   formatDigestDay,
@@ -58,6 +57,7 @@ import {
   formatPromptTime,
   getFamilyRitualSettings,
   getSettingsCounts,
+  monthiversaryDayForFamily,
   normalizeRitualSettings,
   saveFamilyRitualSettings,
 } from './ritualSettings';
@@ -743,6 +743,7 @@ function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, 
         label="Gift, website, or partner code"
         value={code}
         onChangeText={onCodeChange}
+        caption="Enter the code from a gift, website purchase, or partner access email."
         autoCapitalize="characters"
         inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         containerStyle={styles.billingCodeField}
@@ -826,7 +827,7 @@ function RitualEditor({ type, settings, saving, family, onSave }) {
     );
   }
 
-  const dayOptions = monthiversaryDayOptions(family);
+  const birthdayMonthiversaryDay = monthiversaryDayForFamily(family) ?? settings.monthiversaryDay;
   return (
     <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
       <Caption>Monthiversary nudge</Caption>
@@ -836,18 +837,13 @@ function RitualEditor({ type, settings, saving, family, onSave }) {
           { value: 'on', label: 'On' },
           { value: 'off', label: 'Off' },
         ]}
-        onChange={(value) => onSave({ monthiversaryEnabled: value === 'on' })}
+        onChange={(value) => onSave({
+          monthiversaryEnabled: value === 'on',
+          monthiversaryDay: value === 'on' ? birthdayMonthiversaryDay : settings.monthiversaryDay,
+        })}
         style={styles.editorControl}
       />
-      {settings.monthiversaryEnabled ? (
-        <SegmentedControl
-          value={settings.monthiversaryDay}
-          options={dayOptions}
-          onChange={(monthiversaryDay) => onSave({ monthiversaryDay })}
-          style={styles.editorControl}
-        />
-      ) : null}
-      <Caption>{saving ? 'Saving...' : formatMonthiversary(settings)}</Caption>
+      <Caption>{saving ? 'Saving...' : monthiversaryHelperText(settings, family)}</Caption>
     </View>
   );
 }
@@ -1108,27 +1104,19 @@ function plural(count, singular, pluralValue = `${singular}s`) {
   return Number(count) === 1 ? singular : pluralValue;
 }
 
-function ordinal(value) {
-  const day = Number(value);
-  if ([11, 12, 13].includes(day % 100)) return `${day}th`;
-  const suffix = day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
-  return `${day}${suffix}`;
-}
-
 function formatShortDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function monthiversaryDayOptions(family) {
-  const birthDay = Number(String(family?.babyBirthday || '').split('-')[2]);
-  const values = [birthDay, ...MONTHIVERSARY_DAY_OPTIONS.map((option) => option.value)]
-    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 31);
-  return Array.from(new Set(values)).slice(0, 4).map((value) => ({
-    value,
-    label: value === birthDay ? 'Birth day' : ordinal(value),
-  }));
+function monthiversaryHelperText(settings, family) {
+  const name = family?.babyName || 'Your child';
+  if (!settings?.monthiversaryEnabled) {
+    return `Off. Turn it on to use ${name}'s birthday for monthly memory nudges.`;
+  }
+  const label = formatMonthiversary(settings).replace(' monthly', '');
+  return `${name}'s birthday sets this automatically: ${label} each month.`;
 }
 
 function summarizeReferenceProfile(profile, family) {

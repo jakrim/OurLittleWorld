@@ -1,4 +1,11 @@
 import { supabase } from './supabase';
+import {
+  formatMonthiversary,
+  monthiversaryDayForFamily,
+  normalizeMonthiversaryDay,
+} from './ritualSettingsModel.js';
+
+export { formatMonthiversary, monthiversaryDayForFamily };
 
 export const DEFAULT_RITUAL_SETTINGS = {
   dailyPromptTime: '19:30',
@@ -25,13 +32,6 @@ export const WEEKDAY_OPTIONS = [
   { value: 6, label: 'Sat' },
 ];
 
-export const MONTHIVERSARY_DAY_OPTIONS = [
-  { value: 1, label: '1st' },
-  { value: 7, label: '7th' },
-  { value: 15, label: '15th' },
-  { value: 28, label: '28th' },
-];
-
 export const DEFAULT_SETTINGS_COUNTS = {
   momentCount: 0,
   exportableMomentCount: 0,
@@ -56,11 +56,6 @@ function normalizeTime(value) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function defaultMonthiversaryDay(family) {
-  const birthDay = Number(String(family?.babyBirthday || '').split('-')[2]);
-  return clampNumber(birthDay, 1, 31, DEFAULT_RITUAL_SETTINGS.monthiversaryDay);
-}
-
 export function normalizeRitualSettings(row, family) {
   return {
     dailyPromptTime: normalizeTime(row?.daily_prompt_time || row?.dailyPromptTime),
@@ -71,12 +66,11 @@ export function normalizeRitualSettings(row, family) {
       DEFAULT_RITUAL_SETTINGS.weeklyDigestDay,
     ),
     monthiversaryEnabled: row?.monthiversary_enabled ?? row?.monthiversaryEnabled ?? true,
-    monthiversaryDay: clampNumber(
-      row?.monthiversary_day ?? row?.monthiversaryDay,
-      1,
-      31,
-      defaultMonthiversaryDay(family),
-    ),
+    monthiversaryDay: normalizeMonthiversaryDay({
+      row,
+      family,
+      fallback: DEFAULT_RITUAL_SETTINGS.monthiversaryDay,
+    }),
     timezone: row?.timezone || DEFAULT_RITUAL_SETTINGS.timezone,
   };
 }
@@ -135,18 +129,6 @@ export function formatPromptTime(value) {
 
 export function formatDigestDay(value) {
   return WEEKDAY_OPTIONS.find((option) => option.value === Number(value))?.label || 'Sun';
-}
-
-function ordinal(value) {
-  const day = clampNumber(value, 1, 31, 1);
-  if ([11, 12, 13].includes(day % 100)) return `${day}th`;
-  const suffix = day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
-  return `${day}${suffix}`;
-}
-
-export function formatMonthiversary(settings) {
-  if (!settings?.monthiversaryEnabled) return 'Off';
-  return `${ordinal(settings.monthiversaryDay)} monthly`;
 }
 
 export async function getFamilyRitualSettings({ familyId, family }) {
