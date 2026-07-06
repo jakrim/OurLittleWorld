@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -18,6 +18,7 @@ import {
 } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { markDigestRead } from './digestReadState';
 import { countLabel } from './plural';
 import { useRitualHomeData } from './useRitualHomeData';
 
@@ -32,6 +33,10 @@ export default function DigestDetailSheetScreen() {
     babyBirthday: family?.babyBirthday,
     babyName: family?.babyName,
   });
+
+  useEffect(() => {
+    if (family?.id && digest?.weekStart) markDigestRead(family.id, digest.weekStart);
+  }, [digest?.weekStart, family?.id]);
 
   const openMoment = (momentId) => {
     if (!momentId) return;

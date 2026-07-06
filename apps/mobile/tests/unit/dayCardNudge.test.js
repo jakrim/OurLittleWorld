@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { selectDayCardNudge } from '../../src/dayCardNudge.js';
+
+const catchupGoal = { key: 'laugh', title: 'First laugh', targetAgeLabel: '3-4 months' };
+const unansweredPrompt = { prompt: { text: 'What made them smile today?' }, mineAnswered: false, snoozed: false };
+
+test('priority order: review > catchup > prompt > digest > fallback', () => {
+  const everything = {
+    waitingReviewCount: 12,
+    catchupGoal,
+    promptState: unansweredPrompt,
+    digestUnread: true,
+    babyName: 'Reuben',
+  };
+  assert.equal(selectDayCardNudge(everything).kind, 'review');
+  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0 }).kind, 'catchup');
+  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0, catchupGoal: null }).kind, 'prompt');
+  assert.equal(
+    selectDayCardNudge({ ...everything, waitingReviewCount: 0, catchupGoal: null, promptState: null }).kind,
+    'digest',
+  );
+  assert.equal(selectDayCardNudge({}).kind, 'fallback');
+});
+
+test('review nudge counts and pluralizes', () => {
+  assert.equal(selectDayCardNudge({ waitingReviewCount: 12 }).title, '12 photos are waiting for a look');
+  assert.equal(selectDayCardNudge({ waitingReviewCount: 1 }).title, '1 photo is waiting for a look');
+});
+
+test('catchup nudge names the child and seeds the composer route', () => {
+  const nudge = selectDayCardNudge({ catchupGoal, babyName: 'Reuben' });
+  assert.equal(nudge.title, "Did we ever save Reuben's first laugh?");
+  assert.equal(nudge.goalKey, 'laugh');
+  assert.deepEqual(nudge.route.params, { title: 'First laugh', targetAge: '3-4 months', goalKey: 'laugh' });
+});
+
+test('answered or snoozed prompt does not nudge', () => {
+  assert.equal(selectDayCardNudge({ promptState: { ...unansweredPrompt, mineAnswered: true } }).kind, 'fallback');
+  assert.equal(selectDayCardNudge({ promptState: { ...unansweredPrompt, snoozed: true } }).kind, 'fallback');
+  assert.equal(selectDayCardNudge({ promptState: unansweredPrompt }).kind, 'prompt');
+});
+
+test('fallback is never empty', () => {
+  const nudge = selectDayCardNudge({});
+  assert.ok(nudge.title.length > 0);
+  assert.equal(nudge.route, null);
+});

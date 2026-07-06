@@ -21,6 +21,8 @@ import {
 } from './ui';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { dismissCatchupGoal } from './catchupDismissals';
+import { selectDayCardNudge } from './dayCardNudge';
 import { ageAt, formatAge } from './photos';
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
@@ -47,6 +49,8 @@ export default function TodayScreen() {
     status,
     promptState,
     digest,
+    catchupGoal,
+    digestUnread,
     sharedPhotos,
     recentPhotos,
     todayMatches,
@@ -61,15 +65,9 @@ export default function TodayScreen() {
   });
 
   const ageInfo = useMemo(() => {
-    if (!family?.babyBirthday) return { label: '', badge: '' };
+    if (!family?.babyBirthday) return { label: '' };
     const value = ageAt(family.babyBirthday, Date.now());
-    if (!value) return { label: '', badge: '' };
-    const badge = value.years > 0
-      ? String(value.years)
-      : value.months > 0
-        ? String(value.months)
-        : String(Math.max(0, value.totalDays));
-    return { label: formatAge(value), badge };
+    return { label: value ? formatAge(value) : '' };
   }, [family?.babyBirthday]);
 
   const snoozePrompt = async () => {
@@ -122,6 +120,20 @@ export default function TodayScreen() {
   const snoozed = promptState?.snoozed;
   const loadingCold = status === 'idle' || status === 'refreshing';
   const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
+  const scanState = Scan.useScanState();
+  const waitingReviewCount = scanState.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
+  const nudge = selectDayCardNudge({
+    waitingReviewCount,
+    catchupGoal,
+    promptState,
+    digestUnread,
+    babyName: family?.babyName,
+  });
+  const onDismissCatchup = async () => {
+    if (!family?.id || !nudge.goalKey) return;
+    await dismissCatchupGoal(family.id, nudge.goalKey);
+    refresh({ force: true });
+  };
   const monthSections = useMemo(
     () => groupByMonth(sharedPhotos, family?.babyBirthday),
     [family?.babyBirthday, sharedPhotos],
@@ -170,18 +182,33 @@ export default function TodayScreen() {
         onScanPress={() => router.push('/scan')}
       />
 
-      <Card style={styles.dayCard}>
-        <View style={styles.dayRow}>
-          <View style={[styles.dayBadge, { backgroundColor: theme.colors.primarySoft }]}>
-            <Title style={[styles.dayNumber, { color: theme.semantic.primary }]}>{ageInfo.badge || '?'}</Title>
+      <Pressable
+        onPress={nudge.route ? () => router.push(nudge.route) : undefined}
+        disabled={!nudge.route}
+        accessibilityRole="button"
+        accessibilityLabel={nudge.title}
+      >
+        <Card style={styles.dayCard}>
+          <View style={styles.dayRow}>
+            <View style={styles.dayText}>
+              <Eyebrow>{nudge.eyebrow}</Eyebrow>
+              <Body>{nudge.title}</Body>
+            </View>
+            <Caption style={[styles.dayCount, { color: theme.semantic.secondary }]}>day {daysSince(family?.babyBirthday) ?? '...'}</Caption>
           </View>
-          <View style={styles.dayText}>
-            <Eyebrow>Today</Eyebrow>
-            <Body>{ageInfo.label ? formatAgeLine(ageInfo.label) : 'A small place for today.'}</Body>
-          </View>
-          <Caption style={[styles.dayCount, { color: theme.semantic.secondary }]}>day {daysSince(family?.babyBirthday) ?? '...'}</Caption>
-        </View>
-      </Card>
+          {nudge.kind === 'catchup' ? (
+            <Pressable
+              onPress={onDismissCatchup}
+              accessibilityRole="button"
+              accessibilityLabel="Not yet"
+              hitSlop={8}
+              style={styles.skipPrompt}
+            >
+              <Caption style={{ color: theme.semantic.textMuted }}>Not yet</Caption>
+            </Pressable>
+          ) : null}
+        </Card>
+      </Pressable>
 
       <SegmentedControl
         value={activeSegment}
@@ -742,18 +769,6 @@ const styles = StyleSheet.create({
   dayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  dayBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-  },
-  dayNumber: {
-    fontSize: 21,
-    lineHeight: 25,
   },
   dayCount: {
     fontStyle: 'italic',

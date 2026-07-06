@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router/react-navigation';
 
+import { loadCatchupDismissals } from './catchupDismissals';
+import { getReadDigestWeek } from './digestReadState';
 import { Family } from './families';
-import { ageInDaysOn } from './firstsModel';
+import { ageInDaysOn, buildFirstsModel, selectCatchupGoal } from './firstsModel';
 import { listMomentArchive } from './moments';
 import {
   MONTHVERSARY_MAX_PER_BUCKET,
@@ -14,7 +16,7 @@ import {
 } from './onThisDay';
 import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './photoSync';
 import { Memories } from './storage';
-import { DailyPrompts, Firsts, Letters, WeeklyDigests } from './rituals';
+import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 
 const CACHE_VERSION = 'v1';
 const REFRESH_TTL_MS = 30 * 1000;
@@ -54,11 +56,17 @@ function buildDerivedPayload({ raw, userId }) {
   // Real annual matches win; month-versary buckets fill the first two years.
   const annual = annualTodayMatches(shared);
   const todayMatches = annual.length ? annual : (raw.monthversary || []);
+  const digest = raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments });
+  const digestHasContent = (digest.momentCount || 0) + (digest.milestoneCount || 0)
+    + (digest.voiceNoteCount || 0) + (digest.letterCount || 0) > 0;
+  const { goalProgress } = buildFirstsModel(firsts, FIRST_GOAL_DEFINITIONS, raw.ageDays ?? null);
 
   return {
     updatedAt: Date.now(),
     promptState,
-    digest: raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments }),
+    digest,
+    catchupGoal: selectCatchupGoal(goalProgress.goals, raw.ageDays ?? null, raw.catchupDismissals || {}),
+    digestUnread: digestHasContent && digest.weekStart !== raw.digestReadWeek,
     sharedPhotos: shared,
     recentPhotos: shared.slice(0, 12),
     todayMatches,
@@ -107,7 +115,7 @@ async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
 }
 
 async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName }) {
-  const [shared, memories, firsts, letters, promptState, members, moments, monthversary] = await Promise.all([
+  const [shared, memories, firsts, letters, promptState, members, moments, monthversary, catchupDismissals, digestReadWeek] = await Promise.all([
     listSharedTagged(familyId, { limit: 120 }).catch(() => []),
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
@@ -116,6 +124,8 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
     Family.members(familyId).catch(() => []),
     listMomentArchive(familyId, { limit: 160 }).catch(() => []),
     fetchMonthversaryMatches({ familyId, babyBirthday, babyName }).catch(() => []),
+    loadCatchupDismissals(familyId),
+    getReadDigestWeek(familyId),
   ]);
 
   const digest = await WeeklyDigests.ensureForCurrentWeek({
@@ -136,6 +146,9 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
       letters,
       moments,
       monthversary,
+      catchupDismissals,
+      digestReadWeek,
+      ageDays: ageInDaysOn(babyBirthday),
       promptState,
       digest,
       membersById: Object.fromEntries(members.map((m) => [m.userId, m.displayName || 'Family'])),
@@ -270,6 +283,8 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     error,
     promptState: payload?.promptState || null,
     digest: payload?.digest || WeeklyDigests.build(),
+    catchupGoal: payload?.catchupGoal || null,
+    digestUnread: payload?.digestUnread || false,
     sharedPhotos: payload?.sharedPhotos || [],
     recentPhotos: payload?.recentPhotos || [],
     todayMatches: payload?.todayMatches || [],
