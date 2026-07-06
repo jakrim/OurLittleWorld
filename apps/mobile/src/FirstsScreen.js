@@ -165,7 +165,7 @@ export default function FirstsScreen() {
             <View style={styles.firstBody}>
               <View style={styles.firstMeta}>
                 <AgePill first={first} birthday={family?.babyBirthday} />
-                <Caption>{formatDate(first.happened_at || first.created_at)}</Caption>
+                {first.done ? <Caption>{formatDate(first.happened_at || first.created_at)}</Caption> : null}
               </View>
               <Body style={styles.firstTitle}>{first.title}</Body>
               {first.note ? (
