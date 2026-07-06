@@ -2,9 +2,10 @@ import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { getAssetDetails } from './photos';
+import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
 import * as mediaDb from './mediaDb';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
+import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
@@ -953,6 +954,41 @@ function pathForTaggedThumb(familyId, row) {
     || (row?.thumb_object ? `${familyId}/thumb/${row.thumb_object}.jpg` : null);
 }
 
+export async function markLocalAssetsDeleted({ familyId, ownerUserId, assetIds, deletedAt = new Date().toISOString() }) {
+  const ids = uniqueAssetIds(assetIds);
+  if (!familyId || !ownerUserId || !ids.length) return { marked: 0 };
+
+  let marked = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const slice = ids.slice(i, i + 100);
+    const { data, error } = await supabase
+      .from('moment_media')
+      .select('id, metadata')
+      .eq('family_id', familyId)
+      .eq('owner_user_id', ownerUserId)
+      .in('local_identifier', slice);
+    if (error) {
+      console.warn('markLocalAssetsDeleted select', error.message);
+      continue;
+    }
+
+    for (const row of data || []) {
+      const metadata = markLocalAssetDeletedMetadata(row.metadata, deletedAt);
+      const { error: updateErr } = await supabase
+        .from('moment_media')
+        .update({ metadata })
+        .eq('family_id', familyId)
+        .eq('id', row.id);
+      if (updateErr) {
+        console.warn('markLocalAssetsDeleted update', updateErr.message);
+        continue;
+      }
+      marked += 1;
+    }
+  }
+  return { marked };
+}
+
 /**
  * Returns the set of asset IDs already saved in Supabase for the given
  * (family, owner). Used by the scanner to skip photos that are already
@@ -979,6 +1015,18 @@ export async function listSavedAssetIds({ familyId, ownerUserId }) {
     for (const r of rows) if (r.asset_id) out.add(r.asset_id);
     if (rows.length < chunk) break;
     from += chunk;
+  }
+  return out;
+}
+
+function uniqueAssetIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const value of ids || []) {
+    const assetId = normalizeMediaLibraryAssetId(value?.id || value?.assetId || value?.localIdentifier || value);
+    if (!assetId || seen.has(assetId)) continue;
+    seen.add(assetId);
+    out.push(assetId);
   }
   return out;
 }

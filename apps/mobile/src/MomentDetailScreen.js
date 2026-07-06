@@ -18,6 +18,7 @@ import { deleteMoment, deleteVoiceNote, getMomentDetail, setMomentSharedWith, to
 import { uploadForTag } from './photoSync';
 import { shareMemoryMoment } from './shareMoment';
 import PhotoActionSheet from './PhotoActionSheet';
+import { isLocalAssetDeleted } from './localAssetDeletion';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -90,6 +91,10 @@ export default function MomentDetailScreen() {
     }
     const assetId = media?.local_identifier;
     if (!assetId) return;
+    if (isLocalAssetDeleted(media)) {
+      Alert.alert('Still in the vault', 'The original was deleted from this phone, but this saved moment is still in the family vault.');
+      return;
+    }
     setPromotingVideo(true);
     try {
       await uploadForTag({ familyId: family.id, assetId });
@@ -615,7 +620,11 @@ function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo }) {
 
 function VideoPlaceholder({ media, theme, large = false, onPromote, promoting = false }) {
   const posterOnly = Boolean(media.metadata?.posterOnly || media.quota_class === 'poster_only');
-  const canPromote = posterOnly && onPromote && media.local_identifier;
+  const localAssetDeleted = isLocalAssetDeleted(media);
+  const canPromote = posterOnly && onPromote && media.local_identifier && !localAssetDeleted;
+  const statusLabel = localAssetDeleted
+    ? 'Deleted from your phone, still in the vault'
+    : posterOnly ? 'Video moment waiting to save' : `Video ${formatSeconds(media.duration_sec)}`;
   const promoteButton = canPromote ? (
     <Pressable
       onPress={() => onPromote(media)}
@@ -637,7 +646,7 @@ function VideoPlaceholder({ media, theme, large = false, onPromote, promoting = 
         <View style={styles.videoOverlay}>
           <Ionicons name="play-circle" size={large ? 52 : 28} color={theme.colors.onPrimary} />
           <Caption style={[styles.videoOverlayLabel, { color: theme.colors.onPrimary }]}>
-            {posterOnly ? 'Video moment waiting to save' : `Video ${formatSeconds(media.duration_sec)}`}
+            {statusLabel}
           </Caption>
           {promoteButton}
         </View>
@@ -648,7 +657,7 @@ function VideoPlaceholder({ media, theme, large = false, onPromote, promoting = 
     <View style={styles.videoPlaceholder}>
       <Ionicons name="play-circle" size={large ? 52 : 26} color={theme.semantic.primary} />
       <Caption style={{ color: theme.semantic.textSoft, marginTop: 4 }}>
-        {posterOnly ? 'Video moment waiting to save' : `Video ${formatSeconds(media.duration_sec)}`}
+        {statusLabel}
       </Caption>
       {promoteButton}
     </View>

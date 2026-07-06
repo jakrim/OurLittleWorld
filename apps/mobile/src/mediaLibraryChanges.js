@@ -15,7 +15,7 @@ function uniqueAssetIds(ids) {
   const out = [];
   const seen = new Set();
   for (const value of ids || []) {
-    const assetId = normalizeMediaLibraryAssetId(value);
+    const assetId = normalizeMediaLibraryAssetId(value?.id || value?.assetId || value?.localIdentifier || value);
     if (!assetId || seen.has(assetId)) continue;
     seen.add(assetId);
     out.push(assetId);
@@ -25,6 +25,7 @@ function uniqueAssetIds(ids) {
 
 function normalizeEvent(event = {}) {
   const insertedAssetIds = uniqueAssetIds(event.insertedAssets);
+  const deletedAssetIds = uniqueAssetIds(event.deletedAssets);
   const deletedCount = Array.isArray(event.deletedAssets) ? event.deletedAssets.length : 0;
   const updatedCount = Array.isArray(event.updatedAssets) ? event.updatedAssets.length : 0;
   const hasIncrementalChanges = event?.hasIncrementalChanges === true;
@@ -38,16 +39,22 @@ function normalizeEvent(event = {}) {
     deletedCount,
     updatedCount,
     insertedAssetIds: insertedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
+    deletedAssetIds: deletedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
     insertedAssetIdsTruncated: insertedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS,
-    requiresFullLibraryScan: !hasIncrementalChanges || insertedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS,
+    deletedAssetIdsTruncated: deletedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS,
+    requiresFullLibraryScan:
+      !hasIncrementalChanges
+      || insertedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS
+      || deletedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS,
   };
 }
 
 function normalizeStoredChange(change) {
   if (!change) return null;
   const insertedAssetIds = uniqueAssetIds(change.insertedAssetIds);
+  const deletedAssetIds = uniqueAssetIds(change.deletedAssetIds);
   const insertedCount = Number(change.insertedCount || insertedAssetIds.length || 0);
-  const deletedCount = Number(change.deletedCount || 0);
+  const deletedCount = Number(change.deletedCount || deletedAssetIds.length || 0);
   const updatedCount = Number(change.updatedCount || 0);
 
   return {
@@ -59,7 +66,9 @@ function normalizeStoredChange(change) {
     deletedCount,
     updatedCount,
     insertedAssetIds: insertedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
+    deletedAssetIds: deletedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
     insertedAssetIdsTruncated: !!change.insertedAssetIdsTruncated,
+    deletedAssetIdsTruncated: !!change.deletedAssetIdsTruncated,
     requiresFullLibraryScan: change.requiresFullLibraryScan !== false,
   };
 }
@@ -77,6 +86,14 @@ function mergeChanges(previous, next) {
     prev.insertedAssetIdsTruncated
     || next.insertedAssetIdsTruncated
     || insertedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS;
+  const deletedAssetIds = uniqueAssetIds([
+    ...prev.deletedAssetIds,
+    ...next.deletedAssetIds,
+  ]);
+  const deletedAssetIdsTruncated =
+    prev.deletedAssetIdsTruncated
+    || next.deletedAssetIdsTruncated
+    || deletedAssetIds.length > MAX_STORED_INSERTED_ASSET_IDS;
 
   return {
     firstChangedAt: prev.firstChangedAt,
@@ -87,11 +104,14 @@ function mergeChanges(previous, next) {
     deletedCount: prev.deletedCount + next.deletedCount,
     updatedCount: prev.updatedCount + next.updatedCount,
     insertedAssetIds: insertedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
+    deletedAssetIds: deletedAssetIds.slice(0, MAX_STORED_INSERTED_ASSET_IDS),
     insertedAssetIdsTruncated,
+    deletedAssetIdsTruncated,
     requiresFullLibraryScan:
       prev.requiresFullLibraryScan
       || next.requiresFullLibraryScan
-      || insertedAssetIdsTruncated,
+      || insertedAssetIdsTruncated
+      || deletedAssetIdsTruncated,
   };
 }
 

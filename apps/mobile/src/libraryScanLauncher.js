@@ -1,6 +1,6 @@
 import { embedFace, isNative } from './faceMatcher';
 import { readPendingMediaLibraryChange, clearPendingMediaLibraryChange } from './mediaLibraryChanges';
-import { listSavedAssetIds } from './photoSync';
+import { listSavedAssetIds, markLocalAssetsDeleted } from './photoSync';
 import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
 import * as Scan from './scanController';
 import { addTrustedReferenceImage, primaryReference, readReferenceProfile } from './recognitionReferences';
@@ -18,16 +18,28 @@ export async function startLibraryScan({
   if (!family?.id || !user?.id) return { started: false, reason: 'missing-context' };
   if (Scan.isRunning()) return { started: false, reason: 'already-running' };
 
+  const checkpoint = await readScanCheckpoint({ familyId: family.id, userId: user.id });
+  const change = pendingLibraryChange === undefined
+    ? await readPendingMediaLibraryChange({ familyId: family.id, userId: user.id })
+    : pendingLibraryChange;
+  if (change?.deletedAssetIds?.length) {
+    try {
+      await markLocalAssetsDeleted({
+        familyId: family.id,
+        ownerUserId: user.id,
+        assetIds: change.deletedAssetIds,
+        deletedAt: change.changedAt,
+      });
+    } catch (err) {
+      console.warn('deleted local asset reconciliation', err?.message);
+    }
+  }
+
   const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
   const ref = primaryReference(profile);
   if (!allowWithoutReference && !ref?.embedding?.length && !profile.references?.some((item) => item?.embedding?.length)) {
     return { started: false, reason: 'missing-reference' };
   }
-
-  const checkpoint = await readScanCheckpoint({ familyId: family.id, userId: user.id });
-  const change = pendingLibraryChange === undefined
-    ? await readPendingMediaLibraryChange({ familyId: family.id, userId: user.id })
-    : pendingLibraryChange;
   const birthdayMs = family.babyBirthday
     ? new Date(`${family.babyBirthday}T00:00:00`).getTime()
     : undefined;
