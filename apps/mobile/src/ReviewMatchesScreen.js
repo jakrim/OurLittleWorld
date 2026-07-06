@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -13,6 +13,13 @@ import { useAuth } from './AuthContext';
 import { embedFace, isNative } from './faceMatcher';
 import { addTrustedReferenceImage } from './recognitionReferences';
 import { recordCalibrationReview } from './recognitionTrust';
+import {
+  assetIdsForReviewAction,
+  buildReviewStacks,
+  defaultFoldedAssetIds,
+  expandReviewItems,
+  selectedAssetIdsForReview,
+} from './photoStackModel';
 import * as Scan from './scanController';
 
 /**
@@ -40,28 +47,57 @@ export default function ReviewMatchesScreen() {
   const [savingCount, setSavingCount] = useState(0);
   const [savingTotal, setSavingTotal] = useState(0);
   const [savingErrors, setSavingErrors] = useState(0);
+  const [expandedStackIds, setExpandedStackIds] = useState(() => new Set());
+  const [promotedFoldedIds, setPromotedFoldedIds] = useState(() => new Set());
+  const [rejectedIds, setRejectedIds] = useState(() => new Set());
 
   const matches = scan.matches;
 
-  // Filtered list. For 'all' we just hide saved ones; for the others
-  // we filter once per (matches reference || filter) change.
-  const visibleMatches = useMemo(() => {
+  const unsavedMatches = useMemo(() => {
     const seen = new Set();
     const out = [];
-    const min = filter === 'high' ? 0.75 : 0;
-    const max = filter === 'high' ? 1.01 : 0.75;
     for (const match of matches) {
-      if (!match || match.saved) continue;
-      if (seen.has(match.assetId)) continue;
-      if (filter !== 'all') {
-        const score = match.score ?? 0;
-        if (score < min || score >= max) continue;
-      }
+      if (!match || match.saved || seen.has(match.assetId)) continue;
       seen.add(match.assetId);
       out.push(match);
     }
     return out;
-  }, [matches, filter]);
+  }, [matches]);
+
+  // Filtered list. For 'all' we just hide saved ones; for the others
+  // we filter once per (matches reference || filter) change.
+  const filteredMatches = useMemo(() => {
+    const out = [];
+    const min = filter === 'high' ? 0.75 : 0;
+    const max = filter === 'high' ? 1.01 : 0.75;
+    for (const match of unsavedMatches) {
+      if (filter !== 'all') {
+        const score = match.score ?? 0;
+        if (score < min || score >= max) continue;
+      }
+      out.push(match);
+    }
+    return out;
+  }, [filter, unsavedMatches]);
+
+  const allReviewItems = useMemo(() => buildReviewStacks(unsavedMatches), [unsavedMatches]);
+  const reviewItems = useMemo(() => buildReviewStacks(filteredMatches), [filteredMatches]);
+  const displayItems = useMemo(() => expandReviewItems(reviewItems, expandedStackIds), [expandedStackIds, reviewItems]);
+  const defaultFoldedIds = useMemo(() => defaultFoldedAssetIds(allReviewItems), [allReviewItems]);
+  const selectedAssetIds = useMemo(() => selectedAssetIdsForReview({
+    matches,
+    reviewItems: allReviewItems,
+    promotedFoldedIds,
+    rejectedIds,
+  }), [allReviewItems, matches, promotedFoldedIds, rejectedIds]);
+  const selectedCount = selectedAssetIds.size;
+
+  useEffect(() => {
+    setExpandedStackIds((current) => pruneSet(current, reviewItems.map((item) => item.id)));
+    const liveAssetIds = matches.map((match) => match.assetId).filter(Boolean);
+    setPromotedFoldedIds((current) => pruneSet(current, liveAssetIds));
+    setRejectedIds((current) => pruneSet(current, liveAssetIds));
+  }, [matches, reviewItems]);
 
   const counts = {
     all: scan.matches.length - scan.savedCount,
@@ -69,27 +105,45 @@ export default function ReviewMatchesScreen() {
     borderline: scan.borderlineCount,
   };
 
-  const toggle = useCallback((assetId, accepted) => {
-    Haptics.selectionAsync();
-    Scan.setAccepted(assetId, !accepted);
-  }, []);
-
   const acceptVisible = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const ids = new Set(visibleMatches.map((m) => m.assetId));
-    Scan.setAcceptedBulk((m) => ids.has(m.assetId), true);
+    const ids = new Set(displayItems.flatMap((item) => assetIdsForReviewAction(item, 'accept')));
+    setRejectedIds((current) => withoutIds(current, ids));
+    setPromotedFoldedIds((current) => withIds(current, [...ids].filter((id) => defaultFoldedIds.has(id))));
   };
 
   const rejectVisible = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const ids = new Set(visibleMatches.map((m) => m.assetId));
-    Scan.setAcceptedBulk((m) => ids.has(m.assetId), false);
+    const ids = new Set(displayItems.flatMap((item) => assetIdsForReviewAction(item, 'reject')));
+    setRejectedIds((current) => withIds(current, ids));
+    setPromotedFoldedIds((current) => withoutIds(current, ids));
   };
+
+  const toggleMatch = useCallback((match, accepted, { folded = false } = {}) => {
+    if (!match?.assetId) return;
+    Haptics.selectionAsync();
+    if (accepted) {
+      setRejectedIds((current) => withIds(current, [match.assetId]));
+      if (folded) setPromotedFoldedIds((current) => withoutIds(current, [match.assetId]));
+    } else {
+      setRejectedIds((current) => withoutIds(current, [match.assetId]));
+      if (folded) setPromotedFoldedIds((current) => withIds(current, [match.assetId]));
+    }
+  }, []);
+
+  const toggleStack = useCallback((stackId) => {
+    setExpandedStackIds((current) => {
+      const next = new Set(current);
+      if (next.has(stackId)) next.delete(stackId);
+      else next.add(stackId);
+      return next;
+    });
+  }, []);
 
   const onSave = async () => {
     if (!family) return;
-    const accepted = matches.filter((m) => m.accepted && !m.saved);
-    const rejected = matches.filter((m) => !m.accepted && !m.saved);
+    const accepted = matches.filter((m) => selectedAssetIds.has(m.assetId) && !m.saved);
+    const rejected = matches.filter((m) => rejectedIds.has(m.assetId) && !m.saved);
     if (!accepted.length) {
       Alert.alert('Nothing accepted', 'Tap media to accept it first.');
       return;
@@ -167,11 +221,11 @@ export default function ReviewMatchesScreen() {
   // for tiled grids in RN 0.83.
   const rows = useMemo(() => {
     const out = [];
-    for (let i = 0; i < visibleMatches.length; i += columns) {
-      out.push(visibleMatches.slice(i, i + columns));
+    for (let i = 0; i < displayItems.length; i += columns) {
+      out.push(displayItems.slice(i, i + columns));
     }
     return out;
-  }, [visibleMatches, columns]);
+  }, [displayItems, columns]);
 
   // Track the topmost visible row to drive the floating date header.
   // Only re-renders when the *day* changes so fast scroll never thrashes.
@@ -286,7 +340,7 @@ export default function ReviewMatchesScreen() {
             <FlatList
               key={`cols-${columns}`}
               data={rows}
-              keyExtractor={(row, i) => `r${i}-${row[0]?.assetId || 'empty'}`}
+              keyExtractor={(row, i) => `r${i}-${row[0]?.id || row[0]?.match?.assetId || 'empty'}`}
               contentContainerStyle={{ paddingBottom: 140 }}
               initialNumToRender={12}
               windowSize={21}
@@ -307,8 +361,8 @@ export default function ReviewMatchesScreen() {
                   <Spacer h={space.sm} />
                   <Body>
                     {scanning
-                      ? 'Pinch to resize · tap any item that isn’t them to skip it.'
-                      : `Pinch to resize · tap any item that isn’t ${family?.babyName || 'them'} to skip it.`}
+                      ? 'Pinch to resize · tap any item that isn’t them to skip it. Stacks fold similar shots.'
+                      : `Pinch to resize · tap any item that isn’t ${family?.babyName || 'them'} to skip it. Stacks fold similar shots.`}
                   </Body>
                   <Spacer h={space.md} />
                   <View style={styles.chipRow}>
@@ -326,15 +380,31 @@ export default function ReviewMatchesScreen() {
               )}
               renderItem={({ item: row }) => (
                 <View style={{ flexDirection: 'row', height: TILE }}>
-                  {row.map((item) => (
-                    <Tile
-                      key={item.assetId}
-                      item={item}
-                      size={TILE}
-                      columns={columns}
-                      onToggle={toggle}
-                    />
-                  ))}
+                  {row.map((item) => {
+                    if (item.type === 'stack' || item.type === 'stack-control') {
+                      return (
+                        <StackTile
+                          key={item.id}
+                          item={item}
+                          size={TILE}
+                          columns={columns}
+                          expanded={item.type === 'stack-control'}
+                          onToggle={toggleStack}
+                        />
+                      );
+                    }
+                    const match = item.match || item;
+                    return (
+                      <Tile
+                        key={item.id || match.assetId}
+                        item={{ ...match, accepted: selectedAssetIds.has(match.assetId) }}
+                        size={TILE}
+                        columns={columns}
+                        folded={item.folded}
+                        onToggle={(current, accepted) => toggleMatch(current, accepted, { folded: item.folded })}
+                      />
+                    );
+                  })}
                 </View>
               )}
               ListEmptyComponent={
@@ -360,7 +430,7 @@ export default function ReviewMatchesScreen() {
           <View style={styles.actionBar}>
             <View style={styles.barInner}>
               <View style={styles.barLeft}>
-                <Caption>{scan.acceptedCount.toLocaleString()} of {(scan.matches.length - scan.savedCount).toLocaleString()} selected</Caption>
+                <Caption>{selectedCount.toLocaleString()} of {(scan.matches.length - scan.savedCount).toLocaleString()} selected</Caption>
                 <View style={{ flexDirection: 'row', gap: space.sm, marginTop: 4 }}>
                   <Pressable onPress={rejectVisible} hitSlop={8}>
                     <Caption style={{ color: colors.plum, fontWeight: '600' }}>
@@ -376,8 +446,8 @@ export default function ReviewMatchesScreen() {
                 </View>
               </View>
               <View style={styles.barRight}>
-                <Button onPress={onSave} disabled={scan.acceptedCount === 0}>
-                  Save {scan.acceptedCount.toLocaleString()}
+                <Button onPress={onSave} disabled={selectedCount === 0}>
+                  Save {selectedCount.toLocaleString()}
                 </Button>
               </View>
             </View>
@@ -456,7 +526,47 @@ function Chip({ active, onPress, children }) {
   );
 }
 
-const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
+const StackTile = React.memo(function StackTile({ item, size, columns, expanded, onToggle }) {
+  const inner = columns >= 4 ? 1 : columns === 3 ? 2 : columns === 2 ? 3 : 0;
+  const stackId = item.controlForStackId || item.id;
+  const label = expanded
+    ? 'Hide stack'
+    : `Keep ${item.keep.length} · +${item.foldedCount} similar`;
+  return (
+    <Pressable
+      onPress={() => onToggle(stackId)}
+      accessibilityRole="button"
+      accessibilityLabel={expanded ? 'Collapse similar photo stack' : `Expand ${item.matches.length} similar photos`}
+      style={{ width: size, height: size, padding: inner / 2 }}
+    >
+      <View style={styles.tile}>
+        <Image
+          source={{ uri: item.cover?.uri }}
+          style={styles.thumb}
+          contentFit="cover"
+          transition={120}
+          cachePolicy="memory-disk"
+          recyclingKey={item.cover?.assetId}
+        />
+        <View style={styles.stackScrim} />
+        <View style={[styles.stackBadge, columns >= 4 && styles.stackBadgeCompact]}>
+          <Ionicons name={expanded ? 'chevron-up' : 'albums-outline'} size={columns >= 4 ? 10 : 13} color={colors.onPrimary} />
+          {columns <= 4 ? (
+            <Caption style={styles.stackBadgeText}>{label}</Caption>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}, (prev, next) =>
+  prev.item === next.item &&
+  prev.size === next.size &&
+  prev.columns === next.columns &&
+  prev.expanded === next.expanded &&
+  prev.onToggle === next.onToggle,
+);
+
+const Tile = React.memo(function Tile({ item, size, columns, folded, onToggle }) {
   // Tiny separator so tiles aren't fully glued together — Photos.app uses ~1px.
   const inner = columns >= 4 ? 1 : columns === 3 ? 2 : columns === 2 ? 3 : 0;
   return (
@@ -490,6 +600,11 @@ const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
             <Ionicons name="heart" size={columns >= 4 ? 10 : 12} color={colors.onPrimary} />
           </View>
         ) : null}
+        {folded && !item.accepted && columns <= 3 ? (
+          <View style={styles.promoteBadge}>
+            <Caption style={styles.promoteBadgeText}>Tap to keep</Caption>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -497,8 +612,30 @@ const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
   prev.item === next.item &&
   prev.size === next.size &&
   prev.columns === next.columns &&
+  prev.folded === next.folded &&
   prev.onToggle === next.onToggle,
 );
+
+function pruneSet(current, allowedValues) {
+  const allowed = new Set(allowedValues);
+  const next = new Set([...current].filter((value) => allowed.has(value)));
+  return next.size === current.size ? current : next;
+}
+
+function withIds(current, ids) {
+  const next = new Set(current);
+  for (const id of ids || []) {
+    if (id) next.add(id);
+  }
+  return next;
+}
+
+function withoutIds(current, ids) {
+  const remove = ids instanceof Set ? ids : new Set(ids || []);
+  const next = new Set(current);
+  for (const id of remove) next.delete(id);
+  return next;
+}
 
 function formatHeaderDate(ms) {
   if (!ms) return '';
@@ -602,6 +739,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: glass.inkScrim,
+  },
+  stackScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: glass.photoDim,
+    opacity: 0.28,
+  },
+  stackBadge: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 6,
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: glass.inkScrimStrong,
+  },
+  stackBadgeCompact: {
+    left: 'auto',
+    right: 4,
+    bottom: 4,
+    width: 22,
+    height: 22,
+    minHeight: 22,
+    borderRadius: 11,
+    paddingHorizontal: 0,
+  },
+  stackBadgeText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 0,
+  },
+  promoteBadge: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 6,
+    minHeight: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: glass.inkScrimStrong,
+  },
+  promoteBadgeText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 0,
   },
 
   shimmerDot: {

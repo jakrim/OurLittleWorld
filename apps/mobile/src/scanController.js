@@ -24,7 +24,7 @@
  *   }
  *
  * Match shape:
- *   { assetId, mediaType, score, faceCount, captureQuality, faceSizeRatio, sharpness, creationTime, uri, accepted, saved }
+ *   { assetId, mediaType, score, faceCount, captureQuality, faceSizeRatio, sharpness, featureVector, creationTime, uri, accepted, saved }
  */
 
 import { useEffect, useState } from 'react';
@@ -417,6 +417,7 @@ export async function start({
           captureQuality: s.captureQuality ?? null,
           faceSizeRatio: s.faceSizeRatio ?? null,
           sharpness: s.sharpness ?? null,
+          featureVector: s.featureVector || s.embedding || s.featurePrint || null,
           creationTime: c?.creationTime,
           uri: c?.previewUri || c?.localUri,
           localUri: c?.localUri,
