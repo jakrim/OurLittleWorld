@@ -209,7 +209,10 @@ export default function TodayScreen() {
             </View>
             {nudge.kind === 'catchup' ? (
               <Pressable
-                onPress={onDismissCatchup}
+                onPress={(event) => {
+                  event.stopPropagation?.();
+                  onDismissCatchup();
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="Not yet"
                 hitSlop={8}
@@ -320,7 +323,12 @@ export default function TodayScreen() {
                 {digestStripMedia.slice(0, 4).map((media, index) => (
                   <Pressable
                     key={media.mediaId || `${media.momentId}:${index}`}
-                    onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      if (media.momentId) {
+                        router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } });
+                      }
+                    }}
                     disabled={!media.momentId}
                     accessibilityRole="button"
                     accessibilityLabel={`Open digest moment ${index + 1}`}
