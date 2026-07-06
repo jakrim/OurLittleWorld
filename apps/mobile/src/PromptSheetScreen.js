@@ -142,7 +142,7 @@ export default function PromptSheetScreen() {
           as="textarea"
           value={value}
           onChangeText={setValue}
-          placeholder={voice?.uri ? 'Add a few lines, optional.' : 'A few lines are enough.'}
+          placeholder="A few lines are enough."
           autoFocus
         />
         <View style={[styles.voiceCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
