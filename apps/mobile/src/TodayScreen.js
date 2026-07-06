@@ -6,6 +6,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
   AppShell,
+  AnimatedPressable,
   Body,
   Button,
   Caption,
@@ -187,11 +188,12 @@ export default function TodayScreen() {
         onScanPress={() => router.push('/scan')}
       />
 
-      <Pressable
+      <AnimatedPressable
         onPress={nudge.route ? () => router.push(nudge.route) : undefined}
         disabled={!nudge.route}
         accessibilityRole="button"
         accessibilityLabel={nudge.title}
+        accessibilityState={{ disabled: !nudge.route }}
       >
         <Card style={styles.dayCard}>
           <View style={styles.dayRow}>
@@ -213,32 +215,31 @@ export default function TodayScreen() {
             </Pressable>
           ) : null}
         </Card>
-      </Pressable>
+      </AnimatedPressable>
 
       {prompt && !snoozed ? (
         mineAnswered ? (
-          <Card variant="muted">
-            <View style={styles.promptAnsweredRow}>
-              <View style={[styles.promptSavedIcon, { backgroundColor: theme.colors.primarySoft }]}>
-                <Ionicons name="checkmark" size={16} color={theme.semantic.primary} />
+          <AnimatedPressable
+            onPress={() => router.push('/prompt')}
+            accessibilityRole="button"
+            accessibilityLabel="Edit today's prompt response"
+          >
+            <Card variant="muted">
+              <View style={styles.promptAnsweredRow}>
+                <View style={[styles.promptSavedIcon, { backgroundColor: theme.colors.primarySoft }]}>
+                  <Ionicons name="checkmark" size={16} color={theme.semantic.primary} />
+                </View>
+                <View style={styles.promptAnsweredCopy}>
+                  <Eyebrow>Daily prompt</Eyebrow>
+                  <Title style={styles.promptSavedTitle}>Saved for today.</Title>
+                  <Caption>
+                    {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
+                  </Caption>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
               </View>
-              <View style={styles.promptAnsweredCopy}>
-                <Eyebrow>Daily prompt</Eyebrow>
-                <Title style={styles.promptSavedTitle}>Saved for today.</Title>
-                <Caption>
-                  {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
-                </Caption>
-              </View>
-              <Button
-                size="sm"
-                fullWidth={false}
-                variant="quiet"
-                onPress={() => router.push('/prompt')}
-              >
-                Edit
-              </Button>
-            </View>
-          </Card>
+            </Card>
+          </AnimatedPressable>
         ) : (
         <Card variant="muted">
           <Eyebrow>Daily prompt</Eyebrow>
@@ -286,61 +287,61 @@ export default function TodayScreen() {
         </Card>
       ) : null}
 
-      <Card>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Eyebrow>This week's digest</Eyebrow>
-            <Title style={styles.digestTitle}>{digest.headline}</Title>
+      <AnimatedPressable
+        onPress={() => router.push('/digest')}
+        accessibilityRole="button"
+        accessibilityLabel="Open this week's digest"
+      >
+        <Card>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Eyebrow>This week's digest</Eyebrow>
+              <Title style={styles.digestTitle}>{digest.headline}</Title>
+            </View>
+            <View style={styles.cardCue}>
+              <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
+              <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
+            </View>
           </View>
-          <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
-        </View>
-        {digestStripMedia.length ? (
-          <View style={styles.digestStrip}>
-            {digestStripMedia.slice(0, 4).map((media, index) => (
-              <Pressable
-                key={media.mediaId || `${media.momentId}:${index}`}
-                onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
-                disabled={!media.momentId}
-                accessibilityRole="button"
-                accessibilityLabel={`Open digest moment ${index + 1}`}
-                accessibilityState={{ disabled: !media.momentId }}
-                style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
-              >
-                <Image
-                  source={{ uri: media.thumbUrl || media.fullUrl }}
-                  style={StyleSheet.absoluteFill}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                />
-              </Pressable>
-            ))}
+          {digestStripMedia.length ? (
+            <View style={styles.digestStrip}>
+              {digestStripMedia.slice(0, 4).map((media, index) => (
+                <Pressable
+                  key={media.mediaId || `${media.momentId}:${index}`}
+                  onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
+                  disabled={!media.momentId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open digest moment ${index + 1}`}
+                  accessibilityState={{ disabled: !media.momentId }}
+                  style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
+                >
+                  <Image
+                    source={{ uri: media.thumbUrl || media.fullUrl }}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                  />
+                </Pressable>
+              ))}
+            </View>
+          ) : digestCoverUri ? (
+            <View style={styles.digestCover}>
+              <Image
+                source={{ uri: digestCoverUri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            </View>
+          ) : null}
+          <View style={styles.digestGrid}>
+            <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+            <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
+            <Metric label="voice" value={digest.voiceNoteCount || 0} />
+            <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
           </View>
-        ) : digestCoverUri ? (
-          <View style={styles.digestCover}>
-            <Image
-              source={{ uri: digestCoverUri }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-            />
-          </View>
-        ) : null}
-        <View style={styles.digestGrid}>
-          <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
-          <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
-          <Metric label="voice" value={digest.voiceNoteCount || 0} />
-          <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
-        </View>
-        <Button
-          size="sm"
-          fullWidth={false}
-          variant="quiet"
-          style={styles.digestButton}
-          onPress={() => router.push('/digest')}
-        >
-          Read digest
-        </Button>
-      </Card>
+        </Card>
+      </AnimatedPressable>
 
       <MilestoneTeaser
         summary={firstsSummary}
@@ -426,53 +427,46 @@ function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
   const latest = summary?.latest || null;
   if (latest) {
     return (
-      <Card variant="muted">
-        <View style={styles.sectionHeader}>
-          <View style={styles.teaserCopy}>
-            <Eyebrow>Milestone</Eyebrow>
-            <Title style={styles.teaserTitle}>{latest.title}</Title>
-            <Body>{formatShortDate(latest.happened_at || latest.created_at)} · {summary.count} saved so far</Body>
+      <AnimatedPressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Open firsts. Latest milestone: ${latest.title}`}
+      >
+        <Card variant="muted">
+          <View style={styles.sectionHeader}>
+            <View style={styles.teaserCopy}>
+              <Eyebrow>Milestone</Eyebrow>
+              <Title style={styles.teaserTitle}>{latest.title}</Title>
+              <Body>{formatShortDate(latest.happened_at || latest.created_at)} · {summary.count} saved so far</Body>
+            </View>
+            <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
+              <Ionicons name="flag-outline" size={20} color={theme.semantic.primary} />
+            </View>
           </View>
-          <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
-            <Ionicons name="flag-outline" size={20} color={theme.semantic.primary} />
-          </View>
-        </View>
-        <Button
-          size="sm"
-          fullWidth={false}
-          variant="quiet"
-          style={styles.teaserButton}
-          onPress={onPress}
-        >
-          Open firsts
-        </Button>
-      </Card>
+        </Card>
+      </AnimatedPressable>
     );
   }
 
   return (
-    <Card variant="muted">
-      <View style={styles.sectionHeader}>
-        <View style={styles.teaserCopy}>
-          <Eyebrow>Milestone</Eyebrow>
-          <Title style={styles.teaserTitle}>Save {babyName ? `${babyName}'s` : 'their'} first tiny win.</Title>
-          <Body>Start with a smile, laugh, roll, word, or any first worth keeping.</Body>
+    <AnimatedPressable
+      onPress={onAdd}
+      accessibilityRole="button"
+      accessibilityLabel={`Add ${babyName ? `${babyName}'s` : 'a'} first`}
+    >
+      <Card variant="muted">
+        <View style={styles.sectionHeader}>
+          <View style={styles.teaserCopy}>
+            <Eyebrow>Milestone</Eyebrow>
+            <Title style={styles.teaserTitle}>Save {babyName ? `${babyName}'s` : 'their'} first tiny win.</Title>
+            <Body>Start with a smile, laugh, roll, word, or any first worth keeping.</Body>
+          </View>
+          <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
+            <Ionicons name="add-circle-outline" size={21} color={theme.semantic.primary} />
+          </View>
         </View>
-        <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name="add-circle-outline" size={21} color={theme.semantic.primary} />
-        </View>
-      </View>
-      <Button
-        size="sm"
-        fullWidth={false}
-        variant="dark"
-        style={styles.teaserButton}
-        onPress={onAdd}
-        icon={<Ionicons name="flag-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
-      >
-        Add a first
-      </Button>
-    </Card>
+      </Card>
+    </AnimatedPressable>
   );
 }
 
@@ -829,6 +823,11 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
+  cardCue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   digestTitle: {
     fontSize: 22,
     lineHeight: 27,
@@ -838,10 +837,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: space.sm,
     marginTop: space.lg,
-  },
-  digestButton: {
-    marginTop: space.md,
-    alignSelf: 'flex-start',
   },
   digestCover: {
     width: '100%',
@@ -884,9 +879,6 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  teaserButton: {
-    marginTop: space.lg,
   },
   railTitle: {
     fontSize: 21,
