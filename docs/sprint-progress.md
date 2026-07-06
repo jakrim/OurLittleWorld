@@ -1,6 +1,20 @@
 # Sprint Progress — Polish Backlog
 
-Loop state: COMPLETE WITH RECORDED BLOCKERS. Working branch: `polish-sprints`. Source of truth: `docs/polish-backlog.md`.
+Loop state: COMPLETE WITH RECORDED BLOCKERS + INDEPENDENT REVIEW PASS DONE (2026-07-06). Working branch: `polish-sprints`. Source of truth: `docs/polish-backlog.md`.
+
+## Independent review pass (2026-07-06, all sprints + J)
+
+Every sprint diff and the notifications workstream were re-reviewed (four parallel read-only reviewers, findings adversarially verified against the code before acting).
+
+- Sprint 2 (motion/pressability): clean. AnimatedPressable/EntranceView/SegmentedControl are reduced-motion gated with correct press-through and a11y roles; F1/F2 CTA removals match spec.
+- Sprint 3 (I1/I3/I4/I7): clean. Confidence gates, Low-Power/isRunning guards, Tags.setBaby auto-save path (quota ledger honored), retry queue, and quality floor all verified correct.
+- Sprint 4 (C1-C3/A3/I2/I8): clean. Three reported findings each refuted on verification (day-key already local-time; `finishPostSave` guards falsy routes; dismissal state read before nudge selection).
+- Sprint 5 + review: clean. Reported BGTask plist mismatch refuted — expo-background-task multiplexes JS tasks under `com.expo.modules.backgroundtask.processing`, which is what app.config.js permits.
+- **J2 CONFIRMED BUG, FIXED (6ad35a7):** quiet hours and the 2/day cap were evaluated on the UTC clock/UTC calendar day. notify-event now reads `family_ritual_settings.timezone` (IANA) for quiet-hours minutes and delivery-day keys, falling back to UTC when unset; the client stamps the device zone on ritual-settings save and after push-token registration (`ensureFamilyTimezone`). Verified with real Intl math (NY/SG/invalid-zone cases). **ACTION NEEDED: redeploy `notify-event` — not performed by the reviewer.**
+- Housekeeping (2790aa2): committed the dangling settings-menu card presentation + `20260706133000_fix_notification_event_key_ambiguity.sql` (already applied remotely, was untracked).
+- Known accepted nits (no churn): `deep_link` column vs `route` field naming in the notification center normalizer; unused `downloadFromNetwork` param in referenceAutoSeed.
+
+Post-review health: 84 unit tests pass, `tsc --noEmit` clean, `expo lint` clean, `deno check` clean on notify-event.
 
 Final state summary: Ordered backlog loop is complete through Sprint 5 and J1-J3; all item implementations have path-scoped commits on `polish-sprints`. Remaining blockers are verification/environment blockers already recorded on I1/I3/I7 (native face matcher/dev-client limits); J3's schema is now live, but a live unread-row/dot smoke still needs a disposable authenticated notification row. Remote Supabase migrations were applied on 2026-07-06, `send-push`/`notify-event` were deployed, no PR was opened, and no push was performed.
 
