@@ -60,12 +60,7 @@ export default function AddSheetScreen() {
   }, [router]);
 
   const openAction = useCallback((action) => {
-    if (router.canGoBack()) {
-      router.replace(action.route);
-      return;
-    }
-    router.replace('/timeline');
-    requestAnimationFrame(() => router.push(action.route));
+    router.push(action.route);
   }, [router]);
 
   const pickMedia = async () => {
