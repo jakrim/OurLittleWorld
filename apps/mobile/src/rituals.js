@@ -105,11 +105,11 @@ export function weekRangeFor(date = new Date()) {
 }
 
 export const DailyPrompts = {
-  async getToday({ familyId }) {
+  async getToday({ familyId, babyBirthday }) {
     const userId = await currentUserId();
-    if (!familyId || !userId) return { prompt: promptForDate({ familyId }), responses: [], mine: null };
+    if (!familyId || !userId) return { prompt: promptForDate({ familyId, babyBirthday }), responses: [], mine: null };
     const promptDate = isoDateForLocalDay();
-    const prompt = promptForDate({ familyId, date: promptDate });
+    const prompt = promptForDate({ familyId, date: promptDate, babyBirthday });
     const { data, error } = await supabase
       .from('daily_prompt_responses')
       .select('id, author_user_id, response_text, moment_id, snoozed_until, created_at, updated_at')
@@ -129,12 +129,12 @@ export const DailyPrompts = {
     };
   },
 
-  async saveResponse({ familyId, responseText, momentId }) {
+  async saveResponse({ familyId, responseText, momentId, babyBirthday }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
     const promptDate = isoDateForLocalDay();
-    const prompt = promptForDate({ familyId, date: promptDate });
+    const prompt = promptForDate({ familyId, date: promptDate, babyBirthday });
     const { data, error } = await supabase
       .from('daily_prompt_responses')
       .upsert({
@@ -154,12 +154,12 @@ export const DailyPrompts = {
     return data;
   },
 
-  async snoozeToday({ familyId }) {
+  async snoozeToday({ familyId, babyBirthday }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
     const promptDate = isoDateForLocalDay();
-    const prompt = promptForDate({ familyId, date: promptDate });
+    const prompt = promptForDate({ familyId, date: promptDate, babyBirthday });
     const until = new Date();
     until.setHours(23, 59, 59, 999);
     const { data, error } = await supabase

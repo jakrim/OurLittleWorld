@@ -18,8 +18,8 @@ import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './phot
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 
-// v2: payload gained catchupGoal/digestUnread and month-versary todayMatches (Sprint 1).
-const CACHE_VERSION = 'v2';
+// v3: prompt selection now depends on babyBirthday (A3).
+const CACHE_VERSION = 'v3';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
@@ -121,7 +121,7 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
     Letters.list(familyId).catch(() => []),
-    DailyPrompts.getToday({ familyId }).catch(() => null),
+    DailyPrompts.getToday({ familyId, babyBirthday }).catch(() => null),
     Family.members(familyId).catch(() => []),
     listMomentArchive(familyId, { limit: 160 }).catch(() => []),
     fetchMonthversaryMatches({ familyId, babyBirthday, babyName }).catch(() => []),
@@ -263,21 +263,21 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
 
   const savePromptResponse = useCallback(async (responseText) => {
     if (!familyId || !userId) return null;
-    const row = await DailyPrompts.saveResponse({ familyId, responseText });
+    const row = await DailyPrompts.saveResponse({ familyId, responseText, babyBirthday });
     const next = await patchCachedPromptState({ familyId, userId, promptRow: row });
     if (next) setPayload(next);
     refresh({ force: true });
     return row;
-  }, [familyId, refresh, userId]);
+  }, [babyBirthday, familyId, refresh, userId]);
 
   const snoozePrompt = useCallback(async () => {
     if (!familyId || !userId) return null;
-    const row = await DailyPrompts.snoozeToday({ familyId });
+    const row = await DailyPrompts.snoozeToday({ familyId, babyBirthday });
     const next = await patchCachedPromptState({ familyId, userId, promptRow: row });
     if (next) setPayload(next);
     refresh({ force: true });
     return row;
-  }, [familyId, refresh, userId]);
+  }, [babyBirthday, familyId, refresh, userId]);
 
   return useMemo(() => ({
     status,

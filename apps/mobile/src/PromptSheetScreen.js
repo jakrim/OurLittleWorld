@@ -45,7 +45,7 @@ export default function PromptSheetScreen() {
             if (alive && cached?.mine?.response_text) setValue(cached.mine.response_text);
           })
           .catch(() => {});
-        DailyPrompts.getToday({ familyId: family.id })
+        DailyPrompts.getToday({ familyId: family.id, babyBirthday: family.babyBirthday })
           .then((state) => {
             if (!alive) return;
             setPromptText(state?.prompt?.text || '');
@@ -56,7 +56,7 @@ export default function PromptSheetScreen() {
       return () => {
         alive = false;
       };
-    }, [family?.id, user?.id]),
+    }, [family?.babyBirthday, family?.id, user?.id]),
   );
 
   const startRecording = async () => {
@@ -113,7 +113,12 @@ export default function PromptSheetScreen() {
         });
         momentId = moment.id;
       }
-      const row = await DailyPrompts.saveResponse({ familyId: family.id, responseText: value, momentId });
+      const row = await DailyPrompts.saveResponse({
+        familyId: family.id,
+        responseText: value,
+        momentId,
+        babyBirthday: family.babyBirthday,
+      });
       await patchCachedPromptState({ familyId: family.id, userId: user?.id, promptRow: row });
       close();
     } catch (err) {
