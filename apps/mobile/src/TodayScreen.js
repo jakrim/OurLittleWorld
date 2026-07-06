@@ -24,6 +24,7 @@ import { useAuth } from './AuthContext';
 import { ageAt, formatAge } from './photos';
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
+import { pickDigestCoverUri } from './digestCover';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
@@ -121,6 +122,14 @@ export default function TodayScreen() {
   const places = useMemo(
     () => buildPlaceClusters({ shared: sharedPhotos, metadataByKey: {}, memoriesByKey: {} }),
     [sharedPhotos],
+  );
+  const digestCoverUri = useMemo(
+    () => pickDigestCoverUri({
+      coverPhoto: digest.coverPhoto,
+      latestFirst: firstsSummary?.latest,
+      sharedPhotos,
+    }),
+    [digest.coverPhoto, firstsSummary?.latest, sharedPhotos],
   );
 
   const photoSheetActions = actionPhoto ? [
@@ -281,20 +290,16 @@ export default function TodayScreen() {
               </Pressable>
             ))}
           </View>
-        ) : (
+        ) : digestCoverUri ? (
           <View style={styles.digestCover}>
-            {digest.coverPhoto?.thumbUrl || digest.coverPhoto?.fullUrl ? (
-              <Image
-                source={{ uri: digest.coverPhoto.thumbUrl || digest.coverPhoto.fullUrl }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-              />
-            ) : (
-              <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-            )}
+            <Image
+              source={{ uri: digestCoverUri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
           </View>
-        )}
+        ) : null}
         <View style={styles.digestGrid}>
           <Metric label="moments" value={digest.momentCount ?? digest.photoCount} />
           <Metric label="milestones" value={digest.milestoneCount ?? digest.firstsCount} />
