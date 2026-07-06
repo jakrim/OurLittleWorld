@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { ageInDaysOn, buildFirstsModel } from '../../src/firstsModel.js';
+import {
+  CATCHUP_DISMISS_DAYS,
+  ageInDaysOn,
+  buildFirstsModel,
+  goalTimingCaption,
+  goalWindowState,
+  selectCatchupGoal,
+} from '../../src/firstsModel.js';
 
 const GOALS = [
   { key: 'smile', title: 'First smile', targetAgeLabel: '6-8 weeks', targetAgeMinDays: 42, targetAgeMaxDays: 70, sortOrder: 10 },
@@ -55,6 +62,40 @@ test('all goals complete: state is complete', () => {
 test('no birthday: falls back to first incomplete goal', () => {
   const { goalProgress } = buildFirstsModel([], GOALS, null);
   assert.equal(goalProgress.next.key, 'smile');
+});
+
+test('goal window states and captions for an 11-month-old', () => {
+  const ageDays = 343;
+  const smile = { target_age_label: '6-8 weeks', target_age_min_days: 42, target_age_max_days: 70 };
+  const word = { target_age_label: '9-14 months', target_age_min_days: 270, target_age_max_days: 430 };
+  const noWindow = { target_age_label: '6-8 weeks', target_age_min_days: null, target_age_max_days: null };
+  assert.equal(goalWindowState(smile, ageDays), 'past');
+  assert.equal(goalWindowState(word, ageDays), 'now');
+  assert.equal(goalWindowState(word, 100), 'future');
+  assert.equal(goalWindowState(noWindow, ageDays), null);
+  assert.equal(goalTimingCaption(smile, ageDays), 'From around 6-8 weeks — add it whenever you remember it');
+  assert.equal(goalTimingCaption(word, ageDays), 'Happening around now');
+  assert.equal(goalTimingCaption(word, 100), 'Suggested around 9-14 months');
+  assert.equal(goalTimingCaption({ target_age_label: null }, null), 'Suggested around someday');
+  // no "someday · <window label>" framing anywhere for a past-window goal
+  assert.ok(!goalTimingCaption(smile, ageDays).includes('someday'));
+});
+
+test('selectCatchupGoal picks oldest past window and honors dismissals', () => {
+  const now = new Date(2026, 6, 5);
+  const { goalProgress } = buildFirstsModel([], GOALS, 343);
+  const first = selectCatchupGoal(goalProgress.goals, 343, {}, now);
+  assert.equal(first.key, 'smile');
+  const dismissedRecently = { smile: now.getTime() - 1000 };
+  assert.equal(selectCatchupGoal(goalProgress.goals, 343, dismissedRecently, now).key, 'laugh');
+  const dismissedLongAgo = { smile: now.getTime() - (CATCHUP_DISMISS_DAYS + 1) * 86400000 };
+  assert.equal(selectCatchupGoal(goalProgress.goals, 343, dismissedLongAgo, now).key, 'smile');
+  // saving the first retires it
+  const rows = [{ id: '1', goal_key: 'smile', title: 'First smile', done: true }];
+  const saved = buildFirstsModel(rows, GOALS, 343);
+  assert.equal(selectCatchupGoal(saved.goalProgress.goals, 343, {}, now).key, 'laugh');
+  // unknown age → never nudge
+  assert.equal(selectCatchupGoal(goalProgress.goals, null, {}, now), null);
 });
 
 test('completion matches by title when goal_key missing', () => {

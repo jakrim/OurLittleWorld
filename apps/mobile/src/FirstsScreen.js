@@ -19,7 +19,7 @@ import {
   useTheme,
 } from './ui';
 import { useFamily } from './FamilyContext';
-import { ageInDaysOn, buildFirstsModel } from './firstsModel';
+import { ageInDaysOn, buildFirstsModel, goalTimingCaption } from './firstsModel';
 import { ageAt, formatAge } from './photos';
 import { listSharedTagged } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
@@ -48,9 +48,10 @@ export default function FirstsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const ageDays = ageInDaysOn(family?.babyBirthday);
   const { displayRows, goalProgress, completedCount } = useMemo(
-    () => buildFirstsModel(rows, goalDefinitions, ageInDaysOn(family?.babyBirthday)),
-    [family?.babyBirthday, goalDefinitions, rows],
+    () => buildFirstsModel(rows, goalDefinitions, ageDays),
+    [ageDays, goalDefinitions, rows],
   );
   const subtitle = goalProgress.total
     ? `${goalProgress.completed} of ${goalProgress.total} goals complete`
@@ -148,7 +149,7 @@ export default function FirstsScreen() {
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={first.done ? `Open first: ${first.title}` : `Add first: ${first.title}`}
-          accessibilityHint={!first.done ? `Suggested around ${first.target_age_label || 'someday'}.` : undefined}
+          accessibilityHint={!first.done ? `${goalTimingCaption(first, ageDays)}.` : undefined}
         >
           <Card padding="md" style={[styles.firstCard, !first.done && styles.futureCard]}>
             {photo?.thumbUrl || photo?.fullUrl ? (
@@ -170,7 +171,7 @@ export default function FirstsScreen() {
               {first.note ? (
                 <Caption numberOfLines={2}>{first.note}</Caption>
               ) : !first.done ? (
-                <Caption>Suggested around {first.target_age_label || 'someday'}</Caption>
+                <Caption>{goalTimingCaption(first, ageDays)}</Caption>
               ) : null}
             </View>
             <Ionicons

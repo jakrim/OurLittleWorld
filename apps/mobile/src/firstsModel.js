@@ -40,6 +40,40 @@ function goalIsUpcoming(goal, ageDays) {
   return goal.targetAgeMaxDays >= ageDays;
 }
 
+// 'past' | 'now' | 'future' | null (no window or unknown age)
+export function goalWindowState(row, ageDays) {
+  const min = row.target_age_min_days ?? row.targetAgeMinDays;
+  const max = row.target_age_max_days ?? row.targetAgeMaxDays;
+  if (ageDays == null || min == null || max == null) return null;
+  if (ageDays > max) return 'past';
+  if (ageDays < min) return 'future';
+  return 'now';
+}
+
+export function goalTimingCaption(row, ageDays) {
+  const label = row.target_age_label ?? row.targetAgeLabel;
+  const state = goalWindowState(row, ageDays);
+  if (state === 'past') return `From around ${label} — add it whenever you remember it`;
+  if (state === 'now') return 'Happening around now';
+  return `Suggested around ${label || 'someday'}`;
+}
+
+export const CATCHUP_DISMISS_DAYS = 30; // tunable
+
+// Oldest past-window incomplete goal, skipping ones dismissed in the last
+// CATCHUP_DISMISS_DAYS. dismissedAtByKey: { [goalKey]: epochMs }.
+export function selectCatchupGoal(goalRows, ageDays, dismissedAtByKey = {}, now = new Date()) {
+  if (ageDays == null) return null;
+  const cutoff = now.getTime() - CATCHUP_DISMISS_DAYS * 24 * 60 * 60 * 1000;
+  return [...goalRows]
+    .filter((goal) => !goal.completed && goal.targetAgeMaxDays != null && ageDays > goal.targetAgeMaxDays)
+    .sort((a, b) => a.targetAgeMaxDays - b.targetAgeMaxDays)
+    .find((goal) => {
+      const dismissedAt = dismissedAtByKey[goal.key];
+      return !(dismissedAt && dismissedAt > cutoff);
+    }) || null;
+}
+
 function buildCompletionSets(completed) {
   const completedKeys = new Set(completed.map((row) => row.goal_key).filter(Boolean));
   const completedTitles = new Set(completed.map((row) => normalizeTitle(row.title)));
