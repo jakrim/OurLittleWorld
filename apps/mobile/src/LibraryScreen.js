@@ -28,6 +28,7 @@ import { ageAt, ensureLibraryPermission, fetchPhotosPage, formatAge } from './ph
 import { Tags } from './storage';
 import { backfillPendingForOwner, deleteForTag, getUploadQueueStatus, listSharedTagged } from './photoSync';
 import { listMomentArchive } from './moments';
+import { countLabel } from './plural';
 import { dismissRecentAutoSave, getRecentAutoSaves, recordNegativeExample } from './recognitionTrust';
 import PhotoActionSheet from './PhotoActionSheet';
 import { buildPlaceClusters } from './visionSceneLabeler';
@@ -362,7 +363,7 @@ export default function LibraryScreen() {
               <Card key={place.id} padding="md" style={styles.placeRow}>
                 <View style={styles.placeText}>
                   <Eyebrow>{place.label}</Eyebrow>
-                  <Title style={styles.placeTitle}>{place.photos.length} saved moments</Title>
+                  <Title style={styles.placeTitle}>{countText(place.photos.length, 'saved moment')}</Title>
                   <Caption>{place.topScenes.slice(0, 3).join(' · ') || 'Family outing'}</Caption>
                 </View>
                 <View style={styles.placeThumbRow}>
@@ -825,7 +826,7 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
           })}
         </View>
         <Caption style={styles.searchMeta}>
-          {stats.moments} moments · {stats.photos} photos · {stats.videos} videos · {stats.voiceNotes} voice notes
+          {countText(stats.moments, 'moment')} · {countText(stats.photos, 'photo')} · {countText(stats.videos, 'video')} · {countText(stats.voiceNotes, 'voice note')}
         </Caption>
       </Card>
 
@@ -874,10 +875,10 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
           </View>
         </View>
         <View style={styles.statGrid}>
-          <StatTile label="moments" value={stats.moments} theme={theme} />
-          <StatTile label="photos" value={stats.photos} theme={theme} />
-          <StatTile label="videos" value={stats.videos} theme={theme} />
-          <StatTile label="voice" value={stats.voiceNotes} theme={theme} />
+          <StatTile label={countLabel(stats.moments, 'moment')} value={stats.moments} theme={theme} />
+          <StatTile label={countLabel(stats.photos, 'photo')} value={stats.photos} theme={theme} />
+          <StatTile label={countLabel(stats.videos, 'video')} value={stats.videos} theme={theme} />
+          <StatTile label={countLabel(stats.voiceNotes, 'voice note')} value={stats.voiceNotes} theme={theme} />
         </View>
         {exportFile?.uri ? (
           <View style={[styles.exportFileBox, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
@@ -896,9 +897,9 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
           <View style={styles.sectionHeader}>
             <View>
               <Eyebrow>{year.year} year in review</Eyebrow>
-              <Title style={styles.cardTitle}>{year.moments} saved moments</Title>
+              <Title style={styles.cardTitle}>{countText(year.moments, 'saved moment')}</Title>
             </View>
-            <Caption>{year.photos} photos · {year.videos} videos · {year.voiceNotes} voice</Caption>
+            <Caption>{countText(year.photos, 'photo')} · {countText(year.videos, 'video')} · {countText(year.voiceNotes, 'voice note')}</Caption>
           </View>
           <View style={styles.yearThumbRow}>
             {year.representative.slice(0, 4).map((record) => (
@@ -1148,27 +1149,31 @@ function buildArchiveStats(records) {
 }
 
 function archiveMediaSubtitle(stats) {
-  const mediaTotal = (stats?.photos || 0) + (stats?.videos || 0);
+  const photos = stats?.photos || 0;
+  const videos = stats?.videos || 0;
+  const mediaTotal = photos + videos;
   if (!mediaTotal) return 'Month by month as the archive fills';
-  return `${mediaTotal.toLocaleString()} photos and videos by month`;
+  if (photos && videos) return `${mediaTotal.toLocaleString()} photos and videos by month`;
+  if (photos) return `${countText(photos, 'photo')} by month`;
+  return `${countText(videos, 'video')} by month`;
 }
 
 function archiveStatsCaption(stats) {
   const photos = stats?.photos || 0;
   const videos = stats?.videos || 0;
-  if (photos && videos) return `${photos} photos · ${videos} videos`;
-  if (photos) return `${photos} photos`;
-  if (videos) return `${videos} videos`;
+  if (photos && videos) return `${countText(photos, 'photo')} · ${countText(videos, 'video')}`;
+  if (photos) return countText(photos, 'photo');
+  if (videos) return countText(videos, 'video');
   return 'No photos yet';
 }
 
 function monthSectionSummary(section) {
   const photos = section.photos || 0;
   const videos = section.videos || 0;
-  if (photos && videos) return `${photos} photos · ${videos} videos`;
-  if (photos) return `${photos} photos`;
-  if (videos) return `${videos} videos`;
-  return `${section.records.length} moments`;
+  if (photos && videos) return `${countText(photos, 'photo')} · ${countText(videos, 'video')}`;
+  if (photos) return countText(photos, 'photo');
+  if (videos) return countText(videos, 'video');
+  return countText(section.records.length, 'moment');
 }
 
 function buildYearSummaries(records) {
@@ -1202,15 +1207,15 @@ function buildExportMessage({ family, stats, years }) {
   const lines = [
     `${child}'s Our Little World archive`,
     '',
-    `${stats.moments} saved moments`,
-    `${stats.photos} photos, ${stats.videos} videos, ${stats.voiceNotes} voice notes`,
+    countText(stats.moments, 'saved moment'),
+    `${countText(stats.photos, 'photo')}, ${countText(stats.videos, 'video')}, ${countText(stats.voiceNotes, 'voice note')}`,
   ];
   if (stats.firsts) lines.push(`${stats.firsts} firsts marked for the memory book`);
   lines.push('');
   lines.push('Year in review queue:');
   if (!years.length) lines.push('- No saved years yet.');
   years.forEach((year) => {
-    lines.push(`- ${year.year}: ${year.moments} moments, ${year.photos} photos, ${year.videos} videos, ${year.voiceNotes} voice notes`);
+    lines.push(`- ${year.year}: ${countText(year.moments, 'moment')}, ${countText(year.photos, 'photo')}, ${countText(year.videos, 'video')}, ${countText(year.voiceNotes, 'voice note')}`);
   });
   return lines.join('\n');
 }
@@ -1253,10 +1258,15 @@ function yearFor(value) {
 
 function mediaSummary({ imageCount, videoCount, voiceCount }) {
   const parts = [];
-  if (imageCount) parts.push(`${imageCount} photo${imageCount === 1 ? '' : 's'}`);
-  if (videoCount) parts.push(`${videoCount} video${videoCount === 1 ? '' : 's'}`);
-  if (voiceCount) parts.push(`${voiceCount} voice`);
+  if (imageCount) parts.push(countText(imageCount, 'photo'));
+  if (videoCount) parts.push(countText(videoCount, 'video'));
+  if (voiceCount) parts.push(countText(voiceCount, 'voice note'));
   return parts.join(' · ');
+}
+
+function countText(value, singular, pluralValue) {
+  const count = Number(value || 0);
+  return `${count.toLocaleString()} ${countLabel(count, singular, pluralValue)}`;
 }
 
 const styles = StyleSheet.create({
