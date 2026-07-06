@@ -20,8 +20,8 @@ import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './phot
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 
-// v4: firstsSummary filters completed firsts and carries the attached thumbnail (B6).
-const CACHE_VERSION = 'v4';
+// v5: payload carries goalRows for the Today suggested-first nudge (S5).
+const CACHE_VERSION = 'v5';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
@@ -67,6 +67,7 @@ function buildDerivedPayload({ raw, userId }) {
     promptState,
     digest,
     catchupGoal: selectCatchupGoal(goalProgress.goals, raw.ageDays ?? null, raw.catchupDismissals || {}),
+    goalRows: goalProgress.goals,
     digestUnread: digestHasContent(digest) && digest.weekStart !== raw.digestReadWeek,
     sharedPhotos: shared,
     recentPhotos: shared.slice(0, 12),
@@ -282,6 +283,7 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     promptState: payload?.promptState || null,
     digest: payload?.digest || WeeklyDigests.build(),
     catchupGoal: payload?.catchupGoal || null,
+    goalRows: payload?.goalRows || [],
     digestUnread: payload?.digestUnread || false,
     sharedPhotos: payload?.sharedPhotos || [],
     recentPhotos: payload?.recentPhotos || [],

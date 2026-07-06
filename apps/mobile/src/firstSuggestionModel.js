@@ -16,6 +16,12 @@ export const FIRST_SUGGESTION_ALTERNATE_TIME_GAP_MS = 10 * 60 * 1000; // tunable
 export const FIRST_SUGGESTION_REGEN_INTERVAL_MS = 24 * 60 * 60 * 1000; // tunable
 export const FIRST_SUGGESTION_DISMISS_DAYS = 30; // tunable, mirrors CATCHUP_DISMISS_DAYS
 export const FIRST_SUGGESTION_SNOOZE_DAYS = 7; // tunable, Today-card soft snooze
+// S6 trust calibration: repeated "Not this" with zero keeps quiets a detector.
+// Mirrors HIGH_CONFIDENCE_THRESHOLD in recognitionTrust.js.
+export const FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE = 0.75; // tunable
+export const FIRST_SUGGESTION_TRUST_RAISE_AFTER = 2; // tunable, not_this count
+export const FIRST_SUGGESTION_TRUST_DISABLE_AFTER = 4; // tunable, not_this count
+export const FIRST_SUGGESTION_TRUST_DISABLE_DAYS = 60; // tunable
 
 export const FIRST_SUGGESTION_EYEBROW = 'Worth a look';
 export const FIRST_SUGGESTION_FOOTER = 'Nothing is saved until you keep it.';
@@ -130,7 +136,29 @@ export function normalizeFirstSuggestionState(input = null) {
     snoozedGoals: plainObject(raw.snoozedGoals),
     excludedAssetIds: plainObject(raw.excludedAssetIds),
     lastGeneratedAt: plainObject(raw.lastGeneratedAt),
+    detectorFeedback: plainObject(raw.detectorFeedback),
   };
+}
+
+// { enabled, minScore } for a detector. Base 0.65; after
+// FIRST_SUGGESTION_TRUST_RAISE_AFTER not-this with zero keeps the bar raises
+// to 0.75; after FIRST_SUGGESTION_TRUST_DISABLE_AFTER the detector goes quiet
+// for FIRST_SUGGESTION_TRUST_DISABLE_DAYS. A single keep resets the counter
+// (handled in applySuggestionFeedback). Deliberately separate from face-match
+// negative examples — "not this" means "not that milestone", not "not my child".
+export function suggestionTrustForDetector(state, detector = 'age-window', now = new Date()) {
+  const normalized = normalizeFirstSuggestionState(state);
+  const feedback = normalized.detectorFeedback[detector] || {};
+  const keeps = Number(feedback.keeps || 0);
+  const notThis = Number(feedback.notThis || 0);
+  const nowMs = new Date(now).getTime();
+  if (feedback.disabledUntil && nowMs < feedback.disabledUntil) {
+    return { enabled: false, minScore: FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE };
+  }
+  if (keeps === 0 && notThis >= FIRST_SUGGESTION_TRUST_RAISE_AFTER) {
+    return { enabled: true, minScore: FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE };
+  }
+  return { enabled: true, minScore: FIRST_SUGGESTION_MIN_SCORE };
 }
 
 export function applySuggestionFeedback(state, { goalKey, action, assetId = null, now = new Date() } = {}) {
@@ -138,14 +166,28 @@ export function applySuggestionFeedback(state, { goalKey, action, assetId = null
   if (!goalKey) return next;
   const suggestion = next.suggestionsByGoal[goalKey] || null;
 
+  const detector = suggestion?.detector || 'age-window';
+
   if (action === 'keep') {
     next.feedback.keeps[goalKey] = (next.feedback.keeps[goalKey] || 0) + 1;
+    const trust = { ...(next.detectorFeedback[detector] || {}) };
+    trust.keeps = Number(trust.keeps || 0) + 1;
+    trust.notThis = 0; // a keep resets the quieting counter
+    trust.disabledUntil = null;
+    next.detectorFeedback[detector] = trust;
     delete next.suggestionsByGoal[goalKey];
     return next;
   }
 
   if (action === 'not_this') {
     next.feedback.notThis[goalKey] = (next.feedback.notThis[goalKey] || 0) + 1;
+    const trust = { ...(next.detectorFeedback[detector] || {}) };
+    trust.notThis = Number(trust.notThis || 0) + 1;
+    if (Number(trust.keeps || 0) === 0 && trust.notThis >= FIRST_SUGGESTION_TRUST_DISABLE_AFTER) {
+      trust.disabledUntil = new Date(now).getTime()
+        + FIRST_SUGGESTION_TRUST_DISABLE_DAYS * 24 * 60 * 60 * 1000;
+    }
+    next.detectorFeedback[detector] = trust;
     const excludeId = assetId || suggestion?.primary?.assetId;
     if (excludeId) next.excludedAssetIds[excludeId] = true;
     next.dismissedGoals[goalKey] = new Date(now).getTime();

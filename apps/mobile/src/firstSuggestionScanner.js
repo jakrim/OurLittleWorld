@@ -9,6 +9,7 @@ import { isNative, matchAgainstReferenceProfile } from './faceMatcher';
 import {
   buildFirstSuggestion,
   shouldGenerateForGoal,
+  suggestionTrustForDetector,
   suggestionWindowForGoal,
 } from './firstSuggestionModel';
 import { readFirstSuggestionState, saveGeneratedSuggestions } from './firstSuggestionStore';
@@ -33,6 +34,10 @@ export async function generateFirstSuggestions({
   if (!permission?.granted) return null;
 
   const state = await readFirstSuggestionState({ familyId, userId });
+  // Single detector for now (T-track adds more); repeated "Not this" with no
+  // keeps raises the score bar and can quiet generation entirely (S6).
+  const trust = suggestionTrustForDetector(state, 'age-window', now);
+  if (!trust.enabled) return null;
   const dueGoals = goalRows
     .filter((goal) => shouldGenerateForGoal({ state, goal, babyBirthday, now }))
     .slice(0, FIRST_SUGGESTION_GOALS_PER_RUN);
@@ -53,6 +58,7 @@ export async function generateFirstSuggestions({
       matches,
       ownerUserId: userId,
       now,
+      minScore: trust.minScore,
       excludedAssetIds: state.excludedAssetIds,
     });
     if (suggestion) suggestions.push(suggestion);

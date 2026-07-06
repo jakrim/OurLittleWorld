@@ -8,6 +8,8 @@ import {
   buildFirstSuggestion,
   FIRST_SUGGESTION_EYEBROW,
   FIRST_SUGGESTION_FOOTER,
+  FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE,
+  FIRST_SUGGESTION_MIN_SCORE,
   keepRouteForSuggestion,
   normalizeFirstSuggestionState,
   possibleFirstTitle,
@@ -15,6 +17,7 @@ import {
   selectTodaySuggestion,
   shouldGenerateForGoal,
   suggestionSeedDate,
+  suggestionTrustForDetector,
   suggestionWindowForGoal,
 } from '../../src/firstSuggestionModel.js';
 
@@ -254,6 +257,52 @@ test('keep route hands the compose sheet a fully drafted first', () => {
     },
   });
   assert.equal(keepRouteForSuggestion(null, SMILE_GOAL), null);
+});
+
+test('repeated not-this raises the bar, then quiets the detector; a keep resets', () => {
+  const now = new Date(2026, 6, 5);
+  let state = normalizeFirstSuggestionState();
+
+  const rejectOnce = (current, index) => {
+    const suggestion = buildFirstSuggestion({
+      goal: SMILE_GOAL,
+      matches: [match({ assetId: `asset-${index}` })],
+    });
+    const withSuggestion = { ...current, suggestionsByGoal: { smile: suggestion } };
+    return applySuggestionFeedback(withSuggestion, { goalKey: 'smile', action: 'not_this', now });
+  };
+
+  state = rejectOnce(state, 1);
+  assert.deepEqual(suggestionTrustForDetector(state, 'age-window', now), {
+    enabled: true,
+    minScore: FIRST_SUGGESTION_MIN_SCORE,
+  });
+
+  state = rejectOnce(state, 2);
+  assert.deepEqual(suggestionTrustForDetector(state, 'age-window', now), {
+    enabled: true,
+    minScore: FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE,
+  });
+
+  state = rejectOnce(state, 3);
+  state = rejectOnce(state, 4);
+  assert.equal(suggestionTrustForDetector(state, 'age-window', now).enabled, false);
+
+  const after61Days = new Date(now.getTime() + 61 * 24 * 60 * 60 * 1000);
+  assert.equal(suggestionTrustForDetector(state, 'age-window', after61Days).enabled, true);
+
+  const keepSuggestion = buildFirstSuggestion({
+    goal: SMILE_GOAL,
+    matches: [match({ assetId: 'asset-kept' })],
+  });
+  state = applySuggestionFeedback(
+    { ...state, suggestionsByGoal: { smile: keepSuggestion } },
+    { goalKey: 'smile', action: 'keep', now },
+  );
+  assert.deepEqual(suggestionTrustForDetector(state, 'age-window', now), {
+    enabled: true,
+    minScore: FIRST_SUGGESTION_MIN_SCORE,
+  });
 });
 
 test('state normalization tolerates junk input', () => {

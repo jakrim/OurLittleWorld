@@ -5,23 +5,46 @@ import { selectDayCardNudge } from '../../src/dayCardNudge.js';
 
 const catchupGoal = { key: 'laugh', title: 'First laugh', targetAgeLabel: '3-4 months' };
 const unansweredPrompt = { prompt: { text: 'What made them smile today?' }, mineAnswered: false, snoozed: false };
+const firstSuggestion = {
+  goalKey: 'smile',
+  title: 'Possible first smile',
+  alternates: [{ assetId: 'a' }, { assetId: 'b' }],
+};
 
-test('priority order: review > catchup > prompt > digest > fallback', () => {
+test('priority order: review > suggested-first > catchup > prompt > digest > fallback', () => {
   const everything = {
     waitingReviewCount: 12,
+    firstSuggestion,
     catchupGoal,
     promptState: unansweredPrompt,
     digestUnread: true,
     babyName: 'Reuben',
   };
   assert.equal(selectDayCardNudge(everything).kind, 'review');
-  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0 }).kind, 'catchup');
-  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0, catchupGoal: null }).kind, 'prompt');
+  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0 }).kind, 'suggested-first');
+  assert.equal(selectDayCardNudge({ ...everything, waitingReviewCount: 0, firstSuggestion: null }).kind, 'catchup');
   assert.equal(
-    selectDayCardNudge({ ...everything, waitingReviewCount: 0, catchupGoal: null, promptState: null }).kind,
+    selectDayCardNudge({ ...everything, waitingReviewCount: 0, firstSuggestion: null, catchupGoal: null }).kind,
+    'prompt',
+  );
+  assert.equal(
+    selectDayCardNudge({
+      ...everything, waitingReviewCount: 0, firstSuggestion: null, catchupGoal: null, promptState: null,
+    }).kind,
     'digest',
   );
   assert.equal(selectDayCardNudge({}).kind, 'fallback');
+});
+
+test('suggested-first nudge counts photos and routes to Firsts', () => {
+  const nudge = selectDayCardNudge({ firstSuggestion });
+  assert.equal(nudge.eyebrow, 'Worth a look');
+  assert.equal(nudge.title, 'Possible first smile — 3 photos to look at');
+  assert.equal(nudge.route, '/firsts');
+  assert.equal(nudge.goalKey, 'smile');
+
+  const single = selectDayCardNudge({ firstSuggestion: { ...firstSuggestion, alternates: [] } });
+  assert.equal(single.title, 'Possible first smile — 1 photo to look at');
 });
 
 test('review nudge counts and pluralizes', () => {

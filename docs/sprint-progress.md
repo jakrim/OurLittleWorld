@@ -157,6 +157,17 @@ Verification (whole sprint): `npm test` (tsc + 112 unit tests) green, `CI=true n
 
 **Tunable constants introduced (S):** `FIRST_SUGGESTION_MIN_SCORE = 0.65` (mirrors `REVIEW_THRESHOLD`, not importable — supabase client), `FIRST_SUGGESTION_MAX_ALTERNATES = 5`, `FIRST_SUGGESTION_MIN_ALTERNATES = 2`, `FIRST_SUGGESTION_ALTERNATE_TIME_GAP_MS = 10m`, `FIRST_SUGGESTION_REGEN_INTERVAL_MS = 24h`, `FIRST_SUGGESTION_DISMISS_DAYS = 30`, `FIRST_SUGGESTION_SNOOZE_DAYS = 7` (`src/firstSuggestionModel.js`); `FIRST_SUGGESTION_SCAN_CAP = 240`, `FIRST_SUGGESTION_GOALS_PER_RUN = 2` (`src/firstSuggestionScanner.js`).
 
+### Sprint S-B — Today surface + trust calibration (S5, S6)
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| S5 Today suggested-first nudge | done | (S-B commit) | `selectDayCardNudge` gains `firstSuggestion` between review and catchup (`Worth a look · Possible first smile — 3 photos to look at` → `/firsts`, plural via `countLabel`). TodayScreen reads the device-local store on focus (`selectTodaySuggestion` honors the 7-day snooze); `useRitualHomeData` exposes `goalRows` (cache v4→v5 — payload shape changed). Card dismiss "Not now" = `snoozeFirstSuggestion` (Today-only; Firsts card unaffected). Unit tests: priority order review > suggested-first > catchup > prompt > digest, photo-count copy singular/plural. Maestro `today-suggested-nudge.yaml` green on iPhone 16e: seed → Today nudge shows → Not now snoozes (card falls back) → Firsts card still present. Known limitation: the nested "Not now" pressable is flattened out of the a11y/XCUITest tree exactly like catchup's "Not yet" (N3 tracks unflattening); the Maestro flow taps by point on the pinned device. |
+| S6 trust calibration | done | (S-B commit) | `suggestionTrustForDetector` + per-detector counters recorded in `applySuggestionFeedback`: base minScore 0.65 → 0.75 after 2 not-this with zero keeps → detector quiet 60 days after 4; one keep resets the counter and re-enables. Scanner gates generation on `trust.enabled` and passes `trust.minScore` to `buildFirstSuggestion`. Deliberately separate from face-match negativeExamples. Unit test walks the full raise→disable→expiry→keep-reset ladder. |
+
+Verification (whole sprint): `npm test` (tsc + 114 unit tests) green, `expo lint` clean, Maestro flow green on iPhone 16e. SPRINT S-B COMPLETE.
+
+**Tunable constants introduced (S-B):** `FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE = 0.75`, `FIRST_SUGGESTION_TRUST_RAISE_AFTER = 2`, `FIRST_SUGGESTION_TRUST_DISABLE_AFTER = 4`, `FIRST_SUGGESTION_TRUST_DISABLE_DAYS = 60` (`src/firstSuggestionModel.js`).
+
 ## Notes
 
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.

@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router/react-navigation';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
@@ -27,6 +28,8 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { dismissCatchupGoal } from './catchupDismissals';
 import { selectDayCardNudge } from './dayCardNudge';
+import { selectTodaySuggestion } from './firstSuggestionModel';
+import { readFirstSuggestionState, snoozeFirstSuggestion } from './firstSuggestionStore';
 import { ageAt, formatAge, localCalendarDayDiff, localDateFromISODate } from './ageModel.js';
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
@@ -58,6 +61,7 @@ export default function TodayScreen() {
     promptState,
     digest,
     catchupGoal,
+    goalRows,
     digestUnread,
     sharedPhotos,
     recentPhotos,
@@ -135,8 +139,23 @@ export default function TodayScreen() {
   const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
   const scanState = Scan.useScanState();
   const waitingReviewCount = scanState.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
+  // Device-local suggestion state (not part of the shared cached payload).
+  const [suggestionState, setSuggestionState] = useState(null);
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    if (family?.id && user?.id) {
+      readFirstSuggestionState({ familyId: family.id, userId: user.id })
+        .then((state) => { if (alive) setSuggestionState(state); });
+    }
+    return () => { alive = false; };
+  }, [family?.id, user?.id]));
+  const firstSuggestion = useMemo(
+    () => (suggestionState ? selectTodaySuggestion(suggestionState, { goalRows }) : null),
+    [goalRows, suggestionState],
+  );
   const nudge = selectDayCardNudge({
     waitingReviewCount,
+    firstSuggestion,
     catchupGoal,
     promptState,
     digestUnread,
@@ -146,6 +165,11 @@ export default function TodayScreen() {
     if (!family?.id || !nudge.goalKey) return;
     await dismissCatchupGoal(family.id, nudge.goalKey);
     refresh({ force: true });
+  };
+  const onSnoozeSuggestion = async () => {
+    if (!family?.id || !user?.id || !nudge.goalKey) return;
+    const next = await snoozeFirstSuggestion({ familyId: family.id, userId: user.id, goalKey: nudge.goalKey });
+    setSuggestionState(next);
   };
   const monthSections = useMemo(
     () => groupByMonth(sharedPhotos, family?.babyBirthday),
@@ -233,6 +257,20 @@ export default function TodayScreen() {
                 style={styles.skipPrompt}
               >
                 <Caption style={{ color: theme.semantic.textMuted }}>Not yet</Caption>
+              </Pressable>
+            ) : null}
+            {nudge.kind === 'suggested-first' ? (
+              <Pressable
+                onPress={(event) => {
+                  event.stopPropagation?.();
+                  onSnoozeSuggestion();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Not now"
+                hitSlop={8}
+                style={styles.skipPrompt}
+              >
+                <Caption style={{ color: theme.semantic.textMuted }}>Not now</Caption>
               </Pressable>
             ) : null}
           </Card>

@@ -802,11 +802,11 @@ Generation runs on-device (native face matcher; photos may not be uploaded).
   *(shipped, Sprint S-A)*
 - **S5 — Today surface.** `dayCardNudge` slot between review and catch-up:
   "Possible first smile — 3 photos to look at" → `/firsts`. Dismiss = 7-day soft
-  snooze (Today only, Firsts card unaffected).
+  snooze (Today only, Firsts card unaffected). *(shipped, Sprint S-B)*
 - **S6 — trust calibration.** Per-detector min-score raises after repeated not-this
   with zero keeps (0.65 → 0.75 after 2; disabled 60 days after 4; one keep resets).
   Deliberately does NOT feed face-match negativeExamples — "not this" means "not that
-  milestone", not "not my child".
+  milestone", not "not my child". *(shipped, Sprint S-B)*
 
 **Track T — detectors (iOS-only, needs new dev build; re-rank only, wording stays
 "Possible…"):** T1 smile via `CIDetectorSmile` on the shortlist; T2 solid-food via

@@ -1,8 +1,12 @@
-// Day-card assistant nudge selection (B1). First match wins, one nudge at a time.
-// No React Native imports — unit-tested with node --test.
+// Day-card assistant nudge selection (B1, S5). First match wins, one nudge at
+// a time. No React Native imports — unit-tested with node --test.
+
+import { FIRST_SUGGESTION_EYEBROW } from './firstSuggestionModel.js';
+import { countLabel } from './plural.js';
 
 export function selectDayCardNudge({
   waitingReviewCount = 0,
+  firstSuggestion = null,
   catchupGoal = null,
   promptState = null,
   digestUnread = false,
@@ -16,6 +20,18 @@ export function selectDayCardNudge({
         ? '1 photo is waiting for a look'
         : `${waitingReviewCount} photos are waiting for a look`,
       route: '/review',
+    };
+  }
+  // A suggestion outranks the catch-up question: it carries evidence (photos),
+  // not just a reminder. Wording stays possible-only — never a claim.
+  if (firstSuggestion?.title) {
+    const photoCount = 1 + (firstSuggestion.alternates?.length || 0);
+    return {
+      kind: 'suggested-first',
+      eyebrow: FIRST_SUGGESTION_EYEBROW,
+      title: `${firstSuggestion.title} — ${photoCount} ${countLabel(photoCount, 'photo')} to look at`,
+      route: '/firsts',
+      goalKey: firstSuggestion.goalKey,
     };
   }
   if (catchupGoal) {
