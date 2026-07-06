@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, InteractionManager, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -8,6 +8,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 import {
   AppShell,
   Body,
+  Button,
   Caption,
   Card,
   Eyebrow,
@@ -17,8 +18,19 @@ import {
   space,
   useTheme,
 } from './ui';
+import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { ageInDaysOn, buildFirstsModel, goalTimingCaption } from './firstsModel';
+import {
+  buildFirstSuggestion,
+  FIRST_SUGGESTION_EYEBROW,
+  FIRST_SUGGESTION_FOOTER,
+  FIRST_SUGGESTION_SOURCE_CAPTION,
+  keepRouteForSuggestion,
+  selectSuggestionForDisplay,
+} from './firstSuggestionModel';
+import { generateFirstSuggestions } from './firstSuggestionScanner';
+import { readFirstSuggestionState, recordFirstSuggestionFeedback, saveGeneratedSuggestions } from './firstSuggestionStore';
 import { ageAt, formatAge } from './photos';
 import { listSharedTagged } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
@@ -28,10 +40,12 @@ export default function FirstsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { family } = useFamily();
+  const { user } = useAuth();
   const reducedMotion = useReducedMotion();
   const [rows, setRows] = useState([]);
   const [goalDefinitions, setGoalDefinitions] = useState(FIRST_GOAL_DEFINITIONS);
   const [photosByKey, setPhotosByKey] = useState({});
+  const [suggestionState, setSuggestionState] = useState(null);
   const [firstsLoaded, setFirstsLoaded] = useState(false);
   const [celebratingGoalKey, setCelebratingGoalKey] = useState(null);
   const firstProgressLoadRef = useRef(true);
@@ -59,6 +73,15 @@ export default function FirstsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    if (family?.id && user?.id) {
+      readFirstSuggestionState({ familyId: family.id, userId: user.id })
+        .then((state) => { if (alive) setSuggestionState(state); });
+    }
+    return () => { alive = false; };
+  }, [family?.id, user?.id]));
+
   useEffect(() => {
     firstProgressLoadRef.current = true;
     completedGoalKeysRef.current = new Set();
@@ -75,6 +98,87 @@ export default function FirstsScreen() {
     () => goalProgress.goals.filter((goal) => goal.completed).map((goal) => goal.key),
     [goalProgress.goals],
   );
+
+  useEffect(() => {
+    if (!firstsLoaded || !family?.id || !user?.id) return undefined;
+    let alive = true;
+    const task = InteractionManager.runAfterInteractions(() => {
+      generateFirstSuggestions({
+        familyId: family.id,
+        userId: user.id,
+        babyBirthday: family?.babyBirthday,
+        goalRows: goalProgress.goals,
+      })
+        .then((state) => { if (alive && state) setSuggestionState(state); })
+        .catch((err) => console.warn('generateFirstSuggestions', err?.message));
+    });
+    return () => {
+      alive = false;
+      task?.cancel?.();
+    };
+  }, [family?.babyBirthday, family?.id, firstsLoaded, goalProgress.goals, user?.id]);
+
+  const suggestion = useMemo(
+    () => (suggestionState ? selectSuggestionForDisplay(suggestionState, { goalRows: goalProgress.goals }) : null),
+    [goalProgress.goals, suggestionState],
+  );
+  const suggestionGoal = suggestion
+    ? goalProgress.goals.find((goal) => goal.key === suggestion.goalKey) || null
+    : null;
+
+  const applyFeedback = useCallback((action, assetId = null) => {
+    if (!suggestion || !family?.id || !user?.id) return;
+    recordFirstSuggestionFeedback({
+      familyId: family.id,
+      userId: user.id,
+      goalKey: suggestion.goalKey,
+      action,
+      assetId,
+    })
+      .then(setSuggestionState)
+      .catch((err) => console.warn('recordFirstSuggestionFeedback', err?.message));
+  }, [family?.id, suggestion, user?.id]);
+
+  const keepSuggestion = useCallback(() => {
+    if (!suggestion || !suggestionGoal) return;
+    const route = keepRouteForSuggestion(suggestion, suggestionGoal);
+    applyFeedback('keep');
+    if (route) router.push(route);
+  }, [applyFeedback, router, suggestion, suggestionGoal]);
+
+  // Dev-only fixture: long-press the header "+" to seed a suggestion from
+  // real archive photos, so the card and Keep handoff are testable without a
+  // device photo library or reference profile. Stripped from release builds.
+  const seedDevSuggestion = useCallback(async () => {
+    if (!__DEV__ || !family?.id || !user?.id) return;
+    const dismissedGoals = suggestionState?.dismissedGoals || {};
+    const goal = goalProgress.goals.find((item) => !item.completed && !dismissedGoals[item.key]);
+    const photos = Object.values(photosByKey).filter((photo) => photo.thumbUrl || photo.fullUrl).slice(0, 4);
+    if (!goal || !photos.length) return;
+    const baseTime = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const matches = photos.map((photo, index) => ({
+      assetId: photo.asset_id,
+      score: 0.9,
+      captureQuality: 0.9 - index * 0.05,
+      creationTime: photo.creation_time
+        ? new Date(photo.creation_time).getTime()
+        : baseTime + index * 60 * 60 * 1000,
+      uri: photo.thumbUrl || photo.fullUrl,
+    }));
+    const fixture = buildFirstSuggestion({
+      goal,
+      matches,
+      ownerUserId: photos[0].asset_owner_user_id || user.id,
+    });
+    if (!fixture) return;
+    const state = await saveGeneratedSuggestions({
+      familyId: family.id,
+      userId: user.id,
+      suggestions: [fixture],
+      generatedGoalKeys: [goal.key],
+    });
+    setSuggestionState(state);
+  }, [family?.id, goalProgress.goals, photosByKey, suggestionState?.dismissedGoals, user?.id]);
 
   useEffect(() => {
     if (!firstsLoaded) return;
@@ -152,6 +256,7 @@ export default function FirstsScreen() {
       right={(
         <Pressable
           onPress={() => router.push('/first-compose')}
+          onLongPress={__DEV__ ? seedDevSuggestion : undefined}
           accessibilityRole="button"
           accessibilityLabel="Add a first"
           style={[styles.headerAddButton, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
@@ -199,6 +304,16 @@ export default function FirstsScreen() {
           {goalProgress.next?.description ? <Caption>{goalProgress.next.description}</Caption> : null}
         </Pressable>
       </Card>
+
+      {suggestion ? (
+        <SuggestedFirstCard
+          theme={theme}
+          suggestion={suggestion}
+          onKeep={keepSuggestion}
+          onNotThis={() => applyFeedback('not_this')}
+          onPromote={(assetId) => applyFeedback('choose_another', assetId)}
+        />
+      ) : null}
 
       {!rows.length ? <FirstDayGuide theme={theme} goals={goalDefinitions} /> : null}
 
@@ -318,6 +433,69 @@ function GoalProgressSegment({ item, progress, celebrating }) {
         </Animated.View>
       ) : null}
     </View>
+  );
+}
+
+function SuggestedFirstCard({ theme, suggestion, onKeep, onNotThis, onPromote }) {
+  const primaryUri = suggestion.primary.uri || suggestion.primary.localUri;
+  return (
+    <Card variant="muted">
+      <View style={styles.guideHeader}>
+        <View style={[styles.guideIcon, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name="eye-outline" size={18} color={theme.semantic.primary} />
+        </View>
+        <View style={styles.guideText}>
+          <Eyebrow>{FIRST_SUGGESTION_EYEBROW}</Eyebrow>
+          <Title style={styles.guideTitle}>{suggestion.title}</Title>
+        </View>
+      </View>
+      <Caption>{`${suggestion.aroundLabel} · ${FIRST_SUGGESTION_SOURCE_CAPTION}`}</Caption>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.suggestionPhotoRow}
+      >
+        {primaryUri ? (
+          <Image
+            source={{ uri: primaryUri }}
+            style={styles.suggestionPrimaryPhoto}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            accessibilityLabel="Suggested photo"
+          />
+        ) : (
+          <PhotoPlaceholder style={styles.suggestionPrimaryPhoto} icon="flag-outline" />
+        )}
+        {suggestion.alternates.map((photo) => {
+          const uri = photo.uri || photo.localUri;
+          return (
+            <Pressable
+              key={photo.assetId}
+              onPress={() => onPromote(photo.assetId)}
+              accessibilityRole="button"
+              accessibilityLabel="Choose this photo instead"
+              style={styles.suggestionAltPhoto}
+            >
+              {uri ? (
+                <Image
+                  source={{ uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              ) : (
+                <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+              )}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <View style={styles.suggestionActions}>
+        <Button size="md" fullWidth={false} onPress={onKeep}>Keep</Button>
+        <Button variant="quiet" size="md" fullWidth={false} onPress={onNotThis}>Not this</Button>
+      </View>
+      <Caption>{FIRST_SUGGESTION_FOOTER}</Caption>
+    </Card>
   );
 }
 
@@ -499,5 +677,27 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     textTransform: 'none',
     letterSpacing: 0,
+  },
+  suggestionPhotoRow: {
+    gap: space.sm,
+    marginTop: space.md,
+    alignItems: 'flex-end',
+  },
+  suggestionPrimaryPhoto: {
+    width: 96,
+    height: 96,
+    borderRadius: radius.md,
+  },
+  suggestionAltPhoto: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  suggestionActions: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+    marginBottom: space.sm,
   },
 });

@@ -229,7 +229,7 @@ function curationSummary({ keep, ranked, pinnedCount }) {
   return `Kept sharpest ${keep.length} of ${ranked.length}`;
 }
 
-function qualityValue(match) {
+export function qualityValue(match) {
   const captureQuality = finiteOrNull(match?.captureQuality);
   if (captureQuality != null) return captureQuality;
   const sharpness = finiteOrNull(match?.sharpness);
@@ -252,7 +252,7 @@ function sessionHasComparableFeatures(session) {
   return session.some((match) => featureVector(match)?.length);
 }
 
-function featureDistance(a, b) {
+export function featureDistance(a, b) {
   const left = featureVector(a);
   const right = featureVector(b);
   if (!left?.length || !right?.length || left.length !== right.length) return Infinity;

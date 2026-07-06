@@ -65,6 +65,44 @@ export function firstPhotoSearchWindow({
   };
 }
 
+export function normalizeSeedDateParam(value) {
+  const text = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return '';
+  return localDateFromISODate(text) ? text : '';
+}
+
+export function seedPhotoFromParams({
+  seedAssetId,
+  seedAssetOwnerUserId,
+  seedAssetUri,
+  seedDate,
+  userId,
+} = {}) {
+  const assetId = String(seedAssetId || '').trim();
+  if (!assetId) return null;
+  const ownerUserId = String(seedAssetOwnerUserId || '').trim() || userId || null;
+  if (!ownerUserId) return null;
+  const day = normalizeSeedDateParam(seedDate);
+  return {
+    localOnly: ownerUserId === userId,
+    asset_owner_user_id: ownerUserId,
+    asset_id: assetId,
+    creation_time: day ? localDateFromISODate(day).toISOString() : null,
+    uri: String(seedAssetUri || '').trim() || null,
+    localUri: null,
+  };
+}
+
+export function mergeSeedIntoCandidates(candidates = [], seedPhoto = null) {
+  if (!seedPhoto?.asset_id) return candidates;
+  const seedKey = `${seedPhoto.asset_owner_user_id || ''}:${seedPhoto.asset_id}`;
+  const existing = candidates.find(
+    (photo) => `${photo?.asset_owner_user_id || ''}:${photo?.asset_id || ''}` === seedKey,
+  );
+  const rest = candidates.filter((photo) => photo !== existing);
+  return [existing || seedPhoto, ...rest];
+}
+
 function finiteOrNull(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;

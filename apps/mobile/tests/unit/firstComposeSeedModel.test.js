@@ -7,6 +7,9 @@ import {
   firstHappenedDateCaption,
   firstPhotoHappenedDate,
   firstPhotoSearchWindow,
+  mergeSeedIntoCandidates,
+  normalizeSeedDateParam,
+  seedPhotoFromParams,
 } from '../../src/firstComposeSeedModel.js';
 
 test('past seeded firsts default to the latest date inside the goal window', () => {
@@ -94,4 +97,74 @@ test('seeded first photo search falls back to the goal window and caps future da
     capturedBefore: new Date(2026, 6, 6).toISOString(),
   });
   assert.equal(firstPhotoSearchWindow({ babyBirthday: null }), null);
+});
+
+test('seed date params accept only real yyyy-mm-dd days', () => {
+  assert.equal(normalizeSeedDateParam('2025-10-01'), '2025-10-01');
+  assert.equal(normalizeSeedDateParam(' 2025-10-01 '), '2025-10-01');
+  assert.equal(normalizeSeedDateParam('Oct 1 2025'), '');
+  assert.equal(normalizeSeedDateParam('2025-10-01T12:00:00Z'), '');
+  assert.equal(normalizeSeedDateParam(null), '');
+});
+
+test('seed photo params become a local candidate row for the current user', () => {
+  const photo = seedPhotoFromParams({
+    seedAssetId: 'asset-1',
+    seedAssetUri: 'ph://asset-1',
+    seedDate: '2025-10-01',
+    userId: 'user-a',
+  });
+
+  assert.deepEqual(photo, {
+    localOnly: true,
+    asset_owner_user_id: 'user-a',
+    asset_id: 'asset-1',
+    creation_time: new Date(2025, 9, 1).toISOString(),
+    uri: 'ph://asset-1',
+    localUri: null,
+  });
+});
+
+test("seed photo params for the partner's asset are not marked local-only", () => {
+  const photo = seedPhotoFromParams({
+    seedAssetId: 'asset-2',
+    seedAssetOwnerUserId: 'user-b',
+    userId: 'user-a',
+  });
+
+  assert.equal(photo.localOnly, false);
+  assert.equal(photo.asset_owner_user_id, 'user-b');
+  assert.equal(photo.creation_time, null);
+});
+
+test('seed photo params without an asset id or owner are ignored', () => {
+  assert.equal(seedPhotoFromParams({ seedAssetUri: 'ph://x', userId: 'user-a' }), null);
+  assert.equal(seedPhotoFromParams({ seedAssetId: 'asset-1' }), null);
+  assert.equal(seedPhotoFromParams(), null);
+});
+
+test('merging a seed photo puts it first without duplicating a saved row', () => {
+  const saved = {
+    asset_owner_user_id: 'user-a',
+    asset_id: 'asset-1',
+    thumbUrl: 'https://example/thumb.jpg',
+  };
+  const other = { asset_owner_user_id: 'user-b', asset_id: 'asset-2' };
+  const seed = seedPhotoFromParams({ seedAssetId: 'asset-1', userId: 'user-a' });
+
+  const merged = mergeSeedIntoCandidates([other, saved], seed);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0], saved);
+  assert.equal(merged[1], other);
+});
+
+test('merging a seed photo prepends it when no saved row matches', () => {
+  const other = { asset_owner_user_id: 'user-b', asset_id: 'asset-2' };
+  const seed = seedPhotoFromParams({ seedAssetId: 'asset-9', userId: 'user-a' });
+
+  const merged = mergeSeedIntoCandidates([other], seed);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0], seed);
+
+  assert.deepEqual(mergeSeedIntoCandidates([other], null), [other]);
 });

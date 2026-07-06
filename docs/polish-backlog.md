@@ -765,6 +765,78 @@ WidgetKit extension:
 
 ---
 
+## S. Suggested Firsts — assistant-first, parent-approved (founder-directed)
+
+Principle: **the app does the searching, sorting, dating, titling, and drafting;
+parents confirm, correct, or dismiss.** Manual creation stays as the fallback. No
+generative AI anywhere — template text from real metadata only, and copy never claims
+certainty ("Possible first smile", never "We found the first smile"). Copy strings
+live in model constants and are asserted verbatim in unit tests. Full design:
+`~/.claude/plans/pure-munching-sunset.md`; suggestion pipeline documented in
+`docs/architecture.md`.
+
+Architecture: suggestions are per-device, per-user local state (AsyncStorage,
+`olw:first-suggestions:v1:{familyId}:{userId}`). They become shared family data only
+when a parent taps Keep (existing `Firsts.create` path — zero schema change).
+Generation runs on-device (native face matcher; photos may not be uploaded).
+
+- **S1 — compose-sheet preselect params.** `/first-compose` accepts `seedAssetId`,
+  `seedAssetOwnerUserId`, `seedAssetUri`, `seedDate`, `seedNote`; the seeded photo is
+  merged to the front of the rail, reusing a saved archive row when one matches.
+  **Accept:** push with seeds opens the sheet photo-selected + date-filled; existing
+  entry points unchanged. *(shipped, Sprint S-A)*
+- **S2 — suggestion model + local store.** `firstSuggestionModel.js` (pure) +
+  `firstSuggestionStore.js`: window math, quality-cascade ranking with
+  non-near-duplicate alternates, keep/not-this/choose-another feedback, 30-day
+  dismissals, 24 h regen throttle. *(shipped, Sprint S-A)*
+- **S3 — targeted generation.** `firstSuggestionScanner.js` pages the library inside
+  each due goal's age window (cap 240 assets, 2 goals/run), scores via
+  `matchAgainstReferenceProfile`, persists at most one suggestion per goal; silent
+  no-op without native matcher/permission/reference profile. Triggered from Firsts
+  screen focus, deferred. Background-task hookup deferred. *(shipped, Sprint S-A)*
+- **S4 — review card on Firsts.** "Worth a look · Possible first smile · Around Oct 1 ·
+  from your photo library" with photo strip (tap alternate = choose another), Keep /
+  Not this, footer "Nothing is saved until you keep it." Keep opens the compose sheet
+  fully drafted; display-time filter hides done goals. Dev fixture: long-press the
+  header "+" (`__DEV__` only). Maestro: `.maestro/suggested-first-*.yaml`.
+  *(shipped, Sprint S-A)*
+- **S5 — Today surface.** `dayCardNudge` slot between review and catch-up:
+  "Possible first smile — 3 photos to look at" → `/firsts`. Dismiss = 7-day soft
+  snooze (Today only, Firsts card unaffected).
+- **S6 — trust calibration.** Per-detector min-score raises after repeated not-this
+  with zero keeps (0.65 → 0.75 after 2; disabled 60 days after 4; one keep resets).
+  Deliberately does NOT feed face-match negativeExamples — "not this" means "not that
+  milestone", not "not my child".
+
+**Track T — detectors (iOS-only, needs new dev build; re-rank only, wording stays
+"Possible…"):** T1 smile via `CIDetectorSmile` on the shortlist; T2 solid-food via
+`VNClassifyImageRequest` allowlist; T3 video frames for roll/crawl/steps ("from a
+video around Nov 3"). `laugh`/`word` get no photo detectors — catch-up card only.
+
+**Same-spirit tracks (order: U → W → X/Y → Z):**
+- **U1 suggested notes:** one template sentence ("Oct 1 — 7 weeks old. Midday
+  outing.") from age/date/scene labels, offered under the compose note field, never
+  auto-inserted.
+- **V1 prompt starters:** starter line from that day's saved moments in the prompt
+  sheet; absent when nothing was saved (no filler).
+- **W1+W2 digest highlights:** persist captureQuality/recognitionScore into
+  `moment_media.metadata` at upload; digest SQL prefers milestone-linked media, then
+  quality, falling back to recency for historical rows.
+- **X1 suggested letters:** post-first-save nudge seeds letter compose with facts
+  only ("On October 1, at 7 weeks old, we saved your first smile." — a fact about
+  the archive, never a claim about the world).
+- **Y1 suggested notifications:** local notification on the generating device
+  ("Three possible first-smile photos are ready to review"), real `suggested_firsts`
+  preference category, quiet hours + daily cap respected; never twice per suggestion.
+- **Z1 suggested moments:** group same-day unattached photos (session gap + geo
+  cluster) into "looks like one moment" Library banner; reversible grouping.
+- **Z2 suggested cleanup:** per-device "tuck away" of near-repeats (never deletes,
+  never touches the partner's view) — founder confirms semantics before build.
+- **R photo-book spreads:** deferred with the book itself; W1/W2 keep the data
+  flowing so it's cheap later.
+
+---
+
 ## E. Non-issues (so nobody chases them)
 
 - **Floating gray gear button in screenshots:** not app code. It's the `expo-dev-client`

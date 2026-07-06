@@ -142,6 +142,21 @@ Lint, full tests, and iPhone 16e screenshots for Library/Today/Firsts are green 
 
 **Notifications summary:** Push registration, event cadence/preferences, and the in-app Activity center are implemented with client fallback paths retained. J3 review tightened missing-table fallbacks so permission/runtime errors are not hidden as schema misses. Lint, full mobile tests, Deno checks/tests, Supabase migration checks, and Edge Function deployment checks are green; live unread rows still need a disposable authenticated row for a full remote smoke. NOTIFICATIONS WORKSTREAM COMPLETE.
 
+### Sprint S-A — Suggested Firsts end-to-end (S1-S4, Track S)
+
+Source of truth: `docs/polish-backlog.md` section S + approved plan `~/.claude/plans/pure-munching-sunset.md`. Principle: assistant-first, parent-approved — the app drafts, the parent confirms; copy never claims certainty and is asserted verbatim in tests.
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| S1 compose-sheet preselect params | done | 83a8771 | `seedAssetId/seedAssetOwnerUserId/seedAssetUri/seedDate/seedNote` params on `/first-compose`; `seedPhotoFromParams`/`mergeSeedIntoCandidates`/`normalizeSeedDateParam` in `firstComposeSeedModel.js`. Seed merges to rail front, reusing the saved archive row when one matches (save then reuses the existing upload). Unit tests: 14 in `firstComposeSeedModel.test.js` (own vs partner asset, dedupe, date validation). |
+| S2 suggestion model + store | done | 83a8771 | `firstSuggestionModel.js` (pure) + `firstSuggestionStore.js` (AsyncStorage `olw:first-suggestions:v1:{familyId}:{userId}`). Window math (window start → min(window end, today); past-window stays with A2 catch-up), quality-cascade ranking reusing `photoStackModel.qualityValue`/`featureDistance` (now exported), non-near-duplicate alternates (feature distance < 0.18, else 10-min gap), keep/not_this/choose_another feedback, 30-day dismissal, 7-day Today snooze, 24 h regen throttle. 14 unit tests incl. verbatim guardrail copy ("Possible first smile", "Around Oct 1", "Worth a look", "Nothing is saved until you keep it."). |
+| S3 targeted generation | done | 83a8771 | `firstSuggestionScanner.js`: due goals (cap 2/run), pages `fetchPhotosPage` inside the goal window (cap 240 assets), scores via `matchAgainstReferenceProfile`, persists ≤1 suggestion/goal, stamps `lastGeneratedAt` even on null. Silent no-op without native matcher / library permission / reference profile (fallback matcher scores 0.5 < 0.65 min). Triggered from Firsts screen after `firstsLoaded`, `InteractionManager.runAfterInteractions`-deferred. Native-path scan needs the dev-client on device (same I1/I7 environment blocker). |
+| S4 SuggestedFirstCard | done | 83a8771 | Card on Firsts between hero and list: eyebrow Worth a look, "Possible first roll", "Around Jul 6 · from your photo library", primary (96pt) + alternates (68pt, tap = choose_another promote), Keep / Not this, footer guardrail line. Keep routes through `keepRouteForSuggestion` → S1-seeded compose. Display-time done-goal filter covers partner-saved staleness. `__DEV__` fixture: long-press header "+" seeds from real archive photos. Maestro flows `.maestro/suggested-first-keep.yaml` + `suggested-first-not-this.yaml` both green on iPhone 16e (keep → prefilled compose → save → goal complete; not-this hides and survives relaunch). |
+
+Verification (whole sprint): `npm test` (tsc + 112 unit tests) green, `CI=true npx expo lint` clean, both Maestro flows pass on iPhone 16e (iOS 26.0), screenshot pass of Firsts card + seeded compose sheet. SPRINT S-A COMPLETE.
+
+**Tunable constants introduced (S):** `FIRST_SUGGESTION_MIN_SCORE = 0.65` (mirrors `REVIEW_THRESHOLD`, not importable — supabase client), `FIRST_SUGGESTION_MAX_ALTERNATES = 5`, `FIRST_SUGGESTION_MIN_ALTERNATES = 2`, `FIRST_SUGGESTION_ALTERNATE_TIME_GAP_MS = 10m`, `FIRST_SUGGESTION_REGEN_INTERVAL_MS = 24h`, `FIRST_SUGGESTION_DISMISS_DAYS = 30`, `FIRST_SUGGESTION_SNOOZE_DAYS = 7` (`src/firstSuggestionModel.js`); `FIRST_SUGGESTION_SCAN_CAP = 240`, `FIRST_SUGGESTION_GOALS_PER_RUN = 2` (`src/firstSuggestionScanner.js`).
+
 ## Notes
 
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.

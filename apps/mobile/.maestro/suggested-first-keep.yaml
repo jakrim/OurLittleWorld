@@ -1,0 +1,18 @@
+# Suggested Firsts (S4): seed a dev fixture, keep it, and save the prefilled
+# first. Requires a dev build (the seeder is behind __DEV__) and at least one
+# saved archive photo plus one incomplete goal.
+appId: com.jessekrim.ourlittleworld
+---
+- launchApp
+- tapOn: "Firsts"
+- longPressOn: "Add a first"
+- assertVisible:
+    text: "Possible first.*"
+- assertVisible: "Nothing is saved until you keep it."
+- tapOn: "Keep"
+- assertVisible: "Suggested first"
+- scrollUntilVisible:
+    element:
+      text: "Save"
+- tapOn: "Save"
+- assertVisible: "firsts so far."

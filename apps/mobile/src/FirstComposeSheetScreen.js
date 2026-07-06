@@ -15,6 +15,9 @@ import {
   firstHappenedDateCaption,
   firstPhotoHappenedDate,
   firstPhotoSearchWindow,
+  mergeSeedIntoCandidates,
+  normalizeSeedDateParam,
+  seedPhotoFromParams,
 } from './firstComposeSeedModel.js';
 import { notifyPartnerFirstSaved } from './notificationEvents';
 import { fetchPhotosPage, getLibraryPermissionStatus, normalizeMediaLibraryAssetId } from './photos';
@@ -33,6 +36,11 @@ export default function FirstComposeSheetScreen() {
   const seedTargetAge = Array.isArray(params.targetAge) ? params.targetAge[0] : params.targetAge;
   const seedMomentId = Array.isArray(params.momentId) ? params.momentId[0] : params.momentId;
   const seedGoalKey = Array.isArray(params.goalKey) ? params.goalKey[0] : params.goalKey;
+  const seedAssetId = Array.isArray(params.seedAssetId) ? params.seedAssetId[0] : params.seedAssetId;
+  const seedAssetOwnerUserId = Array.isArray(params.seedAssetOwnerUserId) ? params.seedAssetOwnerUserId[0] : params.seedAssetOwnerUserId;
+  const seedAssetUri = Array.isArray(params.seedAssetUri) ? params.seedAssetUri[0] : params.seedAssetUri;
+  const seedDateParam = Array.isArray(params.seedDate) ? params.seedDate[0] : params.seedDate;
+  const seedNote = Array.isArray(params.seedNote) ? params.seedNote[0] : params.seedNote;
   const seedGoal = FIRST_GOAL_DEFINITIONS.find((goal) => goal.key === seedGoalKey) || null;
   const { family } = useFamily();
   const { user } = useAuth();
@@ -45,6 +53,13 @@ export default function FirstComposeSheetScreen() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [saving, setSaving] = useState(false);
   const seededFirst = Boolean(seedTitle && !existing);
+  const seedPhoto = useMemo(() => seedPhotoFromParams({
+    seedAssetId,
+    seedAssetOwnerUserId,
+    seedAssetUri,
+    seedDate: seedDateParam,
+    userId: user?.id,
+  }), [seedAssetId, seedAssetOwnerUserId, seedAssetUri, seedDateParam, user?.id]);
 
   const close = useCallback(() => {
     if (router.canGoBack?.()) router.back();
@@ -69,18 +84,18 @@ export default function FirstComposeSheetScreen() {
       } else {
         setExisting(null);
         setTitle(seedTitle || '');
-        setDate(defaultFirstHappenedDate({
+        setDate(normalizeSeedDateParam(seedDateParam) || defaultFirstHappenedDate({
           babyBirthday: family?.babyBirthday,
           goal: seedGoal,
         }));
-        setNote('');
-        setSelectedPhoto(null);
+        setNote(typeof seedNote === 'string' ? seedNote : '');
+        setSelectedPhoto(seedPhoto);
         setEditingTitle(false);
       }
       return () => {
         alive = false;
       };
-    }, [family?.babyBirthday, family?.id, id, seedGoal, seedTitle]),
+    }, [family?.babyBirthday, family?.id, id, seedGoal, seedTitle, seedDateParam, seedNote, seedPhoto]),
   );
 
   const firstPhotoWindow = useMemo(
@@ -109,7 +124,19 @@ export default function FirstComposeSheetScreen() {
       userId: user?.id,
     })
       .then((photos) => {
-        if (alive) setSharedPhotos(photos || []);
+        if (!alive) return;
+        const merged = mergeSeedIntoCandidates(photos || [], seedPhoto);
+        setSharedPhotos(merged);
+        if (seedPhoto && merged[0] && merged[0] !== seedPhoto) {
+          // A saved archive row matches the seeded asset — select it so save reuses the upload.
+          setSelectedPhoto((current) => (
+            current
+              && current.asset_owner_user_id === merged[0].asset_owner_user_id
+              && current.asset_id === merged[0].asset_id
+              ? merged[0]
+              : current
+          ));
+        }
       })
       .catch(() => {
         if (alive) setSharedPhotos([]);
@@ -118,7 +145,7 @@ export default function FirstComposeSheetScreen() {
     return () => {
       alive = false;
     };
-  }, [family?.id, firstPhotoWindow, firstPhotoWindow?.capturedBefore, firstPhotoWindow?.capturedOnOrAfter, user?.id]);
+  }, [family?.id, firstPhotoWindow, firstPhotoWindow?.capturedBefore, firstPhotoWindow?.capturedOnOrAfter, seedPhoto, user?.id]);
 
   const happenedAgeLabel = useMemo(
     () => firstHappenedAgeLabel({

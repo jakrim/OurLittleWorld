@@ -1,0 +1,16 @@
+# Suggested Firsts (S4): seed a dev fixture and dismiss it. "Not this" hides
+# the goal's suggestions for 30 days and survives relaunch.
+appId: com.jessekrim.ourlittleworld
+---
+- launchApp
+- tapOn: "Firsts"
+- longPressOn: "Add a first"
+- assertVisible:
+    text: "Possible first.*"
+- tapOn: "Not this"
+- assertNotVisible:
+    text: "Possible first.*"
+- launchApp
+- tapOn: "Firsts"
+- assertNotVisible:
+    text: "Possible first.*"
