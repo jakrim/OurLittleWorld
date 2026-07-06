@@ -552,6 +552,7 @@ export async function createMomentWithMedia({
 
   return {
     id: momentId,
+    capturedAt,
     media: uploadedMedia,
     voice: uploadedVoice,
   };

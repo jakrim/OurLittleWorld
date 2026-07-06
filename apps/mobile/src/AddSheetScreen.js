@@ -13,9 +13,13 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, shadow, space, useTheme } from './ui';
+import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { createMomentWithMedia } from './moments';
+import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
+import { selectPostSaveNudge } from './postSaveNudgeModel';
+import { Firsts } from './rituals';
 
 const SECONDARY_ACTIONS = [
   { icon: 'chatbubble-ellipses-outline', title: "Answer today's prompt", route: '/prompt' },
@@ -28,6 +32,7 @@ export default function AddSheetScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { family } = useFamily();
+  const { user } = useAuth();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
 
@@ -39,6 +44,7 @@ export default function AddSheetScreen() {
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
+  const [postSaveNudge, setPostSaveNudge] = useState(null);
 
   const tags = useMemo(
     () => tagText.split(',').map((tag) => tag.trim()).filter(Boolean),
@@ -130,11 +136,25 @@ export default function AddSheetScreen() {
 
   const clearVoice = () => setVoice(null);
 
+  const finishPostSave = useCallback(async (route = null) => {
+    const nudge = postSaveNudge;
+    if (nudge?.momentId && family?.id) {
+      await dismissPostSaveNudge({
+        familyId: family.id,
+        userId: user?.id,
+        momentId: nudge.momentId,
+      });
+    }
+    setPostSaveNudge(null);
+    router.replace('/timeline');
+    if (route) requestAnimationFrame(() => router.push(route));
+  }, [family?.id, postSaveNudge, router, user?.id]);
+
   const saveMoment = async ({ videoPosterOnly = false } = {}) => {
     if (!family?.id) return;
     setSaving(true);
     try {
-      await createMomentWithMedia({
+      const moment = await createMomentWithMedia({
         familyId: family.id,
         title,
         note,
@@ -144,6 +164,19 @@ export default function AddSheetScreen() {
         voice,
         videoPosterOnly,
       });
+      const nudge = await buildPostSaveNudge({
+        family,
+        user,
+        moment,
+        assets,
+        note,
+        voice,
+      });
+      if (nudge) {
+        await recordPostSaveNudgeShown({ familyId: family.id, userId: user?.id });
+        setPostSaveNudge(nudge);
+        return;
+      }
       router.replace('/timeline');
     } catch (err) {
       if (isMediaPolicyError(err)) {
@@ -164,6 +197,17 @@ export default function AddSheetScreen() {
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
     : Math.round(voice?.durationSec || 0);
+
+  if (postSaveNudge) {
+    return (
+      <PostSaveNudgeSheet
+        nudge={postSaveNudge}
+        theme={theme}
+        onDismiss={() => finishPostSave(null)}
+        onAction={() => finishPostSave(postSaveNudge.route)}
+      />
+    );
+  }
 
   return (
     <Screen bare scroll keyboard>
@@ -295,6 +339,73 @@ export default function AddSheetScreen() {
       </View>
     </Screen>
   );
+}
+
+async function buildPostSaveNudge({ family, user, moment, assets, note, voice }) {
+  try {
+    const [state, goalDefinitions, firstRows] = await Promise.all([
+      readPostSaveNudgeState({ familyId: family.id, userId: user?.id }),
+      Firsts.listGoalDefinitions(),
+      Firsts.list(family.id),
+    ]);
+    return selectPostSaveNudge({
+      state,
+      moment: {
+        id: moment.id,
+        assets,
+        media: moment.media,
+        voice: moment.voice || voice,
+        hasVoice: Boolean(moment.voice || voice?.uri),
+        note,
+        capturedAt: moment.capturedAt,
+      },
+      goals: goalDefinitions,
+      firsts: firstRows,
+      birthdayISO: family.babyBirthday,
+      babyName: family.babyName,
+    });
+  } catch (err) {
+    console.warn('buildPostSaveNudge', err?.message);
+    return null;
+  }
+}
+
+function PostSaveNudgeSheet({ nudge, theme, onDismiss, onAction }) {
+  return (
+    <Screen bare>
+      <View style={[styles.followupRoot, { backgroundColor: theme.semantic.card }]}>
+        <View style={[styles.followupHandle, { backgroundColor: theme.semantic.border }]} />
+        <View style={[styles.followupIcon, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name={iconForNudge(nudge.kind)} size={22} color={theme.semantic.primary} />
+        </View>
+        <Caption>Moment saved</Caption>
+        <Title style={styles.followupTitle}>{nudge.question}</Title>
+        <Body style={styles.followupBody}>
+          {bodyForNudge(nudge.kind)}
+        </Body>
+        <View style={styles.followupActions}>
+          <Button fullWidth={false} onPress={onAction}>
+            {nudge.actionLabel}
+          </Button>
+          <Button variant="quiet" fullWidth={false} onPress={onDismiss}>
+            Not now
+          </Button>
+        </View>
+      </View>
+    </Screen>
+  );
+}
+
+function iconForNudge(kind) {
+  if (kind === 'first') return 'flag-outline';
+  if (kind === 'letter') return 'mail-outline';
+  return 'mic-outline';
+}
+
+function bodyForNudge(kind) {
+  if (kind === 'first') return 'This can link the moment to the family firsts timeline.';
+  if (kind === 'letter') return 'A single line is enough; the date and age are already started.';
+  return 'Open the moment now so the voice can stay close to the photos.';
 }
 
 function buildWaveform(seedSeconds) {
@@ -443,5 +554,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     color: undefined,
+  },
+  followupRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: space.xl,
+    paddingTop: space.xl,
+    paddingBottom: space.xxl,
+    gap: space.md,
+  },
+  followupHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    marginBottom: space.lg,
+  },
+  followupIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followupTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  followupBody: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  followupActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.sm,
   },
 });

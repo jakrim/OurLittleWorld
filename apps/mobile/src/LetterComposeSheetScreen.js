@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } from './ui';
 import { useFamily } from './FamilyContext';
@@ -8,12 +8,15 @@ import { addYearsToIsoDate, Letters } from './rituals';
 
 export default function LetterComposeSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
   const bodyInputRef = useRef(null);
   const defaultOpenOn = addYearsToIsoDate(family?.babyBirthday, 18);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const seedTitle = Array.isArray(params.title) ? params.title[0] : params.title;
+  const seedBody = Array.isArray(params.body) ? params.body[0] : params.body;
+  const [title, setTitle] = useState(seedTitle || '');
+  const [body, setBody] = useState(seedBody || '');
   const [saving, setSaving] = useState(false);
 
   const close = () => {
