@@ -118,6 +118,8 @@ export async function writeReferenceProfile({ familyId, userId, profile }) {
         ageAtCaptureDays: primary.ageAtCaptureDays,
       }),
     );
+  } else {
+    await AsyncStorage.removeItem(referenceStorageKey({ familyId, userId }));
   }
   return normalized;
 }
@@ -179,6 +181,20 @@ export async function clearReferenceProfile({ familyId, userId }) {
     referenceStorageKey({ familyId, userId }),
     referenceSetStorageKey({ familyId, userId }),
   ]);
+}
+
+export async function clearAutoSeedReferences({ familyId, userId }) {
+  const current = await readReferenceProfile({ familyId, userId });
+  const references = current.references.filter((reference) => reference.source !== 'auto-seed');
+  if (references.length === current.references.length) return current;
+  return writeReferenceProfile({
+    familyId,
+    userId,
+    profile: {
+      ...current,
+      references,
+    },
+  });
 }
 
 export function primaryReference(profile) {

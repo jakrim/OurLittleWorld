@@ -30,6 +30,7 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { supabase } from './supabase';
 import RelationshipRolePicker from './RelationshipRolePicker';
+import { isNative } from './faceMatcher';
 
 /**
  * Dual-purpose screen at `/setup`:
@@ -119,7 +120,11 @@ export default function SetupScreen() {
       });
       await refresh();
       if (isFirstSetup) {
-        router.replace(permission.granted ? '/reference' : '/timeline');
+        router.replace(
+          isNative && permission.granted
+            ? { pathname: '/reference', params: { autoSeed: '1' } }
+            : '/reference',
+        );
       } else {
         onBack();
       }

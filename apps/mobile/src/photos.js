@@ -22,22 +22,25 @@ export function normalizeMediaLibraryAssetId(assetId) {
   return raw.startsWith('ph://') ? raw.slice('ph://'.length) : raw;
 }
 
-function mediaQuery(mediaType, createdAfterMs) {
+function mediaQuery(mediaType, createdAfterMs, createdBeforeMs) {
   let q = new Query()
     .eq(AssetField.MEDIA_TYPE, mediaType)
     .orderBy(DESC_CREATION);
   if (createdAfterMs != null && Number.isFinite(createdAfterMs)) {
     q = q.gte(AssetField.CREATION_TIME, createdAfterMs);
   }
+  if (createdBeforeMs != null && Number.isFinite(createdBeforeMs)) {
+    q = q.lt(AssetField.CREATION_TIME, createdBeforeMs);
+  }
   return q;
 }
 
-function imageQuery(createdAfterMs) {
-  return mediaQuery(MediaType.IMAGE, createdAfterMs);
+function imageQuery(createdAfterMs, createdBeforeMs) {
+  return mediaQuery(MediaType.IMAGE, createdAfterMs, createdBeforeMs);
 }
 
-function videoQuery(createdAfterMs) {
-  return mediaQuery(MediaType.VIDEO, createdAfterMs);
+function videoQuery(createdAfterMs, createdBeforeMs) {
+  return mediaQuery(MediaType.VIDEO, createdAfterMs, createdBeforeMs);
 }
 
 /** iOS Vision module expects ph:// URIs; asset ids are local identifiers. */
@@ -131,10 +134,15 @@ export async function ensureLibraryPermission() {
  * Fetch a page of photos sorted newest first.
  * `after` is an opaque offset string (legacy cursor compatibility).
  */
-export async function fetchPhotosPage({ after, pageSize = 60, createdAfterMs } = {}) {
+export async function fetchPhotosPage({
+  after,
+  pageSize = 60,
+  createdAfterMs,
+  createdBeforeMs,
+} = {}) {
   const offset = after != null && after !== '' ? parseInt(String(after), 10) : 0;
   const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-  const rows = await imageQuery(createdAfterMs).limit(pageSize).offset(safeOffset).exe();
+  const rows = await imageQuery(createdAfterMs, createdBeforeMs).limit(pageSize).offset(safeOffset).exe();
   const assets = await Promise.all(rows.map(mapAssetToLegacy));
   return {
     assets,

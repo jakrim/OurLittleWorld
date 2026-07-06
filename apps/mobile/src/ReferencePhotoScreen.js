@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, View, StyleSheet, Pressable, Alert } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
@@ -12,11 +12,13 @@ import { useAuth } from './AuthContext';
 import * as Scan from './scanController';
 import {
   addReferenceImage,
+  clearAutoSeedReferences,
   clearReferenceProfile,
   primaryReference,
   readReferenceProfile,
   referenceStorageKey as makeReferenceStorageKey,
 } from './recognitionReferences';
+import { bootstrapBirthdayReference } from './referenceAutoSeed';
 
 /**
  * "Pick a photo of your baby." We embed it via the native face matcher
@@ -32,8 +34,11 @@ import {
  */
 export default function ReferencePhotoScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { family } = useFamily();
   const { user } = useAuth();
+  const autoSeedRequested = params.autoSeed === '1';
+  const autoSeedStarted = useRef(false);
 
   const [picked, setPicked] = useState(null);   // { uri, width, height, assetId }
   const [embedding, setEmbedding] = useState(null);
@@ -41,6 +46,7 @@ export default function ReferencePhotoScreen() {
   const [error, setError] = useState(null);
   const [restored, setRestored] = useState(false);
   const [referenceCount, setReferenceCount] = useState(0);
+  const [autoSeedState, setAutoSeedState] = useState({ status: autoSeedRequested ? 'idle' : 'manual' });
 
   // Restore the previously-saved reference if one exists.
   useEffect(() => {
@@ -60,6 +66,51 @@ export default function ReferencePhotoScreen() {
     return () => { alive = false; };
   }, [family?.id, user?.id]);
 
+  useEffect(() => {
+    if (!autoSeedRequested || autoSeedStarted.current || !family?.id || !user?.id) return;
+    autoSeedStarted.current = true;
+    if (!isNative) {
+      setAutoSeedState({ status: 'manual', reason: 'native-unavailable' });
+      return;
+    }
+
+    let alive = true;
+    setAutoSeedState({ status: 'running' });
+    (async () => {
+      try {
+        const result = await bootstrapBirthdayReference({
+          familyId: family.id,
+          userId: user.id,
+          birthdayISO: family.babyBirthday,
+        });
+        if (!alive) return;
+        if (result.status === 'seeded') {
+          const preview = result.preview;
+          setPicked({
+            uri: preview?.localUri || preview?.uri || null,
+            width: preview?.width,
+            height: preview?.height,
+            assetId: preview?.assetId || null,
+          });
+          setEmbedding({
+            embedding: preview?.embedding || null,
+            faceCount: preview?.faceCount || 1,
+          });
+          setReferenceCount(result.referenceCount || 0);
+          setRestored(true);
+          setError(null);
+          setAutoSeedState({ status: 'ready', coverage: result.coverage });
+        } else {
+          setAutoSeedState({ status: 'manual', reason: result.reason });
+        }
+      } catch (err) {
+        console.warn('auto seed reference failed', err?.message);
+        if (alive) setAutoSeedState({ status: 'manual', reason: 'error' });
+      }
+    })();
+    return () => { alive = false; };
+  }, [autoSeedRequested, family?.babyBirthday, family?.id, user?.id]);
+
   const pick = async () => {
     setError(null);
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -74,6 +125,7 @@ export default function ReferencePhotoScreen() {
     setPicked({ uri: a.uri, width: a.width, height: a.height, assetId: a.assetId || null });
     setEmbedding(null);
     setRestored(false);
+    setAutoSeedState({ status: 'manual' });
 
     if (!isNative) {
       // No native module yet — accept any photo; we'll fall back to
@@ -96,8 +148,25 @@ export default function ReferencePhotoScreen() {
     }
   };
 
+  const pickDifferentFromAutoSeed = async () => {
+    if (!family || !user) return;
+    await clearAutoSeedReferences({ familyId: family.id, userId: user.id });
+    setPicked(null);
+    setEmbedding(null);
+    setRestored(false);
+    setReferenceCount(0);
+    setError(null);
+    setAutoSeedState({ status: 'manual', reason: 'user-correction' });
+    await pick();
+  };
+
   const onContinue = async () => {
     if (!family || !user) return;
+    if (autoSeedState.status === 'ready') {
+      Scan.reset();
+      router.push('/scan');
+      return;
+    }
     if (isNative && !embedding) {
       Alert.alert('Pick a photo first', 'We need a clear face to find your baby in your library.');
       return;
@@ -123,7 +192,9 @@ export default function ReferencePhotoScreen() {
     else router.replace('/timeline');
   };
 
-  const hasUsableReference = !isNative ? !!picked : !!embedding?.embedding?.length;
+  const autoSeeding = autoSeedState.status === 'running' || autoSeedState.status === 'idle';
+  const autoConfirming = autoSeedState.status === 'ready';
+  const hasUsableReference = autoConfirming || (!isNative ? !!picked : !!embedding?.embedding?.length);
 
   const onClearReference = async () => {
     if (!family || !user) return;
@@ -158,17 +229,28 @@ export default function ReferencePhotoScreen() {
 
       <V gap="lg" style={{ paddingTop: space.sm, paddingBottom: space.xxl }}>
         <Brand>our little world</Brand>
-        <Hero>One photo of {family?.babyName || 'your baby'}.</Hero>
-        <Body>
-          We use it as a local reference to find likely matches on this device.
-          Scanning stays on your phone; moments you save are uploaded to your
-          private family archive.
-        </Body>
+        <Hero>{heroCopy({ autoSeeding, autoConfirming, babyName: family?.babyName })}</Hero>
+        <Body>{bodyCopy({ autoSeeding, autoConfirming })}</Body>
 
         <Spacer h={space.md} />
 
-        <Pressable onPress={pick} style={styles.frame}>
-          {picked ? (
+        <Pressable
+          onPress={autoConfirming ? pickDifferentFromAutoSeed : pick}
+          disabled={autoSeeding || busy}
+          accessibilityRole="button"
+          accessibilityLabel={autoConfirming ? 'Pick a different reference photo' : 'Pick reference photo'}
+          style={styles.frame}
+        >
+          {autoSeeding ? (
+            <View style={styles.placeholder}>
+              <ActivityIndicator color={colors.coral} />
+              <Spacer h={space.md} />
+              <Body align="center" style={{ color: colors.plum }}>Looking through your library</Body>
+              <Caption align="center" style={{ marginTop: 4 }}>
+                We are finding a face that appears across the months.
+              </Caption>
+            </View>
+          ) : picked ? (
             <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" />
           ) : (
             <View style={styles.placeholder}>
@@ -183,13 +265,20 @@ export default function ReferencePhotoScreen() {
           {picked ? (
             <View style={styles.changeBadge}>
               <Caption style={{ color: colors.cream, fontWeight: '700' }}>
-                {restored ? 'Tap to change' : 'Tap to replace'}
+                {autoConfirming ? 'Tap to pick another' : restored ? 'Tap to change' : 'Tap to replace'}
               </Caption>
             </View>
           ) : null}
         </Pressable>
 
-        {restored && !error ? (
+        {autoConfirming ? (
+          <H gap="sm" align="center" justify="center">
+            <Ionicons name="sparkles-outline" size={16} color={colors.plum} />
+            <Caption style={{ color: colors.plum, fontWeight: '700' }}>
+              Seeded {referenceCount} local references from the birthday onward
+            </Caption>
+          </H>
+        ) : restored && !error ? (
           <H gap="sm" align="center" justify="center">
             <Ionicons name="bookmark" size={16} color={colors.plum} />
             <Caption style={{ color: colors.plum, fontWeight: '700' }}>
@@ -215,11 +304,19 @@ export default function ReferencePhotoScreen() {
 
         <Spacer h={space.md} />
 
-        <Button onPress={onContinue} loading={busy} disabled={!hasUsableReference || busy}>
-          {restored ? 'Continue with this reference' : 'Start review scan'}
+        <Button onPress={onContinue} loading={busy || autoSeeding} disabled={!hasUsableReference || busy || autoSeeding}>
+          {autoSeeding
+            ? `Looking for ${family?.babyName || 'your baby'}...`
+            : autoConfirming
+              ? 'Yes, start review scan'
+              : restored ? 'Continue with this reference' : 'Start review scan'}
         </Button>
 
-        {restored ? (
+        {autoConfirming ? (
+          <Button variant="quiet" onPress={pickDifferentFromAutoSeed}>
+            Pick a different photo
+          </Button>
+        ) : restored ? (
           <Button variant="quiet" onPress={onClearReference}>
             Use a different photo
           </Button>
@@ -235,6 +332,22 @@ export default function ReferencePhotoScreen() {
 
 export function referenceStorageKey(args) {
   return makeReferenceStorageKey(args);
+}
+
+function heroCopy({ autoSeeding, autoConfirming, babyName }) {
+  if (autoSeeding) return `Finding ${babyName || 'your baby'}.`;
+  if (autoConfirming) return `Is this ${babyName || 'your baby'}?`;
+  return `One photo of ${babyName || 'your baby'}.`;
+}
+
+function bodyCopy({ autoSeeding, autoConfirming }) {
+  if (autoSeeding) {
+    return 'We are using the birthday and photo access you already gave us to build a local reference.';
+  }
+  if (autoConfirming) {
+    return 'We found a face that repeats across the months. Confirm it before the review scan starts.';
+  }
+  return 'We use it as a local reference to find likely matches on this device. Scanning stays on your phone; moments you save are uploaded to your private family archive.';
 }
 
 const styles = StyleSheet.create({
