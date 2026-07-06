@@ -26,7 +26,6 @@ import {
   nativeAddSheetOptions,
   nativeComposeSheetOptions,
   nativeDetailSheetOptions,
-  nativeMenuSheetOptions,
   nativePromptSheetOptions,
 } from '../src/NativeSheet';
 import { ThemeProvider } from '../src/ui';
@@ -84,7 +83,15 @@ export default function RootLayout() {
                   <Stack.Screen name="letter-detail" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="activity" options={nativeDetailSheetOptions} />
-                  <Stack.Screen name="settings-menu" options={nativeMenuSheetOptions} />
+                  <Stack.Screen
+                    name="settings-menu"
+                    options={{
+                      headerShown: false,
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      gestureEnabled: true,
+                    }}
+                  />
                 </Stack>
                 <Modal
                   visible={launchVisible}
