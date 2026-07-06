@@ -150,6 +150,11 @@ export default function TodayScreen() {
     }),
     [digest.coverPhoto, firstsSummary?.latest, sharedPhotos],
   );
+  // Only media that can actually render — stale rows fall through to the cover chain (B2).
+  const digestStripMedia = useMemo(
+    () => (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
+    [digest.representativeMedia],
+  );
 
   const photoSheetActions = actionPhoto ? [
     {
@@ -289,9 +294,9 @@ export default function TodayScreen() {
           </View>
           <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
         </View>
-        {digest.representativeMedia?.length ? (
+        {digestStripMedia.length ? (
           <View style={styles.digestStrip}>
-            {digest.representativeMedia.slice(0, 4).map((media, index) => (
+            {digestStripMedia.slice(0, 4).map((media, index) => (
               <Pressable
                 key={media.mediaId || `${media.momentId}:${index}`}
                 onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
@@ -301,16 +306,12 @@ export default function TodayScreen() {
                 accessibilityState={{ disabled: !media.momentId }}
                 style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
               >
-                {media.thumbUrl || media.fullUrl ? (
-                  <Image
-                    source={{ uri: media.thumbUrl || media.fullUrl }}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                  />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
+                <Image
+                  source={{ uri: media.thumbUrl || media.fullUrl }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
               </Pressable>
             ))}
           </View>
