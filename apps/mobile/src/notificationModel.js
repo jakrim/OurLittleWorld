@@ -7,6 +7,7 @@ export const NOTIFICATION_DEEP_LINK_ROUTES = [
   '/invite',
   '/purchase',
 ];
+const NOTIFICATION_DEEP_LINK_PREFIXES = ['/moment/'];
 
 export function normalizeNotificationRoute(value) {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -17,7 +18,9 @@ export function normalizeNotificationRoute(value) {
 
   const route = normalizeAppRoute(trimmed);
   const path = route.split(/[?#]/)[0];
-  return NOTIFICATION_DEEP_LINK_ROUTES.includes(path) ? route : null;
+  const allowed = NOTIFICATION_DEEP_LINK_ROUTES.includes(path)
+    || NOTIFICATION_DEEP_LINK_PREFIXES.some((prefix) => path.startsWith(prefix) && path.length > prefix.length);
+  return allowed ? route : null;
 }
 
 function normalizeAppRoute(value) {

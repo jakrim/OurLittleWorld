@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
 import { finishTransaction, getAvailablePurchases as getStorePurchases } from 'expo-iap';
@@ -93,6 +93,7 @@ const QUIET_END_OPTIONS = [
 
 export default function SettingsMenuSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family, refresh: refreshFamily } = useFamily();
   const { entitlement, refresh: refreshBilling, redeemCode } = useBilling();
@@ -108,6 +109,31 @@ export default function SettingsMenuSheetScreen() {
   const [billingBusy, setBillingBusy] = useState(null);
   const [purchaseCode, setPurchaseCode] = useState('');
   const [storageUsage, setStorageUsage] = useState(null);
+  const scrollRef = useRef(null);
+  const [notificationsSectionY, setNotificationsSectionY] = useState(0);
+  const [notificationsRowY, setNotificationsRowY] = useState(0);
+  const [pendingNotificationsScroll, setPendingNotificationsScroll] = useState(false);
+  const requestedSection = Array.isArray(params.section) ? params.section[0] : params.section;
+
+  useEffect(() => {
+    if (requestedSection !== 'notifications') return;
+    setActiveEditor('notifications');
+    setPendingNotificationsScroll(true);
+  }, [requestedSection]);
+
+  useEffect(() => {
+    if (!pendingNotificationsScroll || activeEditor !== 'notifications') return undefined;
+    const notificationsY = notificationsSectionY + notificationsRowY;
+    if (!notificationsY) return undefined;
+    const timeout = setTimeout(() => {
+      scrollRef.current?.scrollTo?.({
+        y: Math.max(0, notificationsY - space.sm),
+        animated: false,
+      });
+      setPendingNotificationsScroll(false);
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, [activeEditor, notificationsRowY, notificationsSectionY, pendingNotificationsScroll]);
 
   useEffect(() => {
     let alive = true;
@@ -321,6 +347,7 @@ export default function SettingsMenuSheetScreen() {
   return (
     <Screen bare>
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         bounces={false}
         style={[styles.root, { backgroundColor: theme.semantic.card }]}
@@ -539,7 +566,11 @@ export default function SettingsMenuSheetScreen() {
           ) : null}
         </View>
 
-        <View>
+        <View
+          onLayout={(event) => {
+            setNotificationsSectionY(event.nativeEvent.layout.y);
+          }}
+        >
           <Eyebrow>rituals</Eyebrow>
           <View style={styles.menuList}>
             <MenuItem
@@ -563,13 +594,19 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'monthiversary'}
               onPress={() => setActiveEditor(activeEditor === 'monthiversary' ? null : 'monthiversary')}
             />
-            <MenuItem
-              icon="notifications-outline"
-              label="Notifications"
-              detail={ritualDetails.notifications}
-              active={activeEditor === 'notifications'}
-              onPress={() => setActiveEditor(activeEditor === 'notifications' ? null : 'notifications')}
-            />
+            <View
+              onLayout={(event) => {
+                setNotificationsRowY(event.nativeEvent.layout.y);
+              }}
+            >
+              <MenuItem
+                icon="notifications-outline"
+                label="Notifications"
+                detail={ritualDetails.notifications}
+                active={activeEditor === 'notifications'}
+                onPress={() => setActiveEditor(activeEditor === 'notifications' ? null : 'notifications')}
+              />
+            </View>
           </View>
           {['prompt', 'digest', 'monthiversary'].includes(activeEditor) ? (
             <RitualEditor

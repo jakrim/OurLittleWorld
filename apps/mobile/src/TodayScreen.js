@@ -193,6 +193,7 @@ export default function TodayScreen() {
       active="today"
       title={title}
       subtitle={ageInfo.label ? formatAgeLine(ageInfo.label) : undefined}
+      showActivityButton
       right={<SearchPill onPress={() => router.push({ pathname: '/library', params: { segment: 'search' } })} />}
     >
       <ScanBanner

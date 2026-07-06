@@ -83,6 +83,7 @@ export default function RootLayout() {
                   <Stack.Screen name="letter-compose" options={nativeComposeSheetOptions} />
                   <Stack.Screen name="letter-detail" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
+                  <Stack.Screen name="activity" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="settings-menu" options={nativeMenuSheetOptions} />
                 </Stack>
                 <Modal

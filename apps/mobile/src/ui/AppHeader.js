@@ -6,7 +6,7 @@ import BrandMark from './BrandMark';
 import { Brand, Caption, Hero } from './Type';
 import { radius, shadow, space, useTheme } from './theme';
 
-export default function AppHeader({ title, subtitle, onSettings, right }) {
+export default function AppHeader({ title, subtitle, onSettings, onActivity, activityUnread = false, right }) {
   const theme = useTheme();
   return (
     <View style={styles.root}>
@@ -19,9 +19,24 @@ export default function AppHeader({ title, subtitle, onSettings, right }) {
           <Hero numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
             {title}
           </Hero>
-          {subtitle ? <Caption numberOfLines={1}>{subtitle}</Caption> : null}
+          {subtitle ? (
+            <Caption numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+              {subtitle}
+            </Caption>
+          ) : null}
         </View>
         {right}
+        {onActivity ? (
+          <Pressable
+            onPress={onActivity}
+            accessibilityRole="button"
+            accessibilityLabel="Open activity"
+            style={[styles.iconButton, styles.activityButton, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+          >
+            <Ionicons name="notifications-outline" size={18} color={theme.semantic.textSoft} />
+            {activityUnread ? <View style={[styles.unreadDot, { backgroundColor: theme.semantic.primary }]} /> : null}
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={onSettings}
           accessibilityRole="button"
@@ -78,5 +93,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...shadow.whisper,
+  },
+  activityButton: {
+    marginRight: space.sm,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

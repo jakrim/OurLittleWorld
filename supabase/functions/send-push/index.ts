@@ -6,6 +6,7 @@ import {
   errorResponse,
   json,
   readJson,
+  restInsert,
   restSelect,
   supabaseRequest,
 } from '../_shared/billing.ts';
@@ -13,6 +14,7 @@ import {
 const EXPO_PUSH_SEND_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
 const PUSH_ROUTES = new Set(['/digest', '/prompt', '/review', '/letters', '/firsts', '/invite', '/purchase']);
+const PUSH_ROUTE_PREFIXES = ['/moment/'];
 const EXPO_CHUNK_SIZE = 100;
 
 type PushTokenRow = {
@@ -43,8 +45,16 @@ Deno.serve(async (req) => {
     if (!title || !messageBody) throw new HttpError(400, 'Notification title and body are required.');
 
     const tokenRows = await resolvePushTokens(body);
+    const notificationUserIds = await resolveNotificationUserIds(body, tokenRows);
+    const notificationCount = await writeNotificationRows({
+      body,
+      route,
+      title,
+      messageBody,
+      userIds: notificationUserIds,
+    });
     if (!tokenRows.length) {
-      return json({ sent: 0, ticketCount: 0, receiptCount: 0, pruned: 0 });
+      return json({ sent: 0, ticketCount: 0, receiptCount: 0, pruned: 0, notifications: notificationCount });
     }
 
     const data = {
@@ -72,6 +82,7 @@ Deno.serve(async (req) => {
       ticketCount: ticketResults.ticketCount,
       receiptCount: receiptResults.receiptCount,
       pruned: pruneTokens.size,
+      notifications: notificationCount,
     });
   } catch (error) {
     return errorResponse(error);
@@ -104,7 +115,13 @@ async function resolvePushTokens(body: Record<string, unknown>): Promise<PushTok
   if (familyId) filters.push(`family_id=eq.${encodeURIComponent(familyId)}`);
   if (userIds.length) filters.push(`user_id=in.(${userIds.map(encodeURIComponent).join(',')})`);
 
-  const rows = await restSelect('push_tokens', filters.join('&'));
+  let rows;
+  try {
+    rows = await restSelect('push_tokens', filters.join('&'));
+  } catch (err) {
+    if (isMissingTable(err, 'push_tokens')) return [];
+    throw err;
+  }
   if (!Array.isArray(rows)) return [];
 
   const seen = new Set<string>();
@@ -120,6 +137,72 @@ async function resolvePushTokens(body: Record<string, unknown>): Promise<PushTok
     });
   }
   return out;
+}
+
+async function resolveNotificationUserIds(body: Record<string, unknown>, tokenRows: PushTokenRow[]) {
+  const explicitUserIds = uniqueStrings(body.userId || body.user_id || body.userIds || body.user_ids);
+  if (explicitUserIds.length) return explicitUserIds;
+
+  const tokenUserIds = uniqueStrings(tokenRows.map((row) => row.user_id));
+  if (tokenUserIds.length) return tokenUserIds;
+
+  const familyId = familyIdFromBody(body);
+  if (!familyId) return [];
+  try {
+    const rows = await restSelect(
+      'family_members',
+      `family_id=eq.${encodeURIComponent(familyId)}&select=user_id,role`,
+    );
+    const members = Array.isArray(rows) ? rows : [];
+    return uniqueStrings(
+      members
+        .filter((member) => ['creator', 'partner'].includes(String(member.role || '')))
+        .map((member) => member.user_id),
+    );
+  } catch (err) {
+    if (isMissingTable(err, 'family_members')) return [];
+    throw err;
+  }
+}
+
+async function writeNotificationRows({
+  body,
+  route,
+  title,
+  messageBody,
+  userIds,
+}: {
+  body: Record<string, unknown>;
+  route: string;
+  title: string;
+  messageBody: string;
+  userIds: string[];
+}) {
+  const recipients = uniqueStrings(userIds);
+  if (!recipients.length) return 0;
+
+  const data = isRecord(body.data) ? body.data : {};
+  const thumbnailUrl = String(body.thumbnailUrl || body.thumbnail_url || data.thumbnailUrl || data.thumbnail_url || '').trim() || null;
+  const familyId = familyIdFromBody(body) || null;
+  const category = String(body.category || data.category || 'notification').trim() || 'notification';
+  const rows = recipients.map((userId) => ({
+    family_id: familyId,
+    user_id: userId,
+    category,
+    title,
+    body: messageBody,
+    deep_link: route,
+    thumbnail_url: thumbnailUrl,
+    metadata: data,
+  }));
+
+  try {
+    await restInsert('notifications', rows);
+    return rows.length;
+  } catch (err) {
+    if (isMissingTable(err, 'notifications')) return 0;
+    throw err;
+  }
 }
 
 async function sendExpoMessages(messages: Array<Record<string, unknown>>) {
@@ -204,7 +287,9 @@ function normalizeNotificationRoute(value: unknown) {
 
   const route = normalizeAppRoute(trimmed);
   const path = route.split(/[?#]/)[0];
-  return PUSH_ROUTES.has(path) ? route : null;
+  const allowed = PUSH_ROUTES.has(path)
+    || PUSH_ROUTE_PREFIXES.some((prefix) => path.startsWith(prefix) && path.length > prefix.length);
+  return allowed ? route : null;
 }
 
 function normalizeAppRoute(value: string) {
@@ -219,6 +304,19 @@ function normalizeAppRoute(value: string) {
 function uniqueStrings(value: unknown) {
   const values = Array.isArray(value) ? value : value ? [value] : [];
   return [...new Set(values.map((item) => String(item || '').trim()).filter(Boolean))];
+}
+
+function familyIdFromBody(body: Record<string, unknown>) {
+  return String(body.familyId || body.family_id || '').trim();
+}
+
+function isMissingTable(error: unknown, table: string) {
+  const err = error as { code?: string; message?: string };
+  const message = String(err?.message || '').toLowerCase();
+  return err?.code === '42P01'
+    || err?.code === 'PGRST205'
+    || (message.includes(table)
+      && (message.includes('does not exist') || message.includes('not find') || message.includes('schema cache')));
 }
 
 function chunks<T>(items: T[], size: number) {
