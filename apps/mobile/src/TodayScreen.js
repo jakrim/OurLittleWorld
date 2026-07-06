@@ -60,6 +60,7 @@ export default function TodayScreen() {
     recentPhotos,
     todayMatches,
     firstsSummary,
+    membersById,
     refresh,
     snoozePrompt: snoozePromptCached,
   } = useRitualHomeData({
@@ -122,6 +123,10 @@ export default function TodayScreen() {
   const prompt = promptState?.prompt;
   const mine = promptState?.mine;
   const mineAnswered = !!(mine?.response_text || mine?.moment_id);
+  const promptAnswerLabel = useMemo(
+    () => promptAnswerStatusLabel({ promptState, membersById, userId: user?.id }),
+    [membersById, promptState, user?.id],
+  );
   const snoozed = promptState?.snoozed;
   const loadingCold = status === 'idle' || status === 'refreshing';
   const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
@@ -245,9 +250,7 @@ export default function TodayScreen() {
                   <View style={styles.promptAnsweredCopy}>
                     <Eyebrow>Daily prompt</Eyebrow>
                     <Title style={styles.promptSavedTitle}>Saved for today.</Title>
-                    <Caption>
-                      {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
-                    </Caption>
+                    {promptAnswerLabel ? <Caption>{promptAnswerLabel}</Caption> : null}
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
                 </View>
@@ -259,11 +262,7 @@ export default function TodayScreen() {
             <Card variant="muted">
               <Eyebrow>Daily prompt</Eyebrow>
               <Title style={styles.promptText}>{prompt.text}</Title>
-              {promptState?.answeredCount > 0 ? (
-                <Caption>
-                  {promptState.answeredCount === 1 ? '1 parent answered' : `${promptState.answeredCount} parents answered`}
-                </Caption>
-              ) : null}
+              {promptAnswerLabel ? <Caption>{promptAnswerLabel}</Caption> : null}
               <View style={styles.actionRow}>
                 <Button
                   size="sm"
@@ -438,6 +437,31 @@ export default function TodayScreen() {
       />
     </AppShell>
   );
+}
+
+function promptAnswerStatusLabel({ promptState, membersById = {}, userId } = {}) {
+  const answered = (promptState?.responses || []).filter((row) => row?.response_text || row?.moment_id);
+  if (!answered.length) return null;
+  const mineAnswered = promptState?.mineAnswered
+    ?? answered.some((row) => row.author_user_id === userId);
+  const partnerResponse = answered.find((row) => row.author_user_id !== userId);
+  const partnerId = partnerResponse?.author_user_id
+    || Object.keys(membersById || {}).find((id) => id && id !== userId);
+  const partnerName = promptMemberName(membersById?.[partnerId], 'your co-parent');
+  const partnerNameAtStart = partnerName === 'your co-parent' ? 'Your co-parent' : partnerName;
+
+  if (mineAnswered) {
+    if (promptState?.partnerAnswered || partnerResponse) return `${partnerNameAtStart} answered too`;
+    return `You answered · ${partnerName} hasn't yet`;
+  }
+  if (partnerResponse) return `${partnerNameAtStart} answered · you haven't yet`;
+  return 'Someone answered';
+}
+
+function promptMemberName(value, fallback) {
+  const name = String(value || '').trim();
+  if (!name) return fallback;
+  return name.split(/\s+/)[0] || fallback;
 }
 
 function SearchPill({ onPress }) {
