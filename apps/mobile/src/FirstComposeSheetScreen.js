@@ -9,8 +9,9 @@ import BirthDatePicker from './ui/BirthDatePicker';
 import { Body, Button, Caption, Field, PhotoPlaceholder, Screen, Title, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { defaultFirstHappenedDate } from './firstComposeSeedModel.js';
 import { listSharedTagged } from './photoSync';
-import { Firsts } from './rituals';
+import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
 
 export default function FirstComposeSheetScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function FirstComposeSheetScreen() {
   const seedTargetAge = Array.isArray(params.targetAge) ? params.targetAge[0] : params.targetAge;
   const seedMomentId = Array.isArray(params.momentId) ? params.momentId[0] : params.momentId;
   const seedGoalKey = Array.isArray(params.goalKey) ? params.goalKey[0] : params.goalKey;
+  const seedGoal = FIRST_GOAL_DEFINITIONS.find((goal) => goal.key === seedGoalKey) || null;
   const { family } = useFamily();
   const { user } = useAuth();
   const [existing, setExisting] = useState(null);
@@ -63,14 +65,17 @@ export default function FirstComposeSheetScreen() {
         setExisting(null);
         setTitle(seedTitle || '');
         setTargetAgeLabel(seedTargetAge || '');
-        setDate('');
+        setDate(defaultFirstHappenedDate({
+          babyBirthday: family?.babyBirthday,
+          goal: seedGoal,
+        }));
         setNote('');
         setSelectedPhoto(null);
       }
       return () => {
         alive = false;
       };
-    }, [family?.id, id, seedTargetAge, seedTitle]),
+    }, [family?.babyBirthday, family?.id, id, seedGoal, seedTargetAge, seedTitle]),
   );
 
   const save = async () => {
@@ -137,7 +142,7 @@ export default function FirstComposeSheetScreen() {
         <BirthDatePicker
           value={date}
           onChange={setDate}
-          caption={null}
+          caption="Roughly when it happened is fine."
           placeholder="When did it happen?"
           accessibilityLabel="First happened date"
         />
