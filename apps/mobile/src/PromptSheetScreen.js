@@ -14,6 +14,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { notifyPartnerPromptAnswered } from './notificationEvents';
 import { DailyPrompts } from './rituals';
 import { patchCachedPromptState, readCachedPromptState } from './useRitualHomeData';
 import { createMomentWithMedia } from './moments';
@@ -119,6 +120,11 @@ export default function PromptSheetScreen() {
         momentId,
         babyBirthday: family.babyBirthday,
       });
+      notifyPartnerPromptAnswered({
+        familyId: family.id,
+        actorUserId: user?.id,
+        promptDate: row?.prompt_date,
+      }).catch((err) => console.warn('notify partner prompt answer', err?.message));
       await patchCachedPromptState({ familyId: family.id, userId: user?.id, promptRow: row });
       close();
     } catch (err) {

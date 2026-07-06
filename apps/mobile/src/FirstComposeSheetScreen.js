@@ -10,6 +10,7 @@ import { Body, Button, Caption, Field, PhotoPlaceholder, Screen, Title, radius, 
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { defaultFirstHappenedDate } from './firstComposeSeedModel.js';
+import { notifyPartnerFirstSaved } from './notificationEvents';
 import { listSharedTagged } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
 
@@ -87,10 +88,20 @@ export default function FirstComposeSheetScreen() {
       const assetId = selectedPhoto?.asset_id || null;
       const momentId = existing?.moment_id || seedMomentId || selectedPhoto?.moment_id || null;
       const goalKey = existing?.goal_key || seedGoalKey || null;
+      let savedFirst = null;
+      const shouldNotifyPartner = !existing || existing.done === false;
       if (existing) {
-        await Firsts.update(existing.id, { title: title.trim(), note: note.trim() || null, happenedAt, assetOwnerUserId, assetId, targetAgeLabel: targetAgeLabel.trim() || null, momentId, goalKey, done: true });
+        savedFirst = await Firsts.update(existing.id, { title: title.trim(), note: note.trim() || null, happenedAt, assetOwnerUserId, assetId, targetAgeLabel: targetAgeLabel.trim() || null, momentId, goalKey, done: true });
       } else {
-        await Firsts.create({ familyId: family?.id, title, note, happenedAt, assetOwnerUserId, assetId, targetAgeLabel: targetAgeLabel.trim() || null, momentId, goalKey, done: true });
+        savedFirst = await Firsts.create({ familyId: family?.id, title, note, happenedAt, assetOwnerUserId, assetId, targetAgeLabel: targetAgeLabel.trim() || null, momentId, goalKey, done: true });
+      }
+      if (shouldNotifyPartner) {
+        notifyPartnerFirstSaved({
+          familyId: family?.id,
+          actorUserId: user?.id,
+          firstId: savedFirst?.id,
+          title: savedFirst?.title || title.trim(),
+        }).catch((err) => console.warn('notify partner first saved', err?.message));
       }
       close();
     } catch (err) {

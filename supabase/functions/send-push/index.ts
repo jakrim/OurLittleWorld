@@ -12,7 +12,7 @@ import {
 
 const EXPO_PUSH_SEND_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
-const PUSH_ROUTES = new Set(['/digest', '/prompt', '/review', '/letters']);
+const PUSH_ROUTES = new Set(['/digest', '/prompt', '/review', '/letters', '/firsts', '/invite', '/purchase']);
 const EXPO_CHUNK_SIZE = 100;
 
 type PushTokenRow = {

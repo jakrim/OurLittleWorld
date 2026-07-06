@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
@@ -38,6 +38,16 @@ import { Family } from './families';
 import { ageAt, formatAge } from './photos';
 import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
 import {
+  NOTIFICATION_CATEGORIES,
+  TRANSACTIONAL_NOTIFICATION_CATEGORY,
+  defaultNotificationPreferences,
+  enabledNotificationCount,
+  formatQuietHours,
+  getNotificationPreferences,
+  mergeNotificationPreferences,
+  saveNotificationPreferences,
+} from './notificationSettings';
+import {
   DEFAULT_RITUAL_SETTINGS,
   DEFAULT_SETTINGS_COUNTS,
   MONTHIVERSARY_DAY_OPTIONS,
@@ -67,6 +77,20 @@ const DEFAULT_REFERENCE_SUMMARY = {
   updatedAt: null,
 };
 
+const QUIET_START_OPTIONS = [
+  { value: '20:00', label: '8 PM' },
+  { value: '21:00', label: '9 PM' },
+  { value: '22:00', label: '10 PM' },
+  { value: '23:00', label: '11 PM' },
+];
+
+const QUIET_END_OPTIONS = [
+  { value: '06:00', label: '6 AM' },
+  { value: '07:00', label: '7 AM' },
+  { value: '08:00', label: '8 AM' },
+  { value: '09:00', label: '9 AM' },
+];
+
 export default function SettingsMenuSheetScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -74,10 +98,12 @@ export default function SettingsMenuSheetScreen() {
   const { entitlement, refresh: refreshBilling, redeemCode } = useBilling();
   const { user } = useAuth();
   const [ritualSettings, setRitualSettings] = useState(() => normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS));
+  const [notificationPreferences, setNotificationPreferences] = useState(defaultNotificationPreferences);
   const [settingsCounts, setSettingsCounts] = useState(DEFAULT_SETTINGS_COUNTS);
   const [referenceSummary, setReferenceSummary] = useState(DEFAULT_REFERENCE_SUMMARY);
   const [activeEditor, setActiveEditor] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
   const [clearingReferences, setClearingReferences] = useState(false);
   const [billingBusy, setBillingBusy] = useState(null);
   const [purchaseCode, setPurchaseCode] = useState('');
@@ -96,6 +122,7 @@ export default function SettingsMenuSheetScreen() {
     let alive = true;
     if (!family?.id) {
       setRitualSettings(normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS, family));
+      setNotificationPreferences(defaultNotificationPreferences());
       setSettingsCounts(DEFAULT_SETTINGS_COUNTS);
       setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
       return () => {
@@ -104,13 +131,17 @@ export default function SettingsMenuSheetScreen() {
     }
     Promise.all([
       getFamilyRitualSettings({ familyId: family.id, family }),
+      user?.id
+        ? getNotificationPreferences({ familyId: family.id, userId: user.id })
+        : Promise.resolve(defaultNotificationPreferences()),
       getSettingsCounts(family.id),
       user?.id
         ? readReferenceProfile({ familyId: family.id, userId: user.id }).catch(() => null)
         : Promise.resolve(null),
-    ]).then(([nextSettings, nextCounts, nextReferenceProfile]) => {
+    ]).then(([nextSettings, nextNotifications, nextCounts, nextReferenceProfile]) => {
       if (!alive) return;
       setRitualSettings(nextSettings);
+      setNotificationPreferences(nextNotifications);
       setSettingsCounts(nextCounts);
       setReferenceSummary(summarizeReferenceProfile(nextReferenceProfile, family));
     });
@@ -141,11 +172,34 @@ export default function SettingsMenuSheetScreen() {
     }
   };
 
+  const saveNotificationPatch = async (patch) => {
+    if (!family?.id || !user?.id || savingNotifications) return;
+    const previous = notificationPreferences;
+    const optimistic = mergeNotificationPreferences(previous, patch);
+    setSavingNotifications(true);
+    setNotificationPreferences(optimistic);
+    try {
+      const saved = await saveNotificationPreferences({
+        familyId: family.id,
+        userId: user.id,
+        base: previous,
+        patch,
+      });
+      setNotificationPreferences(saved);
+    } catch (err) {
+      setNotificationPreferences(previous);
+      Alert.alert('Could not save notification settings', err?.message || String(err));
+    } finally {
+      setSavingNotifications(false);
+    }
+  };
+
   const ritualDetails = useMemo(() => ({
     prompt: `Prompt at ${formatPromptTime(ritualSettings.dailyPromptTime)}`,
     digest: `${formatDigestDay(ritualSettings.weeklyDigestDay)} summary from moments`,
     monthiversary: formatMonthiversary(ritualSettings),
-  }), [ritualSettings]);
+    notifications: `${enabledNotificationCount(notificationPreferences)} on · quiet ${formatQuietHours(notificationPreferences)}`,
+  }), [notificationPreferences, ritualSettings]);
 
   const setMode = (mode) => {
     Haptics.selectionAsync();
@@ -509,6 +563,13 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'monthiversary'}
               onPress={() => setActiveEditor(activeEditor === 'monthiversary' ? null : 'monthiversary')}
             />
+            <MenuItem
+              icon="notifications-outline"
+              label="Notifications"
+              detail={ritualDetails.notifications}
+              active={activeEditor === 'notifications'}
+              onPress={() => setActiveEditor(activeEditor === 'notifications' ? null : 'notifications')}
+            />
           </View>
           {['prompt', 'digest', 'monthiversary'].includes(activeEditor) ? (
             <RitualEditor
@@ -517,6 +578,13 @@ export default function SettingsMenuSheetScreen() {
               saving={savingSettings}
               family={family}
               onSave={saveRitualPatch}
+            />
+          ) : null}
+          {activeEditor === 'notifications' ? (
+            <NotificationPreferencesPanel
+              preferences={notificationPreferences}
+              saving={savingNotifications}
+              onSave={saveNotificationPatch}
             />
           ) : null}
         </View>
@@ -743,6 +811,80 @@ function RitualEditor({ type, settings, saving, family, onSave }) {
         />
       ) : null}
       <Caption>{saving ? 'Saving...' : formatMonthiversary(settings)}</Caption>
+    </View>
+  );
+}
+
+function NotificationPreferencesPanel({ preferences, saving, onSave }) {
+  const theme = useTheme();
+  const enabledCount = enabledNotificationCount(preferences);
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <View style={styles.notificationHeader}>
+        <View>
+          <Caption>Push notifications</Caption>
+          <Title style={styles.panelMetric}>{enabledCount} on</Title>
+        </View>
+        <View style={[styles.billingBadge, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name="notifications-outline" size={20} color={theme.semantic.primary} />
+        </View>
+      </View>
+      <Caption>{saving ? 'Saving...' : 'Quiet family updates, capped at two per day unless transactional.'}</Caption>
+
+      <View style={styles.quietHoursBlock}>
+        <Caption>Quiet starts</Caption>
+        <SegmentedControl
+          value={preferences.quietStart}
+          options={QUIET_START_OPTIONS}
+          onChange={(quietStart) => onSave({ quietStart })}
+          style={styles.editorControl}
+        />
+        <Caption>Quiet ends</Caption>
+        <SegmentedControl
+          value={preferences.quietEnd}
+          options={QUIET_END_OPTIONS}
+          onChange={(quietEnd) => onSave({ quietEnd })}
+          style={styles.editorControl}
+        />
+      </View>
+
+      <View style={styles.notificationList}>
+        {NOTIFICATION_CATEGORIES.map((category) => (
+          <NotificationPreferenceRow
+            key={category.key}
+            category={category}
+            enabled={!!preferences.categories?.[category.key]}
+            disabled={saving}
+            onChange={(enabled) => onSave({ categories: { [category.key]: enabled } })}
+          />
+        ))}
+        <NotificationPreferenceRow
+          category={TRANSACTIONAL_NOTIFICATION_CATEGORY}
+          enabled
+          disabled
+          locked
+        />
+      </View>
+    </View>
+  );
+}
+
+function NotificationPreferenceRow({ category, enabled, disabled = false, locked = false, onChange }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.notificationRow, { borderColor: theme.semantic.border }]}>
+      <View style={styles.notificationRowText}>
+        <Body style={styles.privacyPolicyTitle}>{category.label}</Body>
+        <Caption>{category.detail}</Caption>
+      </View>
+      <Switch
+        value={!!enabled}
+        disabled={disabled || locked}
+        onValueChange={onChange}
+        trackColor={{ false: theme.semantic.border, true: theme.colors.primarySoft }}
+        thumbColor={enabled ? theme.semantic.primary : theme.semantic.card}
+        ios_backgroundColor={theme.semantic.border}
+      />
     </View>
   );
 }
@@ -1218,6 +1360,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: space.md,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  quietHoursBlock: {
+    gap: space.xs,
+    marginTop: space.xs,
+  },
+  notificationList: {
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  notificationRow: {
+    minHeight: 62,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingTop: space.sm,
+  },
+  notificationRowText: {
+    flex: 1,
   },
   billingBadge: {
     width: 42,

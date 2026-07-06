@@ -3,7 +3,9 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } from './ui';
+import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { notifyPartnerLetterSealed } from './notificationEvents';
 import { addYearsToIsoDate, Letters } from './rituals';
 
 export default function LetterComposeSheetScreen() {
@@ -11,6 +13,7 @@ export default function LetterComposeSheetScreen() {
   const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
+  const { user } = useAuth();
   const bodyInputRef = useRef(null);
   const defaultOpenOn = addYearsToIsoDate(family?.babyBirthday, 18);
   const seedTitle = Array.isArray(params.title) ? params.title[0] : params.title;
@@ -28,7 +31,12 @@ export default function LetterComposeSheetScreen() {
     if (!body.trim()) return;
     setSaving(true);
     try {
-      await Letters.create({ familyId: family?.id, title, body, openOn: defaultOpenOn });
+      const letter = await Letters.create({ familyId: family?.id, title, body, openOn: defaultOpenOn });
+      notifyPartnerLetterSealed({
+        familyId: family?.id,
+        actorUserId: user?.id,
+        letterId: letter?.id,
+      }).catch((err) => console.warn('notify partner letter sealed', err?.message));
       close();
     } catch (err) {
       Alert.alert('Could not seal letter', err?.message || String(err));

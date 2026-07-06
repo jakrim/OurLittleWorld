@@ -9,6 +9,9 @@ test('notification deep links allow only protected push routes', () => {
   assert.equal(normalizeNotificationRoute('ourlittleworld://digest'), '/digest');
   assert.equal(normalizeNotificationRoute('ourlittleworld://push/review'), '/review');
   assert.equal(normalizeNotificationRoute('/letters#open'), '/letters#open');
+  assert.equal(normalizeNotificationRoute('/firsts'), '/firsts');
+  assert.equal(normalizeNotificationRoute('/invite'), '/invite');
+  assert.equal(normalizeNotificationRoute('/purchase'), '/purchase');
 });
 
 test('notification deep links reject unsupported or external routes', () => {

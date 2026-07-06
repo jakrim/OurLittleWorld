@@ -1,4 +1,12 @@
-export const NOTIFICATION_DEEP_LINK_ROUTES = ['/digest', '/prompt', '/review', '/letters'];
+export const NOTIFICATION_DEEP_LINK_ROUTES = [
+  '/digest',
+  '/prompt',
+  '/review',
+  '/letters',
+  '/firsts',
+  '/invite',
+  '/purchase',
+];
 
 export function normalizeNotificationRoute(value) {
   const raw = Array.isArray(value) ? value[0] : value;
