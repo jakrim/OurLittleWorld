@@ -31,6 +31,7 @@ import {
 } from '../src/NativeSheet';
 import { ThemeProvider } from '../src/ui';
 import useForegroundAutoIngest from '../src/useForegroundAutoIngest';
+import usePushNotifications from '../src/usePushNotifications';
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -68,6 +69,7 @@ export default function RootLayout() {
             <FamilyProvider>
               <BillingProvider>
                 <ForegroundAutoIngest />
+                <PushNotifications />
                 <Stack
                   screenOptions={{
                     headerShown: false,
@@ -102,5 +104,10 @@ export default function RootLayout() {
 
 function ForegroundAutoIngest() {
   useForegroundAutoIngest();
+  return null;
+}
+
+function PushNotifications() {
+  usePushNotifications();
   return null;
 }

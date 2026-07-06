@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { deletePushTokensForSignOut } from './pushNotifications';
 import { supabase } from './supabase';
 
 const AuthContext = createContext({
@@ -48,7 +49,10 @@ export function AuthProvider({ children }) {
       session,
       user: session?.user ?? null,
       loading,
-      signOut: () => supabase.auth.signOut(),
+      signOut: async () => {
+        await deletePushTokensForSignOut({ userId: session?.user?.id });
+        return supabase.auth.signOut();
+      },
     }),
     [session, loading],
   );

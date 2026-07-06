@@ -20,6 +20,7 @@ import {
   expandReviewItems,
   selectedAssetIdsForReview,
 } from './photoStackModel';
+import { maybePromptForPushNotifications } from './pushNotifications';
 import * as Scan from './scanController';
 
 /**
@@ -197,6 +198,13 @@ export default function ReviewMatchesScreen() {
       accepted: savedMatches,
       rejected,
     }).catch((err) => console.warn('recordCalibrationReview', err?.message));
+    if (savedIds.length && user?.id) {
+      await maybePromptForPushNotifications({
+        familyId: family.id,
+        userId: user.id,
+        reason: 'review-save',
+      });
+    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/timeline');

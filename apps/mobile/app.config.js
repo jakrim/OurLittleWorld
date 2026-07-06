@@ -1,6 +1,7 @@
 const appJson = require('./app.json');
 
 const BACKGROUND_TASK_IDENTIFIER = 'com.expo.modules.backgroundtask.processing';
+const NOTIFICATION_DEFAULT_CHANNEL = 'family-updates';
 
 function unique(list) {
   return [...new Set((list || []).filter(Boolean))];
@@ -18,6 +19,15 @@ module.exports = ({ config }) => {
   const plugins = [...(expo.plugins || [])];
   if (!hasPlugin(plugins, 'expo-background-task')) {
     plugins.push('expo-background-task');
+  }
+  if (!hasPlugin(plugins, 'expo-notifications')) {
+    plugins.push([
+      'expo-notifications',
+      {
+        defaultChannel: NOTIFICATION_DEFAULT_CHANNEL,
+        color: '#7C4A5A',
+      },
+    ]);
   }
 
   return {

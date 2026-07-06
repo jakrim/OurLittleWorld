@@ -21,6 +21,7 @@ import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { markDigestRead } from './digestReadState';
 import { countLabel } from './plural';
+import { maybePromptForPushNotifications } from './pushNotifications';
 import { useRitualHomeData } from './useRitualHomeData';
 
 export default function DigestDetailSheetScreen() {
@@ -38,6 +39,15 @@ export default function DigestDetailSheetScreen() {
   useEffect(() => {
     if (family?.id && digest?.weekStart) markDigestRead(family.id, digest.weekStart);
   }, [digest?.weekStart, family?.id]);
+
+  useEffect(() => {
+    if (!family?.id || !user?.id || !digest?.weekStart) return;
+    maybePromptForPushNotifications({
+      familyId: family.id,
+      userId: user.id,
+      reason: 'digest-view',
+    }).catch((err) => console.warn('push prompt after digest view', err?.message));
+  }, [digest?.weekStart, family?.id, user?.id]);
 
   const openMoment = (momentId) => {
     if (!momentId) return;
