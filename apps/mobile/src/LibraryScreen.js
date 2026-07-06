@@ -142,6 +142,10 @@ export default function LibraryScreen() {
   );
   const archiveRecords = useMemo(() => buildArchiveRecords({ moments, shared }), [moments, shared]);
   const archiveStats = useMemo(() => buildArchiveStats(archiveRecords), [archiveRecords]);
+  const archiveSections = useMemo(
+    () => buildArchiveMonthSections({ records: archiveRecords, babyBirthday: family?.babyBirthday }),
+    [archiveRecords, family?.babyBirthday],
+  );
   const yearSummaries = useMemo(() => buildYearSummaries(archiveRecords), [archiveRecords]);
   const recentAutoSaveRows = useMemo(
     () => hydrateRecentAutoSaves({ recent: recentAutoSaves, shared, moments, currentUserId: user?.id }),
@@ -293,7 +297,11 @@ export default function LibraryScreen() {
   };
 
   return (
-    <AppShell active="library" title="a quieter archive." subtitle={`${Math.max(shared.length, moments.length)} saved moments`}>
+    <AppShell
+      active="library"
+      title={`${possessiveName(family?.babyName || 'Baby')} photos.`}
+      subtitle={archiveMediaSubtitle(archiveStats)}
+    >
       <SegmentedControl
         value={segment}
         onChange={setSegment}
@@ -316,8 +324,6 @@ export default function LibraryScreen() {
             <ICloudWaitPanel queue={iCloudRetry} onScan={() => router.push('/scan')} theme={theme} />
             <UploadQueuePanel status={uploadQueue} repairing={repairingUploads} onRepair={repairUploadQueue} theme={theme} />
             <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
-            <SavedMomentGrid moments={moments} onPress={openMoment} theme={theme} />
-            {!moments.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
             <LocalCameraRollPanel
               visible={showLocalPhotos}
               onShow={() => {
@@ -330,12 +336,24 @@ export default function LibraryScreen() {
               permissionDenied={permissionDenied}
               tags={tags}
               userId={user?.id}
+              childName={family?.babyName}
               babyBirthday={family?.babyBirthday}
               onGrant={loadLocalInitial}
               onLoadMore={loadMore}
               onOpen={openLocal}
               theme={theme}
             />
+            <SavedMomentGrid
+              childName={family?.babyName}
+              sections={archiveSections}
+              stats={archiveStats}
+              onPress={(record) => {
+                if (record?.moment) openMoment(record.moment);
+                else if (record?.photo) openShared(record.photo);
+              }}
+              theme={theme}
+            />
+            {!archiveRecords.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
           </>
         ) : segment === 'places' ? (
           <View style={styles.placeList}>
@@ -417,51 +435,83 @@ function normalizeLibrarySegment(value) {
   return ['photos', 'places', 'search', 'export'].includes(raw) ? raw : null;
 }
 
-function SavedMomentGrid({ moments, onPress, theme }) {
-  if (!moments.length) return null;
+function SavedMomentGrid({ childName, sections, stats, onPress, theme }) {
+  if (!sections.length) return null;
   return (
     <Card>
       <View style={styles.sectionHeader}>
         <View>
-          <Eyebrow>Saved moments</Eyebrow>
-          <Title style={styles.cardTitle}>Photos, videos, voice.</Title>
+          <Eyebrow>{possessiveName(childName || 'Baby')} photos</Eyebrow>
+          <Title style={styles.cardTitle}>Month by month.</Title>
         </View>
-        <Caption>{moments.length} saved</Caption>
+        <Caption>{archiveStatsCaption(stats)}</Caption>
       </View>
-      <View style={styles.savedGrid}>
-        {moments.map((moment) => {
-          const firstMedia = moment.media?.[0];
-          const hasVoiceOnly = !firstMedia && moment.voiceNotes?.length;
-          return (
-            <Pressable
-              key={moment.id}
-              onPress={() => onPress(moment)}
-              accessibilityRole="button"
-              accessibilityLabel={`Open saved moment: ${moment.title || 'Untitled moment'}`}
-              style={[styles.savedTile, { backgroundColor: theme.semantic.cardAlt }]}
-            >
-              {firstMedia?.media_type === 'video' ? (
-                <VideoArchiveTile media={firstMedia} theme={theme} />
-              ) : firstMedia?.thumbUrl || firstMedia?.fullUrl ? (
-                <Image source={{ uri: firstMedia.thumbUrl || firstMedia.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              ) : hasVoiceOnly ? (
-                <View style={styles.savedVideo}>
-                  <Ionicons name="mic" size={26} color={theme.semantic.primary} />
-                  <Caption style={styles.savedVideoLabel}>Voice</Caption>
-                </View>
-              ) : (
-                <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-              )}
-              {moment.title ? (
-                <Caption style={[styles.savedCaption, { color: theme.colors.onPrimary }]} numberOfLines={1}>
-                  {moment.title}
-                </Caption>
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </View>
+      {sections.map((section, index) => (
+        <View
+          key={section.key}
+          style={[
+            styles.archiveMonthSection,
+            index ? [styles.archiveMonthDivider, { borderTopColor: theme.semantic.border }] : null,
+          ]}
+        >
+          <View style={styles.archiveMonthHeader}>
+            <View style={styles.resultText}>
+              <Title style={styles.archiveMonthTitle}>{section.title}</Title>
+              {section.ageLabel ? <Caption>{section.ageLabel}</Caption> : null}
+            </View>
+            <Caption>{section.summary}</Caption>
+          </View>
+          <View style={styles.savedGrid}>
+            {section.records.map((record) => (
+              <ArchiveRecordTile
+                key={record.key}
+                record={record}
+                onPress={() => onPress(record)}
+                theme={theme}
+              />
+            ))}
+          </View>
+        </View>
+      ))}
     </Card>
+  );
+}
+
+function ArchiveRecordTile({ record, onPress, theme }) {
+  const media = record.moment?.media || [];
+  const firstMedia = media[0];
+  const hasVoiceOnly = record.voiceOnly;
+  const groupedMediaCount = Math.max(0, (record.imageCount || 0) + (record.videoCount || 0));
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open archive photo: ${record.title || 'Untitled moment'}`}
+      style={[styles.savedTile, { backgroundColor: theme.semantic.cardAlt }]}
+    >
+      {firstMedia?.media_type === 'video' ? (
+        <VideoArchiveTile media={firstMedia} theme={theme} />
+      ) : firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl ? (
+        <Image source={{ uri: firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : hasVoiceOnly ? (
+        <View style={styles.savedVideo}>
+          <Ionicons name="mic" size={26} color={theme.semantic.primary} />
+          <Caption style={styles.savedVideoLabel}>Voice</Caption>
+        </View>
+      ) : (
+        <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+      )}
+      {groupedMediaCount > 1 ? (
+        <View style={styles.savedCountBadge}>
+          <Caption style={styles.savedCountText}>+{groupedMediaCount - 1}</Caption>
+        </View>
+      ) : null}
+      {record.title ? (
+        <Caption style={[styles.savedCaption, { color: theme.colors.onPrimary }]} numberOfLines={1}>
+          {record.title}
+        </Caption>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -498,6 +548,7 @@ function LocalCameraRollPanel({
   permissionDenied,
   tags,
   userId,
+  childName,
   babyBirthday,
   onGrant,
   onLoadMore,
@@ -509,9 +560,9 @@ function LocalCameraRollPanel({
       <Card variant="ghost">
         <View style={styles.sectionHeader}>
           <View style={styles.resultText}>
-            <Eyebrow>Camera roll</Eyebrow>
-            <Title style={styles.cardTitle}>Browse local photos when you need one.</Title>
-            <Body>The main grid stays focused on saved archive moments.</Body>
+            <Eyebrow>Device camera roll</Eyebrow>
+            <Title style={styles.cardTitle}>Browse this device when you need one.</Title>
+            <Body>{possessiveName(childName || 'Baby')} archive stays in the month-by-month grid.</Body>
           </View>
           <Ionicons name="images-outline" size={22} color={theme.semantic.primary} />
         </View>
@@ -581,10 +632,10 @@ function RecentAutoSavedPanel({ rows, onRemove, onOpen, theme }) {
     <Card>
       <View style={styles.sectionHeader}>
         <View>
-          <Eyebrow>Recently auto-saved</Eyebrow>
-          <Title style={styles.cardTitle}>Quick correction queue.</Title>
+          <Eyebrow>Added by the assistant</Eyebrow>
+          <Title style={styles.cardTitle}>Recently added photos.</Title>
         </View>
-        <Caption>{rows.length} waiting</Caption>
+        <Caption>{rows.length} recent</Caption>
       </View>
       <View style={styles.recentAutoList}>
         {rows.slice(0, 6).map((row) => (
@@ -606,14 +657,14 @@ function RecentAutoSavedPanel({ rows, onRemove, onOpen, theme }) {
             <View style={styles.resultText}>
               <Body style={styles.resultTitle} numberOfLines={1}>{row.title}</Body>
               <Caption numberOfLines={1}>
-                {row.score ? `${Math.round(row.score * 100)}% match` : 'Auto-saved'} · {formatDateLabel(row.savedAt || row.creationTime)}
+                Assistant added · {formatDateLabel(row.savedAt || row.creationTime)}
               </Caption>
             </View>
             <Pressable
               onPress={() => onRemove(row)}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel={`Remove ${row.title} from recently auto-saved`}
+              accessibilityLabel={`Remove ${row.title} from recently added photos`}
               style={[styles.removeAutoButton, { backgroundColor: theme.semantic.cardAlt }]}
             >
               <Ionicons name="remove-circle-outline" size={18} color={theme.colors.danger || theme.semantic.primary} />
@@ -622,7 +673,7 @@ function RecentAutoSavedPanel({ rows, onRemove, onOpen, theme }) {
         ))}
       </View>
       <Caption style={styles.searchMeta}>
-        Removing one also teaches future scans to be more conservative.
+        Remove anything that does not belong; future scans learn from it.
       </Caption>
     </Card>
   );
@@ -1002,6 +1053,7 @@ function buildArchiveRecords({ moments, shared }) {
         key: `legacy:${photo.asset_owner_user_id}:${photo.asset_id}`,
         id: photo.asset_id,
         moment: null,
+        photo,
         title: firstMeaningful([place, dateLabel, 'Saved photo']),
         subtitle: [dateLabel, place, 'Photo'].filter(Boolean).join(' · '),
         capturedAt,
@@ -1020,6 +1072,36 @@ function buildArchiveRecords({ moments, shared }) {
   return [...momentRecords, ...legacyRecords]
     .filter((record) => record.capturedAt || record.title)
     .sort((a, b) => new Date(b.capturedAt || 0).getTime() - new Date(a.capturedAt || 0).getTime());
+}
+
+function buildArchiveMonthSections({ records, babyBirthday }) {
+  const buckets = new Map();
+  for (const record of records || []) {
+    const date = validDate(record.capturedAt);
+    const key = date ? `${date.getFullYear()}-${date.getMonth()}` : 'undated';
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        key,
+        date,
+        title: date
+          ? date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+          : 'Undated',
+        ageLabel: sectionAgeLabel({ date, babyBirthday }),
+        records: [],
+        photos: 0,
+        videos: 0,
+      });
+    }
+    const bucket = buckets.get(key);
+    bucket.records.push(record);
+    bucket.photos += record.imageCount || 0;
+    bucket.videos += record.videoCount || 0;
+  }
+
+  return Array.from(buckets.values()).map((bucket) => ({
+    ...bucket,
+    summary: monthSectionSummary(bucket),
+  }));
 }
 
 function hydrateRecentAutoSaves({ recent, shared, moments, currentUserId }) {
@@ -1062,6 +1144,30 @@ function buildArchiveStats(records) {
     if (record.tags.some((tag) => tag.toLowerCase().includes('first'))) acc.firsts += 1;
     return acc;
   }, { moments: 0, photos: 0, videos: 0, voiceNotes: 0, firsts: 0 });
+}
+
+function archiveMediaSubtitle(stats) {
+  const mediaTotal = (stats?.photos || 0) + (stats?.videos || 0);
+  if (!mediaTotal) return 'Month by month as the archive fills';
+  return `${mediaTotal.toLocaleString()} photos and videos by month`;
+}
+
+function archiveStatsCaption(stats) {
+  const photos = stats?.photos || 0;
+  const videos = stats?.videos || 0;
+  if (photos && videos) return `${photos} photos · ${videos} videos`;
+  if (photos) return `${photos} photos`;
+  if (videos) return `${videos} videos`;
+  return 'No photos yet';
+}
+
+function monthSectionSummary(section) {
+  const photos = section.photos || 0;
+  const videos = section.videos || 0;
+  if (photos && videos) return `${photos} photos · ${videos} videos`;
+  if (photos) return `${photos} photos`;
+  if (videos) return `${videos} videos`;
+  return `${section.records.length} moments`;
 }
 
 function buildYearSummaries(records) {
@@ -1112,11 +1218,29 @@ function firstMeaningful(values) {
   return (values || []).find((value) => String(value || '').trim()) || '';
 }
 
+function possessiveName(name) {
+  const clean = String(name || '').trim();
+  if (!clean) return 'Baby';
+  return clean.endsWith('s') ? `${clean}'` : `${clean}'s`;
+}
+
+function sectionAgeLabel({ date, babyBirthday }) {
+  if (!date || !babyBirthday) return '';
+  const label = formatAge(ageAt(babyBirthday, date.getTime()));
+  return label ? `Around ${label}` : '';
+}
+
 function formatDateLabel(value) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function validDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function yearFor(value) {
@@ -1347,6 +1471,23 @@ const styles = StyleSheet.create({
     gap: space.xs,
     marginTop: space.md,
   },
+  archiveMonthSection: {
+    marginTop: space.lg,
+  },
+  archiveMonthDivider: {
+    paddingTop: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  archiveMonthHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  archiveMonthTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+  },
   savedTile: {
     width: '32%',
     aspectRatio: 1,
@@ -1376,6 +1517,26 @@ const styles = StyleSheet.create({
     textShadowColor: glass.mediaTextShadow,
     textShadowRadius: 5,
     fontSize: 10,
+  },
+  savedCountBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    minWidth: 26,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: glass.mediaChrome,
+    borderWidth: 1,
+    borderColor: glass.mediaChromeBorder,
+  },
+  savedCountText: {
+    color: glass.inverseTextBody,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0,
   },
   placeList: {
     gap: space.sm,
