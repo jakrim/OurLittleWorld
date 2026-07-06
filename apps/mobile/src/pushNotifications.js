@@ -3,6 +3,7 @@ import { Alert, AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
 
 import { normalizeNotificationRoute, notificationPromptStorageKey } from './notificationModel';
+import { ensureFamilyTimezone } from './ritualSettings';
 import { supabase } from './supabase';
 
 export const PUSH_PERMISSION_PROMPT_TITLE = "Want to know when next week's story is ready?";
@@ -217,6 +218,10 @@ async function registerExpoPushToken({ familyId, userId, notifications }) {
     .from('push_tokens')
     .upsert(row, { onConflict: 'expo_push_token' });
   if (error) return handlePushTokenRegistryError(error, 'upsert');
+
+  // Quiet hours are enforced family-local server-side; make sure the family
+  // has a real IANA zone stored before pushes start flowing.
+  ensureFamilyTimezone(familyId).catch(() => {});
 
   return { registered: true, reason: 'registered', token: expoPushToken };
 }

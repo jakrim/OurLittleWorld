@@ -87,8 +87,44 @@ function toDatabasePatch(settings) {
     weekly_digest_day: settings.weeklyDigestDay,
     monthiversary_enabled: !!settings.monthiversaryEnabled,
     monthiversary_day: settings.monthiversaryDay,
-    timezone: settings.timezone || DEFAULT_RITUAL_SETTINGS.timezone,
+    timezone: resolveTimezoneForSave(settings.timezone),
   };
+}
+
+export function deviceTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+// 'local' is the legacy "unknown" sentinel — replace it with the device's IANA
+// zone on save so server-side quiet hours (notify-event) can run family-local.
+function resolveTimezoneForSave(value) {
+  const current = String(value || '').trim();
+  if (current && current !== 'local') return current;
+  return deviceTimeZone() || DEFAULT_RITUAL_SETTINGS.timezone;
+}
+
+// Best-effort one-time stamp for families that never open ritual settings.
+export async function ensureFamilyTimezone(familyId) {
+  if (!familyId) return;
+  const zone = deviceTimeZone();
+  if (!zone) return;
+  try {
+    const { data } = await supabase
+      .from('family_ritual_settings')
+      .select('timezone')
+      .eq('family_id', familyId)
+      .maybeSingle();
+    if (data && data.timezone && data.timezone !== 'local') return;
+    await supabase
+      .from('family_ritual_settings')
+      .upsert({ family_id: familyId, timezone: zone, updated_at: new Date().toISOString() }, { onConflict: 'family_id' });
+  } catch (err) {
+    console.warn('ensureFamilyTimezone', err?.message);
+  }
 }
 
 export function formatPromptTime(value) {

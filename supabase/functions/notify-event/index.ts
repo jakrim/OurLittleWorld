@@ -15,6 +15,7 @@ import {
   CATEGORY_DEFAULTS,
   TRANSACTIONAL_CATEGORY,
   deliveryDecisionFromRows,
+  localDayKey,
 } from './cadence.ts';
 
 Deno.serve(async (req) => {
@@ -34,6 +35,8 @@ Deno.serve(async (req) => {
     const eventId = await recordEvent(event);
     const recipients = await recipientsForEvent(event);
     const preferences = await preferenceRows(event.familyId, recipients.map((recipient) => recipient.user_id));
+    const timeZone = await familyTimeZone(event.familyId);
+    const today = localDayKey(new Date(), timeZone);
     const actorName = displayName(recipients.find((row) => row.user_id === event.actorUserId)) || 'Your co-parent';
 
     let delivered = 0;
@@ -47,6 +50,8 @@ Deno.serve(async (req) => {
         event,
         recipientUserId: recipient.user_id,
         preferences,
+        today,
+        timeZone,
       });
       if (!decision.send) {
         skipped += 1;
@@ -68,6 +73,7 @@ Deno.serve(async (req) => {
           event,
           recipientUserId: recipient.user_id,
           batchKey: decision.batchKey,
+          deliveryDay: today,
           title: copy.title,
           body: copy.body,
         });
@@ -165,14 +171,33 @@ async function deliveryDecision({
   event,
   recipientUserId,
   preferences,
+  today,
+  timeZone,
 }: {
   event: ReturnType<typeof normalizeEvent>;
   recipientUserId: string;
   preferences: Array<Record<string, unknown>>;
+  today: string;
+  timeZone: string | null;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
   const deliveries = await deliveryRows({ familyId: event.familyId, recipientUserId, today });
-  return deliveryDecisionFromRows({ event, recipientUserId, preferences, deliveries, today });
+  return deliveryDecisionFromRows({ event, recipientUserId, preferences, deliveries, today, timeZone });
+}
+
+// family_ritual_settings.timezone holds an IANA zone once the client has
+// stamped it; the legacy default 'local' means "unknown" and falls back to UTC.
+async function familyTimeZone(familyId: string) {
+  try {
+    const rows = await restSelect(
+      'family_ritual_settings',
+      `family_id=eq.${encodeURIComponent(familyId)}&select=timezone`,
+    );
+    const value = String((Array.isArray(rows) ? rows[0]?.timezone : '') || '').trim();
+    if (!value || value === 'local') return null;
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 async function deliveryRows({
@@ -247,12 +272,14 @@ async function recordDelivery({
   event,
   recipientUserId,
   batchKey,
+  deliveryDay,
   title,
   body,
 }: {
   event: ReturnType<typeof normalizeEvent>;
   recipientUserId: string;
   batchKey: string;
+  deliveryDay: string;
   title: string;
   body: string;
 }) {
@@ -261,7 +288,7 @@ async function recordDelivery({
       family_id: event.familyId,
       user_id: recipientUserId,
       category: event.category,
-      delivery_day: new Date().toISOString().slice(0, 10),
+      delivery_day: deliveryDay,
       batch_key: batchKey,
       event_count: 1,
       title,

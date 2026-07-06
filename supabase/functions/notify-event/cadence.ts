@@ -28,6 +28,7 @@ export function deliveryDecisionFromRows({
   deliveries,
   today,
   now = new Date(),
+  timeZone = null,
 }: {
   event: CadenceEvent;
   recipientUserId: string;
@@ -35,11 +36,12 @@ export function deliveryDecisionFromRows({
   deliveries: CadenceRow[];
   today: string;
   now?: Date;
+  timeZone?: string | null;
 }) {
   if (!categoryEnabled({ event, recipientUserId, preferences })) {
     return { send: false, batchKey: '' };
   }
-  if (event.category !== TRANSACTIONAL_CATEGORY && inQuietHours({ event, recipientUserId, preferences, now })) {
+  if (event.category !== TRANSACTIONAL_CATEGORY && inQuietHours({ event, recipientUserId, preferences, now, timeZone })) {
     return { send: false, batchKey: '' };
   }
 
@@ -76,19 +78,59 @@ function inQuietHours({
   recipientUserId,
   preferences,
   now,
+  timeZone,
 }: {
   event: CadenceEvent;
   recipientUserId: string;
   preferences: CadenceRow[];
   now: Date;
+  timeZone?: string | null;
 }) {
   const row = preferences.find((pref) => pref.user_id === recipientUserId && pref.category === event.category);
   const start = minutesFor(row?.quiet_start || DEFAULT_QUIET_START);
   const end = minutesFor(row?.quiet_end || DEFAULT_QUIET_END);
-  const current = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const current = localMinutesOfDay(now, timeZone);
   if (start === end) return false;
   if (start < end) return current >= start && current < end;
   return current >= start || current < end;
+}
+
+// Quiet hours are family-local. Falls back to UTC when the family has no
+// usable IANA timezone stored (family_ritual_settings.timezone = 'local').
+export function localMinutesOfDay(now: Date, timeZone?: string | null) {
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+      }).formatToParts(now);
+      const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+      const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+      if (Number.isFinite(hour) && Number.isFinite(minute)) return (hour % 24) * 60 + minute;
+    } catch {
+      // invalid zone — fall through to UTC
+    }
+  }
+  return now.getUTCHours() * 60 + now.getUTCMinutes();
+}
+
+// Family-local calendar day for the daily cap and partner batching.
+export function localDayKey(now: Date, timeZone?: string | null) {
+  if (timeZone) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now);
+    } catch {
+      // invalid zone — fall through to UTC
+    }
+  }
+  return now.toISOString().slice(0, 10);
 }
 
 function minutesFor(value: unknown) {
