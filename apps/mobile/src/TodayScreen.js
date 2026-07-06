@@ -186,6 +186,7 @@ export default function TodayScreen() {
       right={<SearchPill onPress={() => router.push({ pathname: '/library', params: { segment: 'search' } })} />}
     >
       <ScanBanner
+        babyName={family?.babyName}
         pendingChange={pendingChange}
         onPress={() => router.push('/review')}
         onScanPress={() => router.push('/scan')}
@@ -667,7 +668,7 @@ function PlacesPreview({ places, onPress, onLongPress }) {
   );
 }
 
-function ScanBanner({ pendingChange, onPress, onScanPress }) {
+function ScanBanner({ babyName, pendingChange, onPress, onScanPress }) {
   const scan = Scan.useScanState();
   const waiting = scan.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
   const queued = scan.autoSaveQueueLength || 0;
@@ -695,7 +696,7 @@ function ScanBanner({ pendingChange, onPress, onScanPress }) {
     ? `Scanning${pct != null ? ` · ${pct}%` : ''}`
     : queued > 0
       ? `Auto-saving ${queued.toLocaleString()}`
-      : `${waiting.toLocaleString()} matches waiting`;
+      : `${waiting.toLocaleString()} new ${waiting === 1 ? 'moment' : 'moments'} of ${babyName || 'your little one'}`;
   return (
     <Pressable
       onPress={onPress}
@@ -706,7 +707,7 @@ function ScanBanner({ pendingChange, onPress, onScanPress }) {
       <Ionicons name="sparkles-outline" size={17} />
       <View style={{ flex: 1 }}>
         <Body style={styles.scanTitle}>{title}</Body>
-        <Caption>Tap to review the media that needs a parent.</Caption>
+        <Caption>{waiting > 0 ? 'Take a look before they join the vault.' : 'Tap to review the media that needs a parent.'}</Caption>
       </View>
       <Ionicons name="chevron-forward" size={17} />
     </Pressable>

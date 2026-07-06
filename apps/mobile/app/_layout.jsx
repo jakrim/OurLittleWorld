@@ -29,6 +29,7 @@ import {
   nativePromptSheetOptions,
 } from '../src/NativeSheet';
 import { ThemeProvider } from '../src/ui';
+import useForegroundAutoIngest from '../src/useForegroundAutoIngest';
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -65,6 +66,7 @@ export default function RootLayout() {
           <AuthProvider>
             <FamilyProvider>
               <BillingProvider>
+                <ForegroundAutoIngest />
                 <Stack
                   screenOptions={{
                     headerShown: false,
@@ -95,4 +97,9 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+function ForegroundAutoIngest() {
+  useForegroundAutoIngest();
+  return null;
 }

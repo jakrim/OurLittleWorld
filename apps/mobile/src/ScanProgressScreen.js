@@ -4,16 +4,10 @@ import { useRouter } from 'expo-router';
 
 import { Screen, Button, Hero, Caption, Eyebrow, Spacer, BrandMark, colors, space } from './ui';
 import useReducedMotion from './ui/useReducedMotion';
-import { embedFace, isNative } from './faceMatcher';
-import { addTrustedReferenceImage, primaryReference, readReferenceProfile } from './recognitionReferences';
-import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
-import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
-import { clearPendingMediaLibraryChange, readPendingMediaLibraryChange } from './mediaLibraryChanges';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { startLibraryScan } from './libraryScanLauncher';
 import * as Scan from './scanController';
-import { Tags } from './storage';
-import { listSavedAssetIds } from './photoSync';
 
 /**
  * Brief radar splash. Kicks off the background scan via the controller,
@@ -33,7 +27,6 @@ export default function ScanProgressScreen() {
   const pulse2 = useRef(new Animated.Value(0)).current;
   const fired = useRef(false);
   const handedOff = useRef(false);
-  const trustedRefreshCount = useRef(0);
 
   useEffect(() => {
     if (reducedMotion) {
@@ -62,115 +55,7 @@ export default function ScanProgressScreen() {
 
     fired.current = true;
     (async () => {
-      const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
-      const ref = primaryReference(profile);
-      const checkpoint = await readScanCheckpoint({ familyId: family.id, userId: user.id });
-      const pendingLibraryChange = await readPendingMediaLibraryChange({
-        familyId: family.id,
-        userId: user.id,
-      });
-      const birthdayMs = family.babyBirthday
-        ? new Date(`${family.babyBirthday}T00:00:00`).getTime()
-        : undefined;
-      const sinceMs = sinceMsForScan({
-        babyBirthday: family.babyBirthday,
-        checkpoint,
-        forceFullRescan: pendingLibraryChange?.requiresFullLibraryScan,
-      });
-      const extraAssetIds = pendingLibraryChange?.requiresFullLibraryScan
-        ? []
-        : pendingLibraryChange?.insertedAssetIds || [];
-
-      // Skip media we've already saved to Supabase. Means "Find more"
-      // only does meaningful work on new content.
-      const skip = await listSavedAssetIds({
-        familyId: family.id,
-        ownerUserId: user.id,
-      }).catch(() => new Set());
-
-      const autoSaveConfig = await getAutoSaveConfig({
-        familyId: family.id,
-        userId: user.id,
-      });
-      const autoSave = autoSaveConfig
-        ? {
-          threshold: autoSaveConfig.threshold,
-          save: async (assetId, match) => {
-            // Auto-discovered videos save poster + metadata only; the user
-            // promotes them to playable videos explicitly.
-            await Tags.setBaby({
-              familyId: family.id,
-              assetId,
-              isBaby: true,
-              match,
-              videoPosterOnly: match?.mediaType === 'video',
-            });
-            await recordRecentAutoSave({
-              familyId: family.id,
-              userId: user.id,
-              match: match || { assetId },
-            });
-            if (
-              trustedRefreshCount.current < 2
-              && isNative
-              && match?.assetId
-              && Number(match.score || 0) >= 0.9
-              && (match.localUri || match.uri)
-            ) {
-              trustedRefreshCount.current += 1;
-              try {
-                const embedding = await embedFace(match.localUri || match.uri);
-                if (embedding?.embedding?.length) {
-                  await addTrustedReferenceImage({
-                    familyId: family.id,
-                    userId: user.id,
-                    birthdayISO: family.babyBirthday,
-                    match,
-                    embedding: embedding.embedding,
-                    faceCount: embedding.faceCount || match.faceCount || 1,
-                  });
-                }
-              } catch (err) {
-                console.warn('auto-save trusted reference refresh', err?.message);
-              }
-            }
-          },
-        }
-        : null;
-
-      Scan.start({
-        reference: ref,
-        referenceProfile: profile,
-        birthdayISO: family.babyBirthday,
-        since: sinceMs,
-        threshold: isNative ? REVIEW_THRESHOLD : null,
-        autoSave,
-        excludeIds: skip,
-        extraAssetIds,
-        extraAssetCreatedAfterMs: birthdayMs,
-        onComplete: async (finalState) => {
-          if (finalState?.phase !== 'done') return;
-          await writeScanCheckpoint({
-            familyId: family.id,
-            userId: user.id,
-            checkpoint: {
-              lastScannedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
-              lastCursor: JSON.stringify({
-                scanKey: finalState.scanKey,
-                seen: finalState.seen,
-                total: finalState.total,
-                sinceMs,
-                mediaLibraryChangeAt: pendingLibraryChange?.changedAt || null,
-                extraAssetCount: extraAssetIds.length,
-              }),
-            },
-          });
-          await clearPendingMediaLibraryChange({
-            familyId: family.id,
-            userId: user.id,
-          });
-        },
-      });
+      await startLibraryScan({ family, user });
     })();
   }, [family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
