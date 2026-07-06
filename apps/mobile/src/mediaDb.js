@@ -226,7 +226,13 @@ export function enqueueUploadJob({ id, familyId, localAssetId, mediaType, source
   getDb().runSync(
     `insert into upload_jobs (id, family_id, local_asset_id, media_type, source_uri, target_plan_key, status, attempts, created_at, updated_at)
      values (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)
-     on conflict(id) do update set status = 'queued', updated_at = excluded.updated_at`,
+     on conflict(id) do update set
+       local_asset_id = excluded.local_asset_id,
+       media_type = excluded.media_type,
+       source_uri = excluded.source_uri,
+       target_plan_key = excluded.target_plan_key,
+       status = 'queued',
+       updated_at = excluded.updated_at`,
     [id, familyId, localAssetId || null, mediaType || 'image', sourceUri, videoPosterOnly ? 'poster_only' : null, stamp, stamp],
   );
 }

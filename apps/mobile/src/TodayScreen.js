@@ -35,6 +35,7 @@ import { countLabel } from './plural';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
+import { useICloudRetryCount } from './iCloudRetryQueue';
 import * as Scan from './scanController';
 
 export default function TodayScreen() {
@@ -187,6 +188,8 @@ export default function TodayScreen() {
     >
       <ScanBanner
         babyName={family?.babyName}
+        familyId={family?.id}
+        userId={user?.id}
         pendingChange={pendingChange}
         onPress={() => router.push('/review')}
         onScanPress={() => router.push('/scan')}
@@ -668,11 +671,35 @@ function PlacesPreview({ places, onPress, onLongPress }) {
   );
 }
 
-function ScanBanner({ babyName, pendingChange, onPress, onScanPress }) {
+function ScanBanner({ babyName, familyId, userId, pendingChange, onPress, onScanPress }) {
   const scan = Scan.useScanState();
   const waiting = scan.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
   const queued = scan.autoSaveQueueLength || 0;
+  const iCloudRetry = useICloudRetryCount({
+    familyId,
+    userId,
+    refreshKey: `${scan.phase}:${scan.autoSaveErrors}:${scan.autoSavedCount}:${pendingChange?.changedAt || ''}`,
+  });
+  const iCloudWaiting = iCloudRetry.count || 0;
+  const iCloudLabel = `${iCloudWaiting.toLocaleString()} ${iCloudWaiting === 1 ? 'photo is' : 'photos are'} waiting for iCloud`;
   if (scan.phase === 'idle') {
+    if (iCloudWaiting > 0) {
+      return (
+        <Pressable
+          onPress={onScanPress}
+          accessibilityRole="button"
+          accessibilityLabel="Retry iCloud photos"
+          style={styles.scanBanner}
+        >
+          <Ionicons name="cloud-download-outline" size={17} />
+          <View style={{ flex: 1 }}>
+            <Body style={styles.scanTitle}>{iCloudLabel}</Body>
+            <Caption>Open Photos or try again when the originals finish downloading.</Caption>
+          </View>
+          <Ionicons name="chevron-forward" size={17} />
+        </Pressable>
+      );
+    }
     if (!pendingChange) return null;
     return (
       <Pressable
@@ -690,13 +717,15 @@ function ScanBanner({ babyName, pendingChange, onPress, onScanPress }) {
       </Pressable>
     );
   }
-  if ((scan.phase === 'done' || scan.phase === 'aborted') && queued === 0 && waiting === 0) return null;
+  if ((scan.phase === 'done' || scan.phase === 'aborted') && queued === 0 && waiting === 0 && iCloudWaiting === 0) return null;
   const pct = scan.total ? Math.min(100, Math.round((scan.seen / scan.total) * 100)) : null;
   const title = scan.phase === 'scanning'
     ? `Scanning${pct != null ? ` · ${pct}%` : ''}`
     : queued > 0
       ? `Auto-saving ${queued.toLocaleString()}`
-      : `${waiting.toLocaleString()} new ${waiting === 1 ? 'moment' : 'moments'} of ${babyName || 'your little one'}`;
+      : iCloudWaiting > 0
+        ? iCloudLabel
+        : `${waiting.toLocaleString()} new ${waiting === 1 ? 'moment' : 'moments'} of ${babyName || 'your little one'}`;
   return (
     <Pressable
       onPress={onPress}
@@ -707,7 +736,13 @@ function ScanBanner({ babyName, pendingChange, onPress, onScanPress }) {
       <Ionicons name="sparkles-outline" size={17} />
       <View style={{ flex: 1 }}>
         <Body style={styles.scanTitle}>{title}</Body>
-        <Caption>{waiting > 0 ? 'Take a look before they join the vault.' : 'Tap to review the media that needs a parent.'}</Caption>
+        <Caption>
+          {iCloudWaiting > 0
+            ? `${iCloudLabel}; they will retry on the next scan.`
+            : waiting > 0
+              ? 'Take a look before they join the vault.'
+              : 'Tap to review the media that needs a parent.'}
+        </Caption>
       </View>
       <Ionicons name="chevron-forward" size={17} />
     </Pressable>

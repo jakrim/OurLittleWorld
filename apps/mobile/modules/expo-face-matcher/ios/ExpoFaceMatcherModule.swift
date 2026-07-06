@@ -234,6 +234,7 @@ public class ExpoFaceMatcherModule: Module {
     options.deliveryMode = .highQualityFormat
     options.isNetworkAccessAllowed = true
     options.resizeMode = .exact
+    options.progressHandler = { _, _, _, _ in }
 
     var resultImage: UIImage?
     let target = CGSize(width: 1280, height: 1280)

@@ -32,6 +32,7 @@ import { dismissRecentAutoSave, getRecentAutoSaves, recordNegativeExample } from
 import PhotoActionSheet from './PhotoActionSheet';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
+import { useICloudRetryCount } from './iCloudRetryQueue';
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -61,6 +62,11 @@ export default function LibraryScreen() {
     familyId: family?.id,
     userId: user?.id,
     enabled: !!family?.id && !!user?.id,
+  });
+  const iCloudRetry = useICloudRetryCount({
+    familyId: family?.id,
+    userId: user?.id,
+    refreshKey: `${pendingChange?.changedAt || ''}:${uploadQueue.total}`,
   });
 
   useEffect(() => {
@@ -307,6 +313,7 @@ export default function LibraryScreen() {
               onScan={() => router.push('/scan')}
               theme={theme}
             />
+            <ICloudWaitPanel queue={iCloudRetry} onScan={() => router.push('/scan')} theme={theme} />
             <UploadQueuePanel status={uploadQueue} repairing={repairingUploads} onRepair={repairUploadQueue} theme={theme} />
             <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
             <SavedMomentGrid moments={moments} onPress={openMoment} theme={theme} />
@@ -648,6 +655,33 @@ function UploadQueuePanel({ status, repairing, onRepair, theme }) {
         icon={<Ionicons name="refresh" size={16} color={theme.colors.onPrimary} />}
       >
         Retry uploads
+      </Button>
+    </Card>
+  );
+}
+
+function ICloudWaitPanel({ queue, onScan, theme }) {
+  const count = queue?.count || 0;
+  if (!count) return null;
+  return (
+    <Card variant="muted">
+      <View style={styles.sectionHeader}>
+        <View style={styles.resultText}>
+          <Eyebrow>iCloud originals</Eyebrow>
+          <Title style={styles.cardTitle}>
+            {count.toLocaleString()} {count === 1 ? 'photo is' : 'photos are'} waiting for iCloud.
+          </Title>
+          <Caption>Open Photos on this device, then retry the scan when the originals finish downloading.</Caption>
+        </View>
+        <Ionicons name="cloud-download-outline" size={22} color={theme.semantic.primary} />
+      </View>
+      <Button
+        size="sm"
+        fullWidth={false}
+        style={styles.cardButton}
+        onPress={onScan}
+      >
+        Retry scan
       </Button>
     </Card>
   );

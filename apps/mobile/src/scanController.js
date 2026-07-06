@@ -275,6 +275,8 @@ export function markSaved(ids) {
  *     autoSave: { threshold?, save: async (assetId) => {} },
  *     excludeIds: Set<string>,
  *     onComplete: async (finalState) => {},
+ *     onICloudWait: async ({ assetIds }) => {},
+ *     onICloudReady: async ({ assetIds }) => {},
  *   })
  *
  *   reference: { embedding: number[] }  – the baby's face embedding
@@ -297,6 +299,8 @@ export async function start({
   extraAssetIds,
   extraAssetCreatedAfterMs,
   onComplete,
+  onICloudWait,
+  onICloudReady,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -341,6 +345,29 @@ export async function start({
   try {
     const cutoff = threshold != null ? threshold : (isNative ? 0.6 : null);
 
+    const reportICloudStatus = async (assets = []) => {
+      if (!onICloudWait && !onICloudReady) return;
+      const waiting = [];
+      const ready = [];
+      for (const asset of assets) {
+        const status = asset?.downloadStatus;
+        if (!status && !asset?.cloudWaitOnly) continue;
+        const sourceId = asset.sourceAssetId || asset.id || asset.assetId;
+        if (!sourceId) continue;
+        if (status === 'ready') {
+          ready.push(sourceId);
+        } else if (asset.cloudWaitOnly || status === 'pending' || status === 'failed') {
+          waiting.push(sourceId);
+        }
+      }
+      try {
+        if (ready.length) await onICloudReady?.({ assetIds: ready });
+        if (waiting.length) await onICloudWait?.({ assetIds: waiting });
+      } catch (err) {
+        console.warn('scan iCloud retry queue', err?.message);
+      }
+    };
+
     const scoreAssets = async (assets = []) => {
       const freshAssets = [];
       for (const asset of assets) {
@@ -350,9 +377,10 @@ export async function start({
         freshAssets.push(asset);
       }
       if (!freshAssets.length) return;
+      await reportICloudStatus(freshAssets);
 
       const candidates = freshAssets
-        .filter((a) => !skipSet.has(a.sourceAssetId || a.id))
+        .filter((a) => !a.cloudWaitOnly && (a.localUri || a.uri) && !skipSet.has(a.sourceAssetId || a.id))
         .map((a) => ({
           assetId: a.candidateId || a.id,
           sourceAssetId: a.sourceAssetId || a.id,

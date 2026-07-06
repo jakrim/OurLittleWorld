@@ -6,6 +6,7 @@ import * as Scan from './scanController';
 import { addTrustedReferenceImage, primaryReference, readReferenceProfile } from './recognitionReferences';
 import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
 import { Tags } from './storage';
+import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iCloudRetryQueue';
 
 export async function startLibraryScan({
   family,
@@ -37,6 +38,14 @@ export async function startLibraryScan({
   const extraAssetIds = change?.requiresFullLibraryScan
     ? []
     : change?.insertedAssetIds || [];
+  const iCloudRetry = await readICloudRetryQueue({
+    familyId: family.id,
+    userId: user.id,
+  }).catch(() => ({ assetIds: [] }));
+  const targetedAssetIds = [...new Set([
+    ...extraAssetIds,
+    ...(iCloudRetry.assetIds || []),
+  ])];
 
   const skip = await listSavedAssetIds({
     familyId: family.id,
@@ -100,8 +109,20 @@ export async function startLibraryScan({
     threshold: isNative ? REVIEW_THRESHOLD : null,
     autoSave,
     excludeIds: skip,
-    extraAssetIds,
+    extraAssetIds: targetedAssetIds,
     extraAssetCreatedAfterMs: birthdayMs,
+    onICloudWait: ({ assetIds }) => recordICloudWait({
+      familyId: family.id,
+      userId: user.id,
+      assetIds,
+      source: 'scan',
+      reason: 'Waiting for the original to download from iCloud.',
+    }),
+    onICloudReady: ({ assetIds }) => clearICloudWait({
+      familyId: family.id,
+      userId: user.id,
+      assetIds,
+    }),
     onComplete: async (finalState) => {
       if (finalState?.phase !== 'done') return;
       await writeScanCheckpoint({
@@ -115,7 +136,7 @@ export async function startLibraryScan({
             total: finalState.total,
             sinceMs,
             mediaLibraryChangeAt: change?.changedAt || null,
-            extraAssetCount: extraAssetIds.length,
+            extraAssetCount: targetedAssetIds.length,
           }),
         },
       });

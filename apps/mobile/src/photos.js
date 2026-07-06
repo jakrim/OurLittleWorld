@@ -75,8 +75,12 @@ async function mapAssetToLegacy(asset) {
 }
 
 async function mapAssetToVideo(asset) {
+  let uriError = null;
   const [uri, creationTime, duration, width, height, fileName] = await Promise.all([
-    asset.getUri(),
+    asset.getUri().catch((err) => {
+      uriError = err;
+      return null;
+    }),
     asset.getCreationTime(),
     asset.getDuration().catch(() => null),
     asset.getWidth().catch(() => 0),
@@ -88,11 +92,35 @@ async function mapAssetToVideo(asset) {
     mediaType: 'video',
     uri,
     localUri: uri,
+    downloadStatus: uri ? 'ready' : 'pending',
+    downloadError: uriError ? String(uriError?.message || uriError) : null,
     creationTime: creationTime ?? 0,
     duration: duration ?? null,
     width: width || 0,
     height: height || 0,
     fileName,
+  };
+}
+
+function cloudWaitCandidate(asset, mediaType = 'image') {
+  const sourceAssetId = normalizeMediaLibraryAssetId(asset?.sourceAssetId || asset?.id || asset?.assetId);
+  if (!sourceAssetId) return null;
+  return {
+    id: sourceAssetId,
+    candidateId: `${sourceAssetId}#icloud-wait`,
+    sourceAssetId,
+    mediaType,
+    uri: null,
+    localUri: null,
+    previewUri: null,
+    creationTime: asset?.creationTime ?? 0,
+    duration: asset?.duration ?? null,
+    width: asset?.width || 0,
+    height: asset?.height || 0,
+    fileName: asset?.fileName || null,
+    downloadStatus: asset?.downloadStatus || 'pending',
+    downloadError: asset?.downloadError || 'Waiting for the original to download from iCloud.',
+    cloudWaitOnly: true,
   };
 }
 
@@ -173,7 +201,10 @@ function frameSampleTimes(durationMs) {
 }
 
 async function sampleVideoFrames(video) {
-  if (!video?.localUri) return [];
+  if (!video?.localUri) {
+    const marker = cloudWaitCandidate(video, 'video');
+    return marker ? [marker] : [];
+  }
   const frames = [];
   for (const timeMs of frameSampleTimes(video.duration)) {
     try {
@@ -196,6 +227,7 @@ async function sampleVideoFrames(video) {
         height: frame.height || video.height,
         videoUri: video.localUri,
         fileName: video.fileName,
+        downloadStatus: 'ready',
       });
     } catch {
       // Some cloud-backed or DRM-edited videos cannot be thumbnailed locally.
@@ -247,6 +279,7 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
           }
           return sampleVideoFrames(video);
         }
+        const details = await getAssetDetails(candidateId, { downloadFromNetwork: true }).catch(() => null);
         const row = await mapAssetToLegacy(asset);
         if (minCreationTime != null && row.creationTime && row.creationTime < minCreationTime) {
           return null;
@@ -254,6 +287,10 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
         return {
           ...row,
           id: normalizeMediaLibraryAssetId(row.id) || normalized,
+          localUri: details?.localUri || row.localUri,
+          uri: details?.uri || row.uri,
+          downloadStatus: details?.downloadStatus || 'ready',
+          downloadError: details?.downloadError || null,
         };
       } catch {
         // Try the alternate raw/ph:// shape before giving up.

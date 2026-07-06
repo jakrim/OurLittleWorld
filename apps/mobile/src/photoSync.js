@@ -4,6 +4,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails } from './photos';
 import * as mediaDb from './mediaDb';
+import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
@@ -144,24 +145,39 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   if (!userId) throw new Error('Not signed in');
   if (!familyId) throw new Error('No family');
 
-  const info = await getAssetDetails(assetId, { downloadFromNetwork: true });
-  if (!info) throw new Error('Could not load media from library');
-  const localUri = info.localUri || info.uri;
-  if (!localUri) {
-    throw new Error(info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.');
-  }
-
-  // Persist the job so interrupted uploads survive an app restart.
   const jobId = `${familyId}:${assetId}`;
   safeCache(() => mediaDb.enqueueUploadJob({
     id: jobId,
     familyId,
     localAssetId: assetId,
-    mediaType: info.mediaType === 'video' ? 'video' : 'image',
+    mediaType: match?.mediaType === 'video' ? 'video' : 'image',
     videoPosterOnly,
   }));
 
   try {
+    const info = await getAssetDetails(assetId, { downloadFromNetwork: true });
+    if (!info) throw new Error('Could not load media from library');
+    const localUri = info.localUri || info.uri;
+    if (!localUri) {
+      const message = info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.';
+      await recordICloudWait({
+        familyId,
+        userId,
+        assetIds: [assetId],
+        source: 'upload',
+        reason: message,
+      }).catch(() => {});
+      throw new Error(message);
+    }
+    await clearICloudWait({ familyId, userId, assetIds: [assetId] }).catch(() => {});
+    safeCache(() => mediaDb.enqueueUploadJob({
+      id: jobId,
+      familyId,
+      localAssetId: assetId,
+      mediaType: info.mediaType === 'video' ? 'video' : 'image',
+      videoPosterOnly,
+    }));
+
     let result;
     if (info.mediaType === 'video') {
       result = videoPosterOnly
