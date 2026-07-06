@@ -531,7 +531,7 @@ const StackTile = React.memo(function StackTile({ item, size, columns, expanded,
   const stackId = item.controlForStackId || item.id;
   const label = expanded
     ? 'Hide stack'
-    : `Keep ${item.keep.length} · +${item.foldedCount} similar`;
+    : `${item.curationSummary || `Kept ${item.keep.length} of ${item.matches.length}`} · see rest`;
   return (
     <Pressable
       onPress={() => onToggle(stackId)}
@@ -552,7 +552,7 @@ const StackTile = React.memo(function StackTile({ item, size, columns, expanded,
         <View style={[styles.stackBadge, columns >= 4 && styles.stackBadgeCompact]}>
           <Ionicons name={expanded ? 'chevron-up' : 'albums-outline'} size={columns >= 4 ? 10 : 13} color={colors.onPrimary} />
           {columns <= 4 ? (
-            <Caption style={styles.stackBadgeText}>{label}</Caption>
+            <Caption numberOfLines={2} ellipsizeMode="tail" style={styles.stackBadgeText}>{label}</Caption>
           ) : null}
         </View>
       </View>

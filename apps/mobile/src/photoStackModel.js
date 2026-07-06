@@ -1,3 +1,5 @@
+import { AUTO_SAVE_CAPTURE_QUALITY_FLOOR } from './scanQualityModel.js';
+
 export const PHOTO_STACK_SESSION_GAP_MS = 30 * 60 * 1000;
 export const PHOTO_STACK_NEAR_DUPLICATE_DISTANCE = 0.18;
 export const PHOTO_STACK_KEEP_BASE = 1;
@@ -146,16 +148,21 @@ function reviewMatchItem(match) {
 
 function reviewStackItem(matches) {
   const ranked = rankStackMatches(matches);
-  const keepCount = defaultKeepCount(ranked.length);
+  const keep = defaultKeepMatches(ranked);
+  const keepIds = new Set(keep.map((match) => match.assetId));
+  const folded = ranked.filter((match) => !keepIds.has(match.assetId));
+  const pinnedCount = keep.filter(isPinnedMatch).length;
   const assetIds = ranked.map((match) => match.assetId);
   return {
     id: `stack:${assetIds.join('|')}`,
     type: 'stack',
     cover: ranked[0],
     matches: ranked,
-    keep: ranked.slice(0, keepCount),
-    folded: ranked.slice(keepCount),
-    foldedCount: Math.max(0, ranked.length - keepCount),
+    keep,
+    folded,
+    foldedCount: folded.length,
+    pinnedCount,
+    curationSummary: curationSummary({ keep, ranked, pinnedCount }),
     creationTime: Math.max(...ranked.map((match) => Number(match.creationTime || 0))),
   };
 }
@@ -165,10 +172,61 @@ function rankStackMatches(matches) {
 }
 
 function compareRank(a, b) {
-  return compareNumber(qualityValue(a), qualityValue(b))
+  return compareNumber(isPinnedMatch(a) ? 1 : 0, isPinnedMatch(b) ? 1 : 0)
+    || compareNumber(qualityValue(a), qualityValue(b))
     || compareNumber(a?.score, b?.score)
     || compareNumber(a?.creationTime, b?.creationTime)
     || String(a?.assetId || '').localeCompare(String(b?.assetId || ''));
+}
+
+function defaultKeepMatches(ranked) {
+  const target = Math.max(defaultKeepCount(ranked.length), ranked.filter(isPinnedMatch).length);
+  const keep = [];
+  const keepIds = new Set();
+  const add = (match) => {
+    if (!match?.assetId || keepIds.has(match.assetId)) return;
+    keep.push(match);
+    keepIds.add(match.assetId);
+  };
+
+  for (const match of ranked) {
+    if (isPinnedMatch(match)) add(match);
+  }
+  for (const match of ranked) {
+    if (keep.length >= target) break;
+    if (isPinnedMatch(match) || isBelowFloorStackMatch(match, ranked)) continue;
+    add(match);
+  }
+  if (!keep.length && ranked[0]) add(ranked[0]);
+  return keep;
+}
+
+export function isPinnedMatch(match) {
+  const metadata = match?.metadata || {};
+  return !!(
+    match?.pinned
+    || match?.curationPinned
+    || match?.parentPinned
+    || match?.parent_pinned
+    || metadata.pinned
+    || metadata.curationPinned
+    || metadata.parentPinned
+    || metadata.parent_pinned
+  );
+}
+
+export function isBelowFloorStackMatch(match, siblings = []) {
+  if (isPinnedMatch(match)) return false;
+  const captureQuality = finiteOrNull(match?.captureQuality);
+  if (captureQuality == null || captureQuality >= AUTO_SAVE_CAPTURE_QUALITY_FLOOR) return false;
+  return (siblings || []).some((other) =>
+    other?.assetId !== match?.assetId && qualityValue(other) > qualityValue(match),
+  );
+}
+
+function curationSummary({ keep, ranked, pinnedCount }) {
+  if (pinnedCount > 0) return `Kept parent pick · ${keep.length} of ${ranked.length}`;
+  return `Kept sharpest ${keep.length} of ${ranked.length}`;
 }
 
 function qualityValue(match) {
