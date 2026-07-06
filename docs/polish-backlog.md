@@ -824,10 +824,10 @@ video around Nov 3"). `laugh`/`word` get no photo detectors — catch-up card on
   quality, falling back to recency for historical rows. *(shipped, Sprint W)*
 - **X1 suggested letters:** post-first-save nudge seeds letter compose with facts
   only ("On October 1, at 7 weeks old, we saved your first smile." — a fact about
-  the archive, never a claim about the world).
+  the archive, never a claim about the world). *(shipped, Sprint XY)*
 - **Y1 suggested notifications:** local notification on the generating device
   ("Three possible first-smile photos are ready to review"), real `suggested_firsts`
-  preference category, quiet hours + daily cap respected; never twice per suggestion.
+  preference category, quiet hours + daily cap respected; never twice per suggestion. *(shipped, Sprint XY)*
 - **Z1 suggested moments:** group same-day unattached photos (session gap + geo
   cluster) into "looks like one moment" Library banner; reversible grouping.
 - **Z2 suggested cleanup:** per-device "tuck away" of near-repeats (never deletes,

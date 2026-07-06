@@ -15,6 +15,7 @@ import {
 import { readFirstSuggestionState, saveGeneratedSuggestions } from './firstSuggestionStore';
 import { fetchPhotosPage, getLibraryPermissionStatus } from './photos';
 import { readReferenceProfile } from './recognitionReferences';
+import { maybeNotifySuggestedFirst } from './suggestedFirstNotifier';
 
 export const FIRST_SUGGESTION_SCAN_CAP = 240; // tunable, assets per goal window
 export const FIRST_SUGGESTION_GOALS_PER_RUN = 2; // tunable
@@ -27,6 +28,7 @@ export async function generateFirstSuggestions({
   userId,
   babyBirthday,
   goalRows = [],
+  preferences = null,
   now = new Date(),
 } = {}) {
   if (!familyId || !userId || !babyBirthday || !isNative) return null;
@@ -65,7 +67,21 @@ export async function generateFirstSuggestions({
   }
   if (!generatedGoalKeys.length) return null;
 
-  return saveGeneratedSuggestions({ familyId, userId, suggestions, generatedGoalKeys, now });
+  const nextState = await saveGeneratedSuggestions({ familyId, userId, suggestions, generatedGoalKeys, now });
+
+  // Y1: one local notification for the freshest suggestion. The notifier
+  // de-dupes per suggestion id and honors quiet hours + the category toggle.
+  if (suggestions.length) {
+    await maybeNotifySuggestedFirst({
+      familyId,
+      userId,
+      suggestion: suggestions[0],
+      preferences,
+      now,
+    }).catch((err) => console.warn('maybeNotifySuggestedFirst', err?.message));
+  }
+
+  return nextState;
 }
 
 async function scanWindowForMatches({ window, profile, babyBirthday }) {

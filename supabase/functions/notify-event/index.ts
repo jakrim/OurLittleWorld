@@ -335,6 +335,7 @@ function defaultTitle(category: string) {
   if (category === 'weekly_digest') return "Next week's story is ready";
   if (category === 'daily_prompt') return "Today's prompt is ready";
   if (category === 'new_moments') return 'New moments found';
+  if (category === 'suggested_firsts') return 'Worth a look';
   if (category === 'tonight_picks') return "Tonight's picks are ready";
   if (category === 'letter_openable') return 'A letter is ready to open';
   if (category === 'circle_joined') return 'Someone joined the family circle';
@@ -345,6 +346,7 @@ function defaultBody(category: string) {
   if (category === 'weekly_digest') return 'Open the weekly digest.';
   if (category === 'daily_prompt') return 'A few lines are enough.';
   if (category === 'new_moments') return 'Take a look when you have a minute.';
+  if (category === 'suggested_firsts') return 'Possible-first photos are ready to review.';
   if (category === 'tonight_picks') return "Tonight's picks are ready.";
   if (category === 'letter_openable') return 'Open Letters.';
   if (category === 'circle_joined') return 'Open the family circle.';

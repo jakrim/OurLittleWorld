@@ -1,0 +1,21 @@
+# Suggested letters (X1): saving a first offers a letter seeded from that
+# first's facts, respecting the shared post-save daily cap. Requires the
+# __DEV__ suggestion seeder (long-press the Firsts header "+") and a clear
+# post-save-nudge daily count.
+appId: com.jessekrim.ourlittleworld
+---
+- launchApp
+- tapOn: "Firsts"
+- longPressOn: "Add a first"
+- assertVisible:
+    text: "Possible first.*"
+- tapOn: "Keep"
+- assertVisible: "Suggested first"
+- scrollUntilVisible:
+    element:
+      text: "Save"
+- tapOn: "Save"
+- assertVisible: "First saved"
+- assertVisible:
+    text: ".*Leave one line for the.*"
+- tapOn: "Not now"

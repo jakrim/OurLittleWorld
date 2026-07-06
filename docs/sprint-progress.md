@@ -186,6 +186,17 @@ Verification (whole sprint): `npm test` (tsc + 118 unit tests) green, `expo lint
 
 Verification (whole sprint): `npm test` (tsc + 120 unit tests) green, `expo lint` clean, local db reset + lint + seeded RPC smoke, remote migration applied. SPRINT W COMPLETE.
 
+### Sprint XY — suggested letters + suggested notifications (X1, Y1)
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| X1 suggested letter after first-save | done | (XY commit) | `firstSavedLetterNudge` (in `postSaveNudgeModel.js`) seeds letter-compose from facts only: title `About your first smile`, body `On October 1, 2025, at 2 months old, we saved your first smile.` — a fact about the archive, never a claim about the world (locked by unit test regex). Wired into `FirstComposeSheetScreen` save path for newly-completed firsts, gated by the shared post-save daily cap (`canShowPostSaveNudge`, `POST_SAVE_NUDGE_MAX_PER_DAY = 2`). Extracted `PostSaveNudgeSheet` to its own file so both AddSheet and compose reuse it (`savedLabel` prop varies "Moment saved"/"First saved"). Maestro `first-saved-letter-nudge.yaml` green on iPhone 16e: seed → Keep → Save → "First saved · Leave one line for the eighteenth-birthday letter?" (screenshot confirmed); cap-suppression verified live (daily count of 2 correctly hides the nudge). |
+| Y1 suggested-firsts local notification | done | (XY commit) | Suggestions are device-local, so this is a **local** notification on the generating device (not a family push). `suggestedFirstNotifierModel.js` (pure): copy "Three possible first-smile photos are ready to review." (count spelled out, milestone hyphenated, "possible" guardrail), quiet-hours wrap-past-midnight check, per-suggestion-id de-dupe, category-off suppression. `suggestedFirstNotifier.js` (impure): AsyncStorage store + `expo-notifications` scheduler (no-op without native/permission). Scanner fires it for the freshest suggestion, passing loaded preferences. New `suggested_firsts` category added to `notificationSettingsModel`, both migration check constraints (`20260706220747`, applied remotely), and `notify-event` cadence/copy (forward-compat). Sim-verified: Notifications settings row now reads **"8 on"** (was 7). **Pending follow-up:** `notify-event` redeploy (copy-only, additive; not on Y1's critical path since delivery is local); actual local-notification fire needs the native push module (same J1/dev-client environment blocker). |
+
+Verification (whole sprint): `npm test` (tsc + 126 unit tests) green, `expo lint` clean, `deno check` clean on notify-event index+cadence, local db reset + lint, migration applied remotely (20260706220747), Maestro X1 flow green on iPhone 16e. SPRINT XY COMPLETE (with recorded notify-event redeploy follow-up).
+
+**Tunable constants introduced (XY):** `SUGGESTED_FIRSTS_CATEGORY = 'suggested_firsts'`, `SUGGESTED_FIRSTS_ROUTE = '/firsts'` (`src/suggestedFirstNotifierModel.js`); reuses `NOTIFICATION_DAILY_HARD_CAP = 2`, `DEFAULT_QUIET_HOURS_START/END` and `POST_SAVE_NUDGE_MAX_PER_DAY = 2`.
+
 ## Notes
 
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.

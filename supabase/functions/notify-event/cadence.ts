@@ -7,6 +7,7 @@ export const CATEGORY_DEFAULTS: Record<string, { route: string; enabled: boolean
   daily_prompt: { route: '/prompt', enabled: true },
   partner_activity: { route: '/prompt', enabled: true },
   new_moments: { route: '/review', enabled: true },
+  suggested_firsts: { route: '/firsts', enabled: true },
   tonight_picks: { route: '/digest', enabled: true },
   letter_openable: { route: '/letters', enabled: true },
   circle_joined: { route: '/invite', enabled: true },

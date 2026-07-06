@@ -17,6 +17,7 @@ import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { createMomentWithMedia } from './moments';
+import PostSaveNudgeSheet from './PostSaveNudgeSheet';
 import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
 import { selectPostSaveNudge } from './postSaveNudgeModel';
 import { Firsts } from './rituals';
@@ -383,44 +384,6 @@ async function buildPostSaveNudge({ family, user, moment, assets, note, voice })
   }
 }
 
-function PostSaveNudgeSheet({ nudge, theme, onDismiss, onAction }) {
-  return (
-    <Screen bare>
-      <View style={[styles.followupRoot, { backgroundColor: theme.semantic.card }]}>
-        <View style={[styles.followupHandle, { backgroundColor: theme.semantic.border }]} />
-        <View style={[styles.followupIcon, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name={iconForNudge(nudge.kind)} size={22} color={theme.semantic.primary} />
-        </View>
-        <Caption>Moment saved</Caption>
-        <Title style={styles.followupTitle}>{nudge.question}</Title>
-        <Body style={styles.followupBody}>
-          {bodyForNudge(nudge.kind)}
-        </Body>
-        <View style={styles.followupActions}>
-          <Button fullWidth={false} onPress={onAction}>
-            {nudge.actionLabel}
-          </Button>
-          <Button variant="quiet" fullWidth={false} onPress={onDismiss}>
-            Not now
-          </Button>
-        </View>
-      </View>
-    </Screen>
-  );
-}
-
-function iconForNudge(kind) {
-  if (kind === 'first') return 'flag-outline';
-  if (kind === 'letter') return 'mail-outline';
-  return 'mic-outline';
-}
-
-function bodyForNudge(kind) {
-  if (kind === 'first') return 'This can link the moment to the family firsts timeline.';
-  if (kind === 'letter') return 'A single line is enough; the date and age are already started.';
-  return 'Open the moment now so the voice can stay close to the photos.';
-}
-
 function buildWaveform(seedSeconds) {
   const base = Math.max(1, Math.min(30, Number(seedSeconds || 8)));
   return Array.from({ length: 24 }, (_, i) => {
@@ -567,41 +530,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     color: undefined,
-  },
-  followupRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    paddingHorizontal: space.xl,
-    paddingTop: space.xl,
-    paddingBottom: space.xxl,
-    gap: space.md,
-  },
-  followupHandle: {
-    alignSelf: 'center',
-    width: 42,
-    height: 5,
-    borderRadius: 999,
-    marginBottom: space.lg,
-  },
-  followupIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  followupTitle: {
-    fontSize: 28,
-    lineHeight: 34,
-  },
-  followupBody: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  followupActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.sm,
   },
 });

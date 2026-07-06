@@ -109,6 +109,15 @@ Flow (all on-device, per-user):
 Dev/testing: long-press the Firsts header "+" (`__DEV__` only) seeds a fixture from
 real archive photos; Maestro flows in `apps/mobile/.maestro/`.
 
+Adjacent same-spirit surfaces (all metadata-only, no generative text):
+`captionTemplateModel.js` (U1 suggested notes), `promptStarterModel.js` (V1 prompt
+starters), `mediaUploadMetadataModel.js` + `assemble_weekly_digest` quality ranking
+(W1/W2 digest highlights), `firstSavedLetterNudge` in `postSaveNudgeModel.js` (X1
+letter starter, facts-only), and `suggestedFirstNotifierModel.js` +
+`suggestedFirstNotifier.js` (Y1 — a *local* notification on the generating device,
+since suggestions are device-local; `suggested_firsts` is a real notification
+category with quiet-hours/de-dupe gating).
+
 ## Verification workflow
 
 - `cd apps/mobile && npm test` (tsc + node --test), `CI=true npx expo lint`.

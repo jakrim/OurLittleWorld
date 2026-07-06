@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   POST_SAVE_NUDGE_MAX_PER_DAY,
+  firstSavedLetterNudge,
   markPostSaveNudgeDismissed,
   markPostSaveNudgeShown,
   postSaveNudgeDayKey,
@@ -121,4 +122,24 @@ test('daily cap allows two post-save nudges and blocks the third', () => {
     state,
     now,
   }), null);
+});
+
+test('X1: first-saved letter nudge is seeded from facts about the archive only', () => {
+  const nudge = firstSavedLetterNudge({
+    first: { id: 'first-1', title: 'First smile', happened_at: '2025-10-01T12:00:00.000Z' },
+    birthdayISO: '2025-07-23',
+  });
+  assert.equal(nudge.kind, 'letter');
+  assert.equal(nudge.momentId, 'first:first-1');
+  assert.equal(nudge.route.params.title, 'About your first smile');
+  // Fact about the archive ("we saved your first smile"), never a claim about
+  // the world ("you smiled for the first time").
+  assert.match(nudge.route.params.body, /^On October 1, 2025, at 2 months old, we saved your first smile\.\n\n$/);
+});
+
+test('X1: first-saved letter nudge falls back gracefully without date or birthday', () => {
+  const nudge = firstSavedLetterNudge({ first: { id: 'first-2', title: 'First laugh' } });
+  assert.equal(nudge.route.params.body, 'In the family archive, we saved your first laugh.\n\n');
+  assert.equal(firstSavedLetterNudge({ first: null }), null);
+  assert.equal(firstSavedLetterNudge({ first: { title: '' } }), null);
 });

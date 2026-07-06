@@ -30,6 +30,7 @@ import {
   selectSuggestionForDisplay,
 } from './firstSuggestionModel';
 import { generateFirstSuggestions } from './firstSuggestionScanner';
+import { getNotificationPreferences } from './notificationSettings';
 import { readFirstSuggestionState, recordFirstSuggestionFeedback, saveGeneratedSuggestions } from './firstSuggestionStore';
 import { ageAt, formatAge } from './photos';
 import { listSharedTagged } from './photoSync';
@@ -102,12 +103,15 @@ export default function FirstsScreen() {
   useEffect(() => {
     if (!firstsLoaded || !family?.id || !user?.id) return undefined;
     let alive = true;
-    const task = InteractionManager.runAfterInteractions(() => {
+    const task = InteractionManager.runAfterInteractions(async () => {
+      const preferences = await getNotificationPreferences({ familyId: family.id, userId: user.id })
+        .catch(() => null);
       generateFirstSuggestions({
         familyId: family.id,
         userId: user.id,
         babyBirthday: family?.babyBirthday,
         goalRows: goalProgress.goals,
+        preferences,
       })
         .then((state) => { if (alive && state) setSuggestionState(state); })
         .catch((err) => console.warn('generateFirstSuggestions', err?.message));

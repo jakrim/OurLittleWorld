@@ -32,6 +32,13 @@ export const NOTIFICATION_CATEGORIES = [
     defaultEnabled: true,
   },
   {
+    key: 'suggested_firsts',
+    label: 'Suggested firsts',
+    detail: 'When possible-first photos are ready to review.',
+    route: '/firsts',
+    defaultEnabled: true,
+  },
+  {
     key: 'tonight_picks',
     label: "Tonight's picks",
     detail: 'Ready at 8:00 PM once Tonight ships.',

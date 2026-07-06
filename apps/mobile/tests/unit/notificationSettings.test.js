@@ -18,6 +18,7 @@ test('notification defaults keep calm hard cap and quiet hours tunable constants
   assert.equal(DEFAULT_QUIET_HOURS_END, '08:00');
   assert.equal(defaults.categories.partner_activity, true);
   assert.equal(defaults.categories.weekly_digest, true);
+  assert.equal(defaults.categories.suggested_firsts, true);
 });
 
 test('saved notification rows override only their category and quiet hours', () => {
@@ -43,5 +44,6 @@ test('notification preference patches preserve existing category state', () => {
   assert.equal(next.categories.partner_activity, false);
   assert.equal(next.categories.daily_prompt, false);
   assert.equal(next.categories.weekly_digest, true);
-  assert.equal(enabledNotificationCount(next), 5);
+  // 8 categories, 2 disabled (partner_activity + daily_prompt) → 6 enabled.
+  assert.equal(enabledNotificationCount(next), 6);
 });

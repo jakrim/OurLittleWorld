@@ -23,6 +23,9 @@ import {
 } from './firstComposeSeedModel.js';
 import { notifyPartnerFirstSaved } from './notificationEvents';
 import { fetchPhotosPage, getLibraryPermissionStatus, normalizeMediaLibraryAssetId } from './photos';
+import PostSaveNudgeSheet from './PostSaveNudgeSheet';
+import { canShowPostSaveNudge, firstSavedLetterNudge } from './postSaveNudgeModel';
+import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
 import { listSharedTagged, listSharedTaggedChronological, uploadForTag } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
 
@@ -54,6 +57,7 @@ export default function FirstComposeSheetScreen() {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [postSaveNudge, setPostSaveNudge] = useState(null);
   const seededFirst = Boolean(seedTitle && !existing);
   const seedPhoto = useMemo(() => seedPhotoFromParams({
     seedAssetId,
@@ -227,6 +231,21 @@ export default function FirstComposeSheetScreen() {
           title: savedFirst?.title || effectiveTitle,
         }).catch((err) => console.warn('notify partner first saved', err?.message));
       }
+      // X1: offer a letter seeded from this first's facts, respecting the same
+      // daily cap as the moment post-save nudge. Only for newly-completed firsts.
+      if (shouldNotifyPartner) {
+        const nudge = await buildFirstSavedLetterNudge({
+          family,
+          user,
+          first: savedFirst || { id: savedFirst?.id, title: effectiveTitle, happened_at: happenedAt },
+        });
+        if (nudge) {
+          await recordPostSaveNudgeShown({ familyId: family?.id, userId: user?.id });
+          setPostSaveNudge(nudge);
+          setSaving(false);
+          return;
+        }
+      }
       close();
     } catch (err) {
       Alert.alert('Could not save', err?.message || String(err));
@@ -234,6 +253,16 @@ export default function FirstComposeSheetScreen() {
       setSaving(false);
     }
   };
+
+  const finishPostSave = useCallback(async (route = null) => {
+    const nudge = postSaveNudge;
+    if (nudge?.momentId && family?.id) {
+      await dismissPostSaveNudge({ familyId: family.id, userId: user?.id, momentId: nudge.momentId });
+    }
+    setPostSaveNudge(null);
+    close();
+    if (route) requestAnimationFrame(() => router.push(route));
+  }, [close, family?.id, postSaveNudge, router, user?.id]);
 
   const remove = () => {
     if (!existing) return;
@@ -253,6 +282,18 @@ export default function FirstComposeSheetScreen() {
       },
     ]);
   };
+
+  if (postSaveNudge) {
+    return (
+      <PostSaveNudgeSheet
+        nudge={postSaveNudge}
+        theme={theme}
+        savedLabel="First saved"
+        onDismiss={() => finishPostSave(null)}
+        onAction={() => finishPostSave(postSaveNudge.route)}
+      />
+    );
+  }
 
   return (
     <Screen bare scroll keyboard edges={{ top: false, bottom: true }} contentStyle={styles.screenContent}>
@@ -378,6 +419,19 @@ export default function FirstComposeSheetScreen() {
       </View>
     </Screen>
   );
+}
+
+async function buildFirstSavedLetterNudge({ family, user, first }) {
+  try {
+    const state = await readPostSaveNudgeState({ familyId: family?.id, userId: user?.id });
+    const nudge = firstSavedLetterNudge({ first, birthdayISO: family?.babyBirthday });
+    if (!nudge?.momentId) return null;
+    if (!canShowPostSaveNudge({ state, momentId: nudge.momentId })) return null;
+    return nudge;
+  } catch (err) {
+    console.warn('buildFirstSavedLetterNudge', err?.message);
+    return null;
+  }
 }
 
 async function loadFirstPhotoCandidates({ familyId, firstPhotoWindow, userId }) {

@@ -57,6 +57,35 @@ export function selectPostSaveNudge({
   return null;
 }
 
+// X1: after a first is saved, offer a letter seeded with facts only. "We
+// saved your first smile" is a claim about the archive, never about the world
+// ("you smiled for the first time" would be) — locked by unit test.
+export function firstSavedLetterNudge({ first, birthdayISO = null } = {}) {
+  if (!first?.title) return null;
+  const happenedAt = first.happened_at || first.happenedAt || null;
+  const date = formatLetterDate(happenedAt);
+  const ageDays = happenedAt && birthdayISO
+    ? ageInDaysOn(birthdayISO, new Date(happenedAt))
+    : null;
+  const age = formatAgeContext(ageDays);
+  const lower = lowerFirstTitle(first.title);
+  const clauses = [date ? `On ${date}` : null, age ? `at ${age}` : null].filter(Boolean).join(', ');
+  const body = `${clauses || 'In the family archive'}, we saved your ${lower}.\n\n`;
+  return {
+    kind: 'letter',
+    momentId: first.id ? `first:${first.id}` : null,
+    question: 'Leave one line for the eighteenth-birthday letter?',
+    actionLabel: 'Write letter',
+    route: {
+      pathname: '/letter-compose',
+      params: {
+        title: `About your ${lower}`,
+        body,
+      },
+    },
+  };
+}
+
 export function normalizePostSaveNudgeState(input = {}) {
   return {
     dailyCounts: { ...(input?.dailyCounts || {}) },
