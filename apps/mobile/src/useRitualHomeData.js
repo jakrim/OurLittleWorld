@@ -3,8 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router/react-navigation';
 
 import { Family } from './families';
+import { ageInDaysOn } from './firstsModel';
 import { listMomentArchive } from './moments';
-import { listSharedTagged } from './photoSync';
+import {
+  MONTHVERSARY_MAX_PER_BUCKET,
+  annualTodayMatches,
+  isUnderTwo,
+  monthversaryBuckets,
+  monthversaryLabel,
+} from './onThisDay';
+import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './photoSync';
 import { Memories } from './storage';
 import { DailyPrompts, Firsts, Letters, WeeklyDigests } from './rituals';
 
@@ -42,13 +50,10 @@ function buildDerivedPayload({ raw, userId }) {
   const firsts = raw.firsts || [];
   const letters = raw.letters || [];
   const moments = raw.moments || [];
-  const today = new Date();
   const promptState = annotatePromptState(raw.promptState, userId);
-  const todayMatches = shared.filter((photo) => {
-    if (!photo.creation_time) return false;
-    const captured = new Date(photo.creation_time);
-    return captured.getMonth() === today.getMonth() && captured.getDate() === today.getDate();
-  }).slice(0, 6);
+  // Real annual matches win; month-versary buckets fill the first two years.
+  const annual = annualTodayMatches(shared);
+  const todayMatches = annual.length ? annual : (raw.monthversary || []);
 
   return {
     updatedAt: Date.now(),
@@ -87,8 +92,22 @@ async function writeCache({ familyId, userId, payload }) {
   await AsyncStorage.setItem(key, JSON.stringify(payload));
 }
 
-async function fetchRitualHomePayload({ familyId, userId }) {
-  const [shared, memories, firsts, letters, promptState, members, moments] = await Promise.all([
+async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
+  if (!isUnderTwo(ageInDaysOn(babyBirthday))) return [];
+  const buckets = monthversaryBuckets({ birthdayISO: babyBirthday });
+  const perBucket = await Promise.all(buckets.map(async (bucket) => {
+    const { rows } = await listSharedTaggedPage(familyId, {
+      limit: MONTHVERSARY_MAX_PER_BUCKET,
+      capturedOnOrAfter: bucket.start.toISOString(),
+      capturedBefore: bucket.end.toISOString(),
+    });
+    return rows.map((row) => ({ ...row, onThisDayLabel: monthversaryLabel(babyName, bucket.monthsAgo) }));
+  }));
+  return hydrateMediaUrls(perBucket.flat(), { variant: 'thumb' });
+}
+
+async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName }) {
+  const [shared, memories, firsts, letters, promptState, members, moments, monthversary] = await Promise.all([
     listSharedTagged(familyId, { limit: 120 }).catch(() => []),
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
@@ -96,6 +115,7 @@ async function fetchRitualHomePayload({ familyId, userId }) {
     DailyPrompts.getToday({ familyId }).catch(() => null),
     Family.members(familyId).catch(() => []),
     listMomentArchive(familyId, { limit: 160 }).catch(() => []),
+    fetchMonthversaryMatches({ familyId, babyBirthday, babyName }).catch(() => []),
   ]);
 
   const digest = await WeeklyDigests.ensureForCurrentWeek({
@@ -115,6 +135,7 @@ async function fetchRitualHomePayload({ familyId, userId }) {
       firsts,
       letters,
       moments,
+      monthversary,
       promptState,
       digest,
       membersById: Object.fromEntries(members.map((m) => [m.userId, m.displayName || 'Family'])),
@@ -148,7 +169,7 @@ export async function readCachedPromptState({ familyId, userId }) {
   return cached?.promptState || null;
 }
 
-export function useRitualHomeData({ familyId, userId }) {
+export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyName = null }) {
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
@@ -189,7 +210,7 @@ export function useRitualHomeData({ familyId, userId }) {
 
     setStatus((current) => (current === 'idle' ? 'refreshing' : current));
     setError(null);
-    const promise = fetchRitualHomePayload({ familyId, userId })
+    const promise = fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName })
       .then(async (next) => {
         lastRefreshRef.current = Date.now();
         await writeCache({ familyId, userId, payload: next });
@@ -207,7 +228,7 @@ export function useRitualHomeData({ familyId, userId }) {
       });
     refreshPromiseRef.current = promise;
     return promise;
-  }, [familyId, userId]);
+  }, [babyBirthday, babyName, familyId, userId]);
 
   useFocusEffect(
     useCallback(() => {

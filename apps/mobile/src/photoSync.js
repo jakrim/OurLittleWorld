@@ -760,8 +760,14 @@ function normalizeTaggedRow(familyId, row) {
  * creation_time come last as their own cursor region. Returns raw rows —
  * call hydrateMediaUrls() to sign only the variant the view needs.
  */
-export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60 } = {}) {
+export async function listSharedTaggedPage(familyId, {
+  cursor = null,
+  limit = 60,
+  capturedOnOrAfter = null,
+  capturedBefore = null,
+} = {}) {
   if (!familyId) return { rows: [], nextCursor: null };
+  const dateFiltered = !!(capturedOnOrAfter || capturedBefore);
 
   let query = supabase
     .from('photo_tags')
@@ -772,6 +778,9 @@ export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60
     .order('asset_owner_user_id', { ascending: true })
     .order('asset_id', { ascending: true })
     .limit(limit);
+
+  if (capturedOnOrAfter) query = query.gte('creation_time', capturedOnOrAfter);
+  if (capturedBefore) query = query.lt('creation_time', capturedBefore);
 
   if (cursor?.nullRegion) {
     query = query.is('creation_time', null);
@@ -804,8 +813,9 @@ export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60
     nextCursor = cursor?.nullRegion || !last.creation_time
       ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
       : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
-  } else if (!cursor?.nullRegion) {
+  } else if (!cursor?.nullRegion && !dateFiltered) {
     // Non-null region ran dry — the null-creation_time stragglers come next.
+    // Date-filtered reads skip the null region: a null creation_time can't match.
     nextCursor = { nullRegion: true, o: '', a: '' };
   }
   return { rows, nextCursor };

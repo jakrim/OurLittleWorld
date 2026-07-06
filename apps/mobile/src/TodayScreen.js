@@ -53,7 +53,12 @@ export default function TodayScreen() {
     firstsSummary,
     refresh,
     snoozePrompt: snoozePromptCached,
-  } = useRitualHomeData({ familyId: family?.id, userId: user?.id });
+  } = useRitualHomeData({
+    familyId: family?.id,
+    userId: user?.id,
+    babyBirthday: family?.babyBirthday,
+    babyName: family?.babyName,
+  });
 
   const ageInfo = useMemo(() => {
     if (!family?.babyBirthday) return { label: '', badge: '' };
@@ -116,6 +121,7 @@ export default function TodayScreen() {
   const mineAnswered = !!(mine?.response_text || mine?.moment_id);
   const snoozed = promptState?.snoozed;
   const loadingCold = status === 'idle' || status === 'refreshing';
+  const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
   const monthSections = useMemo(
     () => groupByMonth(sharedPhotos, family?.babyBirthday),
     [family?.babyBirthday, sharedPhotos],
@@ -178,12 +184,13 @@ export default function TodayScreen() {
       </Card>
 
       <SegmentedControl
-        value={segment}
+        value={activeSegment}
         onChange={setSegment}
         options={[
           { value: 'timeline', label: 'Timeline' },
           { value: 'places', label: 'Places' },
-          { value: 'on-this-day', label: 'On this day' },
+          // A segment that is always empty is worse than no segment (A4).
+          ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
         ]}
       />
 
@@ -325,7 +332,7 @@ export default function TodayScreen() {
         onAdd={() => router.push('/first-compose')}
       />
 
-      {segment === 'timeline' ? (
+      {activeSegment === 'timeline' ? (
         <>
           <PhotoRail
             title="For you, today"
@@ -345,7 +352,7 @@ export default function TodayScreen() {
             youUserId={user?.id}
           />
         </>
-      ) : segment === 'on-this-day' ? (
+      ) : activeSegment === 'on-this-day' ? (
         <PhotoRail
           title="On this day"
           photos={todayMatches}
@@ -694,7 +701,7 @@ function formatAgeLine(label) {
 }
 
 function railChipLabel({ photo, index, babyBirthday, title }) {
-  if (String(title || '').toLowerCase().includes('on this day')) return 'On this day';
+  if (String(title || '').toLowerCase().includes('on this day')) return photo?.onThisDayLabel || 'On this day';
   if (babyBirthday && photo?.creation_time) {
     const age = ageAt(babyBirthday, new Date(photo.creation_time).getTime());
     const label = formatAge(age);

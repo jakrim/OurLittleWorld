@@ -26,7 +26,12 @@ export default function DigestDetailSheetScreen() {
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
-  const { digest } = useRitualHomeData({ familyId: family?.id, userId: user?.id });
+  const { digest } = useRitualHomeData({
+    familyId: family?.id,
+    userId: user?.id,
+    babyBirthday: family?.babyBirthday,
+    babyName: family?.babyName,
+  });
 
   const openMoment = (momentId) => {
     if (!momentId) return;
