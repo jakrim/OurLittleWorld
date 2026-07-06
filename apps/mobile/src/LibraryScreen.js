@@ -496,9 +496,12 @@ function ArchiveRecordTile({ record, onPress, theme }) {
       ) : firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl ? (
         <Image source={{ uri: firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : hasVoiceOnly ? (
-        <View style={styles.savedVideo}>
+        <View style={styles.voiceOnlyTile}>
           <Ionicons name="mic" size={26} color={theme.semantic.primary} />
-          <Caption style={styles.savedVideoLabel}>Voice</Caption>
+          <Caption style={[styles.voiceOnlyLabel, { color: theme.semantic.textMuted }]}>Voice</Caption>
+          <Caption style={[styles.voiceOnlyTitle, { color: theme.semantic.text }]} numberOfLines={1}>
+            {record.title || 'Untitled moment'}
+          </Caption>
         </View>
       ) : (
         <PhotoPlaceholder style={StyleSheet.absoluteFill} />
@@ -508,7 +511,7 @@ function ArchiveRecordTile({ record, onPress, theme }) {
           <Caption style={styles.savedCountText}>+{groupedMediaCount - 1}</Caption>
         </View>
       ) : null}
-      {record.title ? (
+      {record.title && !hasVoiceOnly ? (
         <Caption style={[styles.savedCaption, { color: theme.colors.onPrimary }]} numberOfLines={1}>
           {record.title}
         </Caption>
@@ -1519,6 +1522,25 @@ const styles = StyleSheet.create({
   savedVideoLabel: {
     marginTop: 2,
     fontSize: 10,
+  },
+  voiceOnlyTile: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.xs,
+    paddingVertical: space.sm,
+  },
+  voiceOnlyLabel: {
+    marginTop: 3,
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  voiceOnlyTitle: {
+    marginTop: 2,
+    maxWidth: '100%',
+    fontSize: 10,
+    lineHeight: 12,
+    textAlign: 'center',
   },
   savedCaption: {
     position: 'absolute',
