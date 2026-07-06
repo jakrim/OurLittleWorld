@@ -15,11 +15,15 @@ function compactPatch(input, map) {
   return out;
 }
 
+// Age windows (days) are generous starting points, tunable — mirrored in
+// supabase/migrations/20260705120000_goal_definition_age_windows.sql.
 export const FIRST_GOAL_DEFINITIONS = [
   {
     key: 'smile',
     title: 'First smile',
     targetAgeLabel: '6-8 weeks',
+    targetAgeMinDays: 42,
+    targetAgeMaxDays: 70,
     description: 'A first little social spark to save for the family story.',
     sortOrder: 10,
   },
@@ -27,6 +31,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'laugh',
     title: 'First laugh',
     targetAgeLabel: '3-4 months',
+    targetAgeMinDays: 90,
+    targetAgeMaxDays: 135,
     description: 'The first laugh that made everyone stop and listen.',
     sortOrder: 20,
   },
@@ -34,6 +40,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'roll',
     title: 'First roll',
     targetAgeLabel: '4-6 months',
+    targetAgeMinDays: 120,
+    targetAgeMaxDays: 195,
     description: 'A new way to move through the world.',
     sortOrder: 30,
   },
@@ -41,6 +49,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'food',
     title: 'First solid food',
     targetAgeLabel: '6 months',
+    targetAgeMinDays: 165,
+    targetAgeMaxDays: 240,
     description: 'The first taste that became part of the archive.',
     sortOrder: 40,
   },
@@ -48,6 +58,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'crawl',
     title: 'First crawl',
     targetAgeLabel: '7-10 months',
+    targetAgeMinDays: 210,
+    targetAgeMaxDays: 320,
     description: 'The beginning of going places on purpose.',
     sortOrder: 50,
   },
@@ -55,6 +67,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'word',
     title: 'First word',
     targetAgeLabel: '9-14 months',
+    targetAgeMinDays: 270,
+    targetAgeMaxDays: 430,
     description: 'A sound that starts turning into their own voice.',
     sortOrder: 60,
   },
@@ -62,6 +76,8 @@ export const FIRST_GOAL_DEFINITIONS = [
     key: 'steps',
     title: 'First steps',
     targetAgeLabel: '10-18 months',
+    targetAgeMinDays: 300,
+    targetAgeMaxDays: 560,
     description: 'The first tiny proof of everywhere they are headed.',
     sortOrder: 70,
   },
@@ -169,7 +185,7 @@ export const Firsts = {
   async listGoalDefinitions() {
     const { data, error } = await supabase
       .from('goal_definitions')
-      .select('key, title, description, target_age_label, sort_order')
+      .select('key, title, description, target_age_label, target_age_min_days, target_age_max_days, sort_order')
       .eq('goal_type', 'first')
       .eq('active', true)
       .order('sort_order', { ascending: true });
@@ -178,11 +194,14 @@ export const Firsts = {
       return FIRST_GOAL_DEFINITIONS;
     }
     if (!data?.length) return FIRST_GOAL_DEFINITIONS;
+    const fallbackByKey = Object.fromEntries(FIRST_GOAL_DEFINITIONS.map((goal) => [goal.key, goal]));
     return data.map((row) => ({
       key: row.key,
       title: row.title,
       description: row.description,
       targetAgeLabel: row.target_age_label,
+      targetAgeMinDays: row.target_age_min_days ?? fallbackByKey[row.key]?.targetAgeMinDays ?? null,
+      targetAgeMaxDays: row.target_age_max_days ?? fallbackByKey[row.key]?.targetAgeMaxDays ?? null,
       sortOrder: row.sort_order,
     }));
   },

@@ -19,6 +19,7 @@ import {
   useTheme,
 } from './ui';
 import { useFamily } from './FamilyContext';
+import { ageInDaysOn, buildFirstsModel } from './firstsModel';
 import { ageAt, formatAge } from './photos';
 import { listSharedTagged } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
@@ -48,8 +49,8 @@ export default function FirstsScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const { displayRows, goalProgress, completedCount } = useMemo(
-    () => buildFirstsModel(rows, goalDefinitions),
-    [goalDefinitions, rows],
+    () => buildFirstsModel(rows, goalDefinitions, ageInDaysOn(family?.babyBirthday)),
+    [family?.babyBirthday, goalDefinitions, rows],
   );
   const subtitle = goalProgress.total
     ? `${goalProgress.completed} of ${goalProgress.total} goals complete`
@@ -73,7 +74,7 @@ export default function FirstsScreen() {
     >
       <Card>
         <Eyebrow>{completedCount} firsts saved</Eyebrow>
-        <Title style={styles.heroTitle}>Family goals for the year ahead.</Title>
+        <Title style={styles.heroTitle}>{heroTitleFor(goalProgress)}</Title>
         <Body>Each one you finish becomes a saved First, and the path ahead stays visible without pressure.</Body>
         <View style={styles.progressSegments}>
           {goalProgress.goals.map((item) => {
@@ -92,11 +93,17 @@ export default function FirstsScreen() {
           })}
         </View>
         <View style={[styles.goalPreview, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
-          <Caption>{goalProgress.next ? 'Next family goal' : 'Goal path complete'}</Caption>
+          <Caption>
+            {goalProgress.next
+              ? 'Next family goal'
+              : goalProgress.state === 'complete' ? 'Goal path complete' : 'Catch-up firsts'}
+          </Caption>
           <Body style={styles.goalPreviewTitle}>
             {goalProgress.next
               ? `${goalProgress.next.title}${goalProgress.next.targetAgeLabel ? ` · ${goalProgress.next.targetAgeLabel}` : ''}`
-              : 'Every starter goal has a saved story.'}
+              : goalProgress.state === 'complete'
+                ? 'Every starter goal has a saved story.'
+                : 'Add them whenever the memory comes back.'}
           </Body>
           {goalProgress.next?.description ? <Caption>{goalProgress.next.description}</Caption> : null}
         </View>
@@ -212,49 +219,14 @@ function FirstDayGuide({ theme, goals, onAdd }) {
   );
 }
 
-function buildFirstsModel(rows, goals = FIRST_GOAL_DEFINITIONS) {
-  const completed = (rows || []).map((row) => ({ ...row, done: row.done !== false }));
-  const { completedKeys, completedTitles } = buildCompletionSets(completed);
-  const placeholders = buildGoalPlaceholders(goals, completedKeys, completedTitles);
-  const goalRows = goals.map((goal) => ({
-    ...goal,
-    completed: completedKeys.has(goal.key) || completedTitles.has(normalizeTitle(goal.title)),
-  }));
-  return {
-    displayRows: [...completed, ...placeholders],
-    completedCount: completed.length,
-    goalProgress: {
-      goals: goalRows,
-      total: goalRows.length,
-      completed: goalRows.filter((goal) => goal.completed).length,
-      next: goalRows.find((goal) => !goal.completed) || null,
-    },
-  };
-}
-
-function buildCompletionSets(completed) {
-  const completedKeys = new Set(completed.map((row) => row.goal_key).filter(Boolean));
-  const completedTitles = new Set(completed.map((row) => normalizeTitle(row.title)));
-  return { completedKeys, completedTitles };
-}
-
-function buildGoalPlaceholders(goals, completedKeys, completedTitles) {
-  return goals
-    .filter((item) => !completedKeys.has(item.key) && !completedTitles.has(normalizeTitle(item.title)))
-    .map((item) => ({
-      id: `goal:${item.key}`,
-      goal_key: item.key,
-      title: item.title,
-      target_age_label: item.targetAgeLabel,
-      description: item.description,
-      happened_at: null,
-      created_at: null,
-      done: false,
-    }));
-}
-
-function normalizeTitle(value) {
-  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+function heroTitleFor(goalProgress) {
+  if (goalProgress.state === 'ahead' && goalProgress.upcomingTitles.length) {
+    return `Coming up: ${goalProgress.upcomingTitles.map((title) => title.toLowerCase()).join(' and ')}.`;
+  }
+  if (goalProgress.state === 'catchup') {
+    return 'A few firsts are still worth writing down.';
+  }
+  return 'Family goals for the year ahead.';
 }
 
 function AgePill({ first, birthday }) {
