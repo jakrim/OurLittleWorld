@@ -486,6 +486,8 @@ function SearchPill({ onPress }) {
 function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
   const theme = useTheme();
   const latest = summary?.latest || null;
+  const latestPhoto = summary?.latestPhoto || null;
+  const latestPhotoUri = latestPhoto?.thumbUrl || latestPhoto?.fullUrl;
   if (latest) {
     return (
       <AnimatedPressable
@@ -500,9 +502,13 @@ function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
               <Title style={styles.teaserTitle}>{latest.title}</Title>
               <Body>{formatShortDate(latest.happened_at || latest.created_at)} · {summary.count} saved so far</Body>
             </View>
-            <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
-              <Ionicons name="flag-outline" size={20} color={theme.semantic.primary} />
-            </View>
+            {latestPhotoUri ? (
+              <Image source={{ uri: latestPhotoUri }} style={styles.teaserPhoto} contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
+                <Ionicons name="flag-outline" size={20} color={theme.semantic.primary} />
+              </View>
+            )}
           </View>
         </Card>
       </AnimatedPressable>
@@ -978,6 +984,12 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  teaserPhoto: {
+    width: 54,
+    height: 54,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
   railTitle: {
     fontSize: 21,

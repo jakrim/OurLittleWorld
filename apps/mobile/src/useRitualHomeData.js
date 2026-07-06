@@ -7,6 +7,7 @@ import { getReadDigestWeek } from './digestReadState';
 import { digestHasContent } from './digestModel.js';
 import { Family } from './families';
 import { ageInDaysOn, buildFirstsModel, selectCatchupGoal } from './firstsModel';
+import { buildFirstsSummary } from './firstsSummaryModel';
 import { listMomentArchive } from './moments';
 import {
   MONTHVERSARY_MAX_PER_BUCKET,
@@ -19,8 +20,8 @@ import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './phot
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 
-// v3: prompt selection now depends on babyBirthday (A3).
-const CACHE_VERSION = 'v3';
+// v4: firstsSummary filters completed firsts and carries the attached thumbnail (B6).
+const CACHE_VERSION = 'v4';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
@@ -70,10 +71,7 @@ function buildDerivedPayload({ raw, userId }) {
     sharedPhotos: shared,
     recentPhotos: shared.slice(0, 12),
     todayMatches,
-    firstsSummary: {
-      count: firsts.length,
-      latest: firsts[0] || null,
-    },
+    firstsSummary: buildFirstsSummary(firsts, shared),
     lettersSummary: {
       count: letters.length,
       latest: letters[0] || null,
@@ -288,7 +286,7 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     sharedPhotos: payload?.sharedPhotos || [],
     recentPhotos: payload?.recentPhotos || [],
     todayMatches: payload?.todayMatches || [],
-    firstsSummary: payload?.firstsSummary || { count: 0, latest: null },
+    firstsSummary: payload?.firstsSummary || { count: 0, latest: null, latestPhoto: null },
     lettersSummary: payload?.lettersSummary || { count: 0, latest: null },
     membersById: payload?.membersById || {},
     refresh,
