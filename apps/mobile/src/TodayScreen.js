@@ -38,6 +38,7 @@ import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
 import { useICloudRetryCount } from './iCloudRetryQueue';
+import { formatMilestoneDisplayTitle } from './milestoneTitleModel';
 import * as Scan from './scanController';
 
 export default function TodayScreen() {
@@ -490,17 +491,18 @@ function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
   const latestPhoto = summary?.latestPhoto || null;
   const latestPhotoUri = latestPhoto?.thumbUrl || latestPhoto?.fullUrl;
   if (latest) {
+    const latestTitle = formatMilestoneDisplayTitle(latest.title);
     return (
       <AnimatedPressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`Open firsts. Latest milestone: ${latest.title}`}
+        accessibilityLabel={`Open firsts. Latest milestone: ${latestTitle}`}
       >
         <Card variant="muted">
           <View style={styles.sectionHeader}>
             <View style={styles.teaserCopy}>
               <Eyebrow>Milestone</Eyebrow>
-              <Title style={styles.teaserTitle}>{latest.title}</Title>
+              <Title style={styles.teaserTitle}>{latestTitle}</Title>
               <Body>{formatShortDate(latest.happened_at || latest.created_at)} · {summary.count} saved so far</Body>
             </View>
             {latestPhotoUri ? (
