@@ -7,6 +7,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
   AppShell,
+  AnimatedPressable,
   Body,
   Button,
   Caption,
@@ -562,26 +563,23 @@ function LocalCameraRollPanel({
 }) {
   if (!visible) {
     return (
-      <Card variant="ghost">
-        <View style={styles.sectionHeader}>
-          <View style={styles.resultText}>
-            <Eyebrow>Device camera roll</Eyebrow>
-            <Title style={styles.cardTitle}>Browse this device when you need one.</Title>
-            <Body>{possessiveName(childName || 'Baby')} archive stays in the month-by-month grid.</Body>
+      <AnimatedPressable
+        onPress={onShow}
+        accessibilityRole="button"
+        accessibilityLabel="Browse camera roll"
+        accessibilityHint="Shows this device's local camera roll."
+      >
+        <Card variant="ghost">
+          <View style={styles.sectionHeader}>
+            <View style={styles.resultText}>
+              <Eyebrow>Device camera roll</Eyebrow>
+              <Title style={styles.cardTitle}>Browse this device when you need one.</Title>
+              <Body>{possessiveName(childName || 'Baby')} archive stays in the month-by-month grid.</Body>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
           </View>
-          <Ionicons name="images-outline" size={22} color={theme.semantic.primary} />
-        </View>
-        <Button
-          variant="ghost"
-          size="md"
-          fullWidth={false}
-          style={styles.cardButton}
-          onPress={onShow}
-          icon={<Ionicons name="images-outline" size={16} color={theme.semantic.primary} />}
-        >
-          Browse camera roll
-        </Button>
-      </Card>
+        </Card>
+      </AnimatedPressable>
     );
   }
 
