@@ -24,8 +24,8 @@ import * as Scan from './scanController';
  *  • Edge-to-edge photo tiles, density adjustable from 1 → 5 columns
  *    via a pinch gesture (Photos.app style).
  *  • Floating date header that updates with the visible row.
- *  • Filter chips (All / High / Borderline) for quickly sweeping the
- *    questionable matches.
+ *  • Filter chips use parent-facing labels while internal thresholds stay
+ *    score-based.
  *  • Sticky save bar at the bottom — works at any time, even mid-scan.
  */
 export default function ReviewMatchesScreen() {
@@ -316,10 +316,10 @@ export default function ReviewMatchesScreen() {
                       All · {counts.all.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'high'} onPress={() => setFilter('high')}>
-                      High · {counts.high.toLocaleString()}
+                      Sure it's {family?.babyName || 'them'} · {counts.high.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'borderline'} onPress={() => setFilter('borderline')}>
-                      Borderline · {counts.borderline.toLocaleString()}
+                      Double-check these · {counts.borderline.toLocaleString()}
                     </Chip>
                   </View>
                 </View>
