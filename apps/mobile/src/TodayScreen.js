@@ -210,17 +210,6 @@ export default function TodayScreen() {
         </Card>
       </Pressable>
 
-      <SegmentedControl
-        value={activeSegment}
-        onChange={setSegment}
-        options={[
-          { value: 'timeline', label: 'Timeline' },
-          { value: 'places', label: 'Places' },
-          // A segment that is always empty is worse than no segment (A4).
-          ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
-        ]}
-      />
-
       {prompt && !snoozed ? (
         mineAnswered ? (
           <Card variant="muted">
@@ -357,6 +346,18 @@ export default function TodayScreen() {
         babyName={family?.babyName}
         onPress={() => router.push('/firsts')}
         onAdd={() => router.push('/first-compose')}
+      />
+
+      {/* The control sits directly above the content it switches (H1). */}
+      <SegmentedControl
+        value={activeSegment}
+        onChange={setSegment}
+        options={[
+          { value: 'timeline', label: 'Timeline' },
+          { value: 'places', label: 'Places' },
+          // A segment that is always empty is worse than no segment (A4).
+          ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
+        ]}
       />
 
       {activeSegment === 'timeline' ? (
