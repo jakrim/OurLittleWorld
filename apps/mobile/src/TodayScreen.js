@@ -31,6 +31,7 @@ import { ageAt, formatAge, localCalendarDayDiff, localDateFromISODate } from './
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
+import { digestHasContent } from './digestModel.js';
 import { countLabel } from './plural';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
@@ -160,6 +161,7 @@ export default function TodayScreen() {
     }),
     [digest.coverPhoto, firstsSummary?.latest, sharedPhotos],
   );
+  const showDigestCard = useMemo(() => digestHasContent(digest), [digest]);
   // Only media that can actually render — stale rows fall through to the cover chain (B2).
   const digestStripMedia = useMemo(
     () => (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
@@ -304,68 +306,70 @@ export default function TodayScreen() {
         </EntranceView>
       ) : null}
 
-      <EntranceView index={2}>
-        <AnimatedPressable
-          onPress={() => router.push('/digest')}
-          accessibilityRole="button"
-          accessibilityLabel="Open this week's digest"
-        >
-          <Card>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Eyebrow>This week's digest</Eyebrow>
-                <Title style={styles.digestTitle}>{digest.headline}</Title>
+      {showDigestCard ? (
+        <EntranceView index={2}>
+          <AnimatedPressable
+            onPress={() => router.push('/digest')}
+            accessibilityRole="button"
+            accessibilityLabel="Open this week's digest"
+          >
+            <Card>
+              <View style={styles.sectionHeader}>
+                <View>
+                  <Eyebrow>This week's digest</Eyebrow>
+                  <Title style={styles.digestTitle}>{digest.headline}</Title>
+                </View>
+                <View style={styles.cardCue}>
+                  <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
+                  <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
+                </View>
               </View>
-              <View style={styles.cardCue}>
-                <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
-                <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
+              {digestStripMedia.length ? (
+                <View style={styles.digestStrip}>
+                  {digestStripMedia.slice(0, 4).map((media, index) => (
+                    <Pressable
+                      key={media.mediaId || `${media.momentId}:${index}`}
+                      onPress={(event) => {
+                        event.stopPropagation?.();
+                        if (media.momentId) {
+                          router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } });
+                        }
+                      }}
+                      disabled={!media.momentId}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open digest moment ${index + 1}`}
+                      accessibilityState={{ disabled: !media.momentId }}
+                      style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
+                    >
+                      <Image
+                        source={{ uri: media.thumbUrl || media.fullUrl }}
+                        style={StyleSheet.absoluteFill}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : digestCoverUri ? (
+                <View style={styles.digestCover}>
+                  <Image
+                    source={{ uri: digestCoverUri }}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                  />
+                </View>
+              ) : null}
+              <View style={styles.digestGrid}>
+                <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+                <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
+                <Metric label="voice" value={digest.voiceNoteCount || 0} />
+                <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
               </View>
-            </View>
-            {digestStripMedia.length ? (
-              <View style={styles.digestStrip}>
-                {digestStripMedia.slice(0, 4).map((media, index) => (
-                  <Pressable
-                    key={media.mediaId || `${media.momentId}:${index}`}
-                    onPress={(event) => {
-                      event.stopPropagation?.();
-                      if (media.momentId) {
-                        router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } });
-                      }
-                    }}
-                    disabled={!media.momentId}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open digest moment ${index + 1}`}
-                    accessibilityState={{ disabled: !media.momentId }}
-                    style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
-                  >
-                    <Image
-                      source={{ uri: media.thumbUrl || media.fullUrl }}
-                      style={StyleSheet.absoluteFill}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                    />
-                  </Pressable>
-                ))}
-              </View>
-            ) : digestCoverUri ? (
-              <View style={styles.digestCover}>
-                <Image
-                  source={{ uri: digestCoverUri }}
-                  style={StyleSheet.absoluteFill}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                />
-              </View>
-            ) : null}
-            <View style={styles.digestGrid}>
-              <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
-              <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
-              <Metric label="voice" value={digest.voiceNoteCount || 0} />
-              <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
-            </View>
-          </Card>
-        </AnimatedPressable>
-      </EntranceView>
+            </Card>
+          </AnimatedPressable>
+        </EntranceView>
+      ) : null}
 
       <EntranceView index={3}>
         <MilestoneTeaser

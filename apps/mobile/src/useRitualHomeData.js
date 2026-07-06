@@ -4,6 +4,7 @@ import { useFocusEffect } from 'expo-router/react-navigation';
 
 import { loadCatchupDismissals } from './catchupDismissals';
 import { getReadDigestWeek } from './digestReadState';
+import { digestHasContent } from './digestModel.js';
 import { Family } from './families';
 import { ageInDaysOn, buildFirstsModel, selectCatchupGoal } from './firstsModel';
 import { listMomentArchive } from './moments';
@@ -58,8 +59,6 @@ function buildDerivedPayload({ raw, userId }) {
   const annual = annualTodayMatches(shared);
   const todayMatches = annual.length ? annual : (raw.monthversary || []);
   const digest = raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments });
-  const digestHasContent = (digest.momentCount || 0) + (digest.milestoneCount || 0)
-    + (digest.voiceNoteCount || 0) + (digest.letterCount || 0) > 0;
   const { goalProgress } = buildFirstsModel(firsts, FIRST_GOAL_DEFINITIONS, raw.ageDays ?? null);
 
   return {
@@ -67,7 +66,7 @@ function buildDerivedPayload({ raw, userId }) {
     promptState,
     digest,
     catchupGoal: selectCatchupGoal(goalProgress.goals, raw.ageDays ?? null, raw.catchupDismissals || {}),
-    digestUnread: digestHasContent && digest.weekStart !== raw.digestReadWeek,
+    digestUnread: digestHasContent(digest) && digest.weekStart !== raw.digestReadWeek,
     sharedPhotos: shared,
     recentPhotos: shared.slice(0, 12),
     todayMatches,
