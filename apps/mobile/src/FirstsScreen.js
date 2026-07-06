@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -23,17 +23,28 @@ import { ageInDaysOn, buildFirstsModel, goalTimingCaption } from './firstsModel'
 import { ageAt, formatAge } from './photos';
 import { listSharedTagged } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
+import useReducedMotion from './ui/useReducedMotion';
 
 export default function FirstsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { family } = useFamily();
+  const reducedMotion = useReducedMotion();
   const [rows, setRows] = useState([]);
   const [goalDefinitions, setGoalDefinitions] = useState(FIRST_GOAL_DEFINITIONS);
   const [photosByKey, setPhotosByKey] = useState({});
+  const [firstsLoaded, setFirstsLoaded] = useState(false);
+  const [celebratingGoalKey, setCelebratingGoalKey] = useState(null);
+  const firstProgressLoadRef = useRef(true);
+  const completedGoalKeysRef = useRef(new Set());
+  const celebrationProgress = useRef(new Animated.Value(1)).current;
+  const celebrationTimeoutRef = useRef(null);
 
   const load = useCallback(async () => {
-    if (!family?.id) return;
+    if (!family?.id) {
+      setFirstsLoaded(false);
+      return;
+    }
     const [definitionRows, firstRows, sharedRows] = await Promise.all([
       Firsts.listGoalDefinitions(),
       Firsts.list(family.id),
@@ -44,15 +55,81 @@ export default function FirstsScreen() {
     setPhotosByKey(Object.fromEntries(
       sharedRows.map((photo) => [`${photo.asset_owner_user_id}:${photo.asset_id}`, photo]),
     ));
+    setFirstsLoaded(true);
   }, [family?.id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  useEffect(() => {
+    firstProgressLoadRef.current = true;
+    completedGoalKeysRef.current = new Set();
+    setCelebratingGoalKey(null);
+    setFirstsLoaded(false);
+  }, [family?.id]);
 
   const ageDays = ageInDaysOn(family?.babyBirthday);
   const { displayRows, goalProgress, completedCount } = useMemo(
     () => buildFirstsModel(rows, goalDefinitions, ageDays),
     [ageDays, goalDefinitions, rows],
   );
+  const completedGoalKeys = useMemo(
+    () => goalProgress.goals.filter((goal) => goal.completed).map((goal) => goal.key),
+    [goalProgress.goals],
+  );
+
+  useEffect(() => {
+    if (!firstsLoaded) return;
+    const nextKeys = new Set(completedGoalKeys);
+    if (firstProgressLoadRef.current) {
+      firstProgressLoadRef.current = false;
+      completedGoalKeysRef.current = nextKeys;
+      return;
+    }
+
+    const previousKeys = completedGoalKeysRef.current;
+    const newlyCompletedKey = completedGoalKeys.find((key) => !previousKeys.has(key));
+    completedGoalKeysRef.current = nextKeys;
+    if (!newlyCompletedKey || reducedMotion) {
+      if (reducedMotion) setCelebratingGoalKey(null);
+      return;
+    }
+
+    if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
+    setCelebratingGoalKey(newlyCompletedKey);
+    celebrationProgress.stopAnimation();
+    celebrationProgress.setValue(0);
+    Animated.sequence([
+      Animated.timing(celebrationProgress, {
+        toValue: 0.82,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(celebrationProgress, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: false,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      celebrationTimeoutRef.current = setTimeout(() => setCelebratingGoalKey(null), 900);
+    });
+  }, [celebrationProgress, completedGoalKeys, firstsLoaded, reducedMotion]);
+
+  useEffect(() => {
+    if (!reducedMotion) return;
+    if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
+    celebrationProgress.stopAnimation();
+    celebrationProgress.setValue(1);
+    setCelebratingGoalKey(null);
+  }, [celebrationProgress, reducedMotion]);
+
+  useEffect(() => () => {
+    if (celebrationTimeoutRef.current) clearTimeout(celebrationTimeoutRef.current);
+    celebrationProgress.stopAnimation();
+  }, [celebrationProgress]);
+
   const subtitle = goalProgress.total
     ? `${goalProgress.completed} of ${goalProgress.total} goals complete`
     : rows.length === 1 ? '1 first saved' : `${rows.length} firsts saved`;
@@ -89,20 +166,14 @@ export default function FirstsScreen() {
         <Title style={styles.heroTitle}>{heroTitleFor(goalProgress)}</Title>
         <Body>Each one you finish becomes a saved First, and the path ahead stays visible without pressure.</Body>
         <View style={styles.progressSegments}>
-          {goalProgress.goals.map((item) => {
-            return (
-              <View
-                key={item.key}
-                style={[
-                  styles.progressSegment,
-                  {
-                    backgroundColor: item.completed ? theme.semantic.primary : theme.semantic.cardAlt,
-                    borderColor: item.completed ? theme.semantic.primary : theme.semantic.border,
-                  },
-                ]}
-              />
-            );
-          })}
+          {goalProgress.goals.map((item) => (
+            <GoalProgressSegment
+              key={item.key}
+              item={item}
+              progress={celebrationProgress}
+              celebrating={item.key === celebratingGoalKey}
+            />
+          ))}
         </View>
         <Pressable
           onPress={openNextGoal}
@@ -198,6 +269,59 @@ export default function FirstsScreen() {
   );
 }
 
+function GoalProgressSegment({ item, progress, celebrating }) {
+  const theme = useTheme();
+  const fillWidth = celebrating
+    ? progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] })
+    : '100%';
+  const flagOpacity = progress.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 1, 1] });
+  const flagTranslateY = progress.interpolate({ inputRange: [0, 0.44, 1], outputRange: [-16, 1, 0] });
+  const flagScale = progress.interpolate({ inputRange: [0, 0.44, 1], outputRange: [0.72, 1.12, 1] });
+
+  return (
+    <View
+      style={[
+        styles.progressSegment,
+        {
+          backgroundColor: theme.semantic.cardAlt,
+          borderColor: item.completed ? theme.semantic.primary : theme.semantic.border,
+        },
+      ]}
+    >
+      {item.completed ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.progressSegmentFill,
+            {
+              width: fillWidth,
+              backgroundColor: theme.semantic.primary,
+            },
+          ]}
+        />
+      ) : null}
+      {celebrating ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.progressFlag,
+            {
+              backgroundColor: theme.semantic.primary,
+              opacity: flagOpacity,
+              transform: [
+                { translateY: flagTranslateY },
+                { scale: flagScale },
+              ],
+            },
+          ]}
+        >
+          <Ionicons name="flag" size={13} color={theme.colors.onPrimary} />
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
 function FirstDayGuide({ theme, goals, onAdd }) {
   return (
     <Card variant="muted">
@@ -276,6 +400,24 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     borderWidth: 1,
+    overflow: 'visible',
+  },
+  progressSegmentFill: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 4,
+  },
+  progressFlag: {
+    position: 'absolute',
+    right: -8,
+    top: -20,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   goalPreview: {
     borderRadius: radius.md,
