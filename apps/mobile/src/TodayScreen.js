@@ -399,7 +399,7 @@ export default function TodayScreen() {
           {activeSegment === 'timeline' ? (
             <>
               <PhotoRail
-                title="For you, today"
+                title="Recent"
                 photos={recentPhotos}
                 babyBirthday={family?.babyBirthday}
                 onPress={openPhoto}
@@ -583,7 +583,7 @@ function PhotoRail({
                 )}
                 <View style={[styles.photoChip, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
                   <Caption style={[styles.photoChipText, { color: theme.colors.bg }]}>
-                    {railChipLabel({ photo, index, babyBirthday, title })}
+                    {railChipLabel({ photo, babyBirthday, title })}
                   </Caption>
                 </View>
               </Pressable>
@@ -822,14 +822,14 @@ function formatAgeLine(label) {
   return `${label} old`;
 }
 
-function railChipLabel({ photo, index, babyBirthday, title }) {
+function railChipLabel({ photo, babyBirthday, title }) {
   if (String(title || '').toLowerCase().includes('on this day')) return photo?.onThisDayLabel || 'On this day';
   if (babyBirthday && photo?.creation_time) {
     const age = ageAt(babyBirthday, new Date(photo.creation_time).getTime());
     const label = formatAge(age);
     if (label) return label.replace(' old', '');
   }
-  return index === 0 ? 'For you' : 'Today';
+  return 'Recent';
 }
 
 function formatWeek(start, end) {
