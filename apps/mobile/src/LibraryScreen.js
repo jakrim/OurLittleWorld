@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -41,6 +41,7 @@ export default function LibraryScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const theme = useTheme();
+  const { width: viewportWidth } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
   const [segment, setSegment] = useState(() => normalizeLibrarySegment(params.segment) || 'photos');
@@ -158,6 +159,7 @@ export default function LibraryScreen() {
     () => filterArchiveRecords({ records: archiveRecords, query, filter: archiveFilter }),
     [archiveFilter, archiveRecords, query],
   );
+  const libraryTileSize = useMemo(() => libraryTileSizeForWidth(viewportWidth), [viewportWidth]);
 
   const openShared = (photo) => {
     if (photo.moment_id) {
@@ -175,6 +177,11 @@ export default function LibraryScreen() {
   const openMoment = (moment) => {
     if (!moment?.id) return;
     router.push({ pathname: '/moment/[momentId]', params: { momentId: moment.id } });
+  };
+
+  const openArchiveRecord = (record) => {
+    if (record?.moment) openMoment(record.moment);
+    else if (record?.photo) openShared(record.photo);
   };
 
   const removeShared = async () => {
@@ -344,16 +351,15 @@ export default function LibraryScreen() {
               onGrant={loadLocalInitial}
               onLoadMore={loadMore}
               onOpen={openLocal}
+              tileSize={libraryTileSize}
               theme={theme}
             />
             <SavedMomentGrid
               childName={family?.babyName}
               sections={archiveSections}
               stats={archiveStats}
-              onPress={(record) => {
-                if (record?.moment) openMoment(record.moment);
-                else if (record?.photo) openShared(record.photo);
-              }}
+              onPress={openArchiveRecord}
+              tileSize={libraryTileSize}
               theme={theme}
             />
             {!archiveRecords.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
@@ -405,7 +411,7 @@ export default function LibraryScreen() {
               onFilterChange={setArchiveFilter}
               results={searchResults}
               stats={archiveStats}
-              onOpen={openMoment}
+              onOpen={openArchiveRecord}
               theme={theme}
             />
           ) : (
@@ -416,7 +422,7 @@ export default function LibraryScreen() {
               onBuildFile={buildPhotoBookFile}
               buildingFile={buildingExport}
               exportFile={exportFile}
-              onOpen={openMoment}
+              onOpen={openArchiveRecord}
               theme={theme}
             />
           )
@@ -438,7 +444,15 @@ function normalizeLibrarySegment(value) {
   return ['photos', 'places', 'search', 'export'].includes(raw) ? raw : null;
 }
 
-function SavedMomentGrid({ childName, sections, stats, onPress, theme }) {
+function libraryTileSizeForWidth(width) {
+  const viewportWidth = Number(width || 0);
+  const columns = viewportWidth >= 600 ? 4 : 3;
+  const contentWidth = Math.max(220, viewportWidth - (space.xl * 4));
+  const boundedWidth = Math.min(contentWidth, 640);
+  return Math.max(68, Math.floor((boundedWidth - (space.xs * (columns - 1))) / columns));
+}
+
+function SavedMomentGrid({ childName, sections, stats, onPress, tileSize, theme }) {
   if (!sections.length) return null;
   return (
     <Card>
@@ -470,6 +484,7 @@ function SavedMomentGrid({ childName, sections, stats, onPress, theme }) {
                 key={record.key}
                 record={record}
                 onPress={() => onPress(record)}
+                tileSize={tileSize}
                 theme={theme}
               />
             ))}
@@ -480,22 +495,31 @@ function SavedMomentGrid({ childName, sections, stats, onPress, theme }) {
   );
 }
 
-function ArchiveRecordTile({ record, onPress, theme }) {
+function ArchiveRecordTile({ record, onPress, tileSize, theme }) {
   const media = record.moment?.media || [];
   const firstMedia = media[0];
   const hasVoiceOnly = record.voiceOnly;
   const groupedMediaCount = Math.max(0, (record.imageCount || 0) + (record.videoCount || 0));
+  const thumbUri = firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl;
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Open archive photo: ${record.title || 'Untitled moment'}`}
-      style={[styles.savedTile, { backgroundColor: theme.semantic.cardAlt }]}
+      style={[
+        styles.savedTile,
+        { width: tileSize, height: tileSize, backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border },
+      ]}
     >
       {firstMedia?.media_type === 'video' ? (
         <VideoArchiveTile media={firstMedia} theme={theme} />
-      ) : firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl ? (
-        <Image source={{ uri: firstMedia?.thumbUrl || firstMedia?.fullUrl || record.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : thumbUri ? (
+        <PhotoPlaceholder
+          source={{ uri: thumbUri }}
+          seed={record.key}
+          radius={radius.sm}
+          style={StyleSheet.absoluteFill}
+        />
       ) : hasVoiceOnly ? (
         <View style={styles.voiceOnlyTile}>
           <Ionicons name="mic" size={26} color={theme.semantic.primary} />
@@ -505,7 +529,7 @@ function ArchiveRecordTile({ record, onPress, theme }) {
           </Caption>
         </View>
       ) : (
-        <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+        <PhotoPlaceholder seed={record.key} radius={radius.sm} style={StyleSheet.absoluteFill} />
       )}
       {groupedMediaCount > 1 ? (
         <View style={styles.savedCountBadge}>
@@ -559,6 +583,7 @@ function LocalCameraRollPanel({
   onGrant,
   onLoadMore,
   onOpen,
+  tileSize,
   theme,
 }) {
   if (!visible) {
@@ -600,12 +625,15 @@ function LocalCameraRollPanel({
           return (
             <Pressable
               key={photo.id}
-              style={[styles.tile, { backgroundColor: theme.semantic.cardAlt }]}
+              style={[
+                styles.tile,
+                { width: tileSize, height: tileSize, backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border },
+              ]}
               onPress={() => onOpen(photo)}
               accessibilityRole="button"
               accessibilityLabel={`Open local photo${age ? ` from ${age}` : ''}`}
             >
-              <Image source={{ uri: photo.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              <PhotoPlaceholder source={{ uri: photo.uri }} seed={photo.id} radius={radius.sm} style={StyleSheet.absoluteFill} />
               {tagged ? (
                 <View style={[styles.tagBadge, { backgroundColor: theme.semantic.primary }]}>
                   <Ionicons name="heart" size={12} color={theme.colors.onPrimary} />
@@ -832,7 +860,7 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
       </Card>
 
       {results.length ? results.map((record) => (
-        <ArchiveResultRow key={record.key} record={record} onPress={() => record.moment ? onOpen(record.moment) : null} theme={theme} />
+        <ArchiveResultRow key={record.key} record={record} onPress={() => onOpen(record)} theme={theme} />
       )) : (
         <Card variant="ghost">
           <Eyebrow>No matches</Eyebrow>
@@ -906,11 +934,9 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
             {year.representative.slice(0, 4).map((record) => (
               <Pressable
                 key={record.key}
-                onPress={() => record.moment ? onOpen(record.moment) : null}
-                disabled={!record.moment}
+                onPress={() => onOpen(record)}
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${year.year} representative moment`}
-                accessibilityState={{ disabled: !record.moment }}
                 style={[styles.yearThumb, { backgroundColor: theme.semantic.cardAlt }]}
               >
                 {record.thumbUrl ? (
@@ -943,10 +969,8 @@ function ArchiveResultRow({ record, onPress, theme }) {
   return (
     <Pressable
       onPress={onPress}
-      disabled={!record.moment}
       accessibilityRole="button"
       accessibilityLabel={`Open archive result: ${record.title || 'Untitled moment'}`}
-      accessibilityState={{ disabled: !record.moment }}
       style={({ pressed }) => [
         styles.resultRow,
         {
@@ -1277,9 +1301,8 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   tile: {
-    width: '32%',
-    aspectRatio: 1,
     borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   tagBadge: {
@@ -1501,9 +1524,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   savedTile: {
-    width: '32%',
-    aspectRatio: 1,
     borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
   savedVideo: {
