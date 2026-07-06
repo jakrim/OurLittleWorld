@@ -74,15 +74,6 @@ export default function LettersScreen() {
         <Title style={styles.heroTitle}>Letters they'll open when they're eighteen.</Title>
         <Body>We open the next one on the eighteenth birthday, together.</Body>
         <Caption style={styles.nudge}>{nudge}</Caption>
-        <Button
-          size="md"
-          fullWidth={false}
-          style={styles.heroButton}
-          onPress={() => router.push('/letter-compose')}
-          icon={<Ionicons name="mail-outline" size={16} color={theme.colors.onPrimary} />}
-        >
-          Write a letter
-        </Button>
       </Card>
       {childLetters.length ? childLetters.map((letter) => {
         const openable = isOpenable(letter.open_on);
@@ -113,23 +104,25 @@ export default function LettersScreen() {
           onPress={() => router.push('/letter-compose')}
         />
       )}
-      <Card variant="ghost" style={styles.footerPrompt}>
-        <View style={[styles.footerSeal, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name="mail-outline" size={18} color={theme.semantic.primary} />
-        </View>
-        <View style={styles.letterBody}>
-          <Title style={styles.letterTitle}>Leave one more line for later.</Title>
-          <Caption>A small note today becomes a time capsule for the eighteenth birthday.</Caption>
-        </View>
-        <Pressable
-          onPress={() => router.push('/letter-compose')}
-          accessibilityRole="button"
-          accessibilityLabel="Write another letter"
-          style={[styles.footerAdd, { backgroundColor: theme.semantic.primary }]}
-        >
-          <Ionicons name="add" size={17} color={theme.colors.onPrimary} />
-        </Pressable>
-      </Card>
+      {childLetters.length ? (
+        <Card variant="ghost" style={styles.footerPrompt}>
+          <View style={[styles.footerSeal, { backgroundColor: theme.colors.primarySoft }]}>
+            <Ionicons name="mail-outline" size={18} color={theme.semantic.primary} />
+          </View>
+          <View style={styles.letterBody}>
+            <Title style={styles.letterTitle}>Leave one more line for later.</Title>
+            <Caption>A small note today becomes a time capsule for the eighteenth birthday.</Caption>
+          </View>
+          <Pressable
+            onPress={() => router.push('/letter-compose')}
+            accessibilityRole="button"
+            accessibilityLabel="Write another letter"
+            style={[styles.footerAdd, { backgroundColor: theme.semantic.primary }]}
+          >
+            <Ionicons name="add" size={17} color={theme.colors.onPrimary} />
+          </Pressable>
+        </Card>
+      ) : null}
     </AppShell>
   );
 }
@@ -206,9 +199,6 @@ const styles = StyleSheet.create({
   },
   nudge: {
     marginTop: space.md,
-  },
-  heroButton: {
-    marginTop: space.lg,
   },
   letterCard: {
     flexDirection: 'row',
