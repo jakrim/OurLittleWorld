@@ -230,7 +230,7 @@ export default function ReferencePhotoScreen() {
       <V gap="lg" style={{ paddingTop: space.sm, paddingBottom: space.xxl }}>
         <Brand>our little world</Brand>
         <Hero>{heroCopy({ autoSeeding, autoConfirming, babyName: family?.babyName })}</Hero>
-        <Body>{bodyCopy({ autoSeeding, autoConfirming })}</Body>
+        <Body>{bodyCopy({ autoSeeding, autoConfirming, babyName: family?.babyName })}</Body>
 
         <Spacer h={space.md} />
 
@@ -340,14 +340,15 @@ function heroCopy({ autoSeeding, autoConfirming, babyName }) {
   return `One photo of ${babyName || 'your baby'}.`;
 }
 
-function bodyCopy({ autoSeeding, autoConfirming }) {
+function bodyCopy({ autoSeeding, autoConfirming, babyName }) {
+  const learningCopy = `${babyName || 'Your baby'}'s face model gets sharper every time you keep or remove a photo.`;
   if (autoSeeding) {
-    return 'We are using the birthday and photo access you already gave us to build a local reference.';
+    return `We are using the birthday and photo access you already gave us to build a local reference. ${learningCopy}`;
   }
   if (autoConfirming) {
-    return 'We found a face that repeats across the months. Confirm it before the review scan starts.';
+    return `We found a face that repeats across the months. Confirm it before the review scan starts. ${learningCopy}`;
   }
-  return 'We use it as a local reference to find likely matches on this device. Scanning stays on your phone; moments you save are uploaded to your private family archive.';
+  return `We use it as a local reference to find likely matches on this device. ${learningCopy} Scanning stays on your phone; moments you save are uploaded to your private family archive.`;
 }
 
 const styles = StyleSheet.create({
