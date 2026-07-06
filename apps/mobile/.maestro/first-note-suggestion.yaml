@@ -1,0 +1,22 @@
+# Suggested note (U1): the compose sheet offers one metadata-only sentence;
+# "Use" fills the note field and the offer disappears. Requires the __DEV__
+# suggestion seeder (long-press the Firsts header "+").
+appId: com.jessekrim.ourlittleworld
+---
+- launchApp
+- tapOn: "Firsts"
+- longPressOn: "Add a first"
+- assertVisible:
+    text: "Possible first.*"
+- tapOn: "Keep"
+- assertVisible: "Suggested first"
+- assertVisible:
+    text: "Use suggested note.*"
+- tapOn:
+    text: "Use suggested note.*"
+- assertNotVisible:
+    text: "Use suggested note.*"
+- scrollUntilVisible:
+    element:
+      text: "Cancel"
+- tapOn: "Cancel"

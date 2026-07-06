@@ -15,8 +15,9 @@ import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } 
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { notifyPartnerPromptAnswered } from './notificationEvents';
+import { PROMPT_STARTER_BUTTON_LABEL, promptStarterForToday } from './promptStarterModel';
 import { DailyPrompts } from './rituals';
-import { patchCachedPromptState, readCachedPromptState } from './useRitualHomeData';
+import { patchCachedPromptState, readCachedPromptState, readCachedSharedPhotos } from './useRitualHomeData';
 import { createMomentWithMedia } from './moments';
 
 export default function PromptSheetScreen() {
@@ -28,6 +29,7 @@ export default function PromptSheetScreen() {
   const recorderState = useAudioRecorderState(recorder, 250);
   const [value, setValue] = useState('');
   const [promptText, setPromptText] = useState('');
+  const [starter, setStarter] = useState('');
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
@@ -51,6 +53,12 @@ export default function PromptSheetScreen() {
             if (!alive) return;
             setPromptText(state?.prompt?.text || '');
             setValue(state?.mine?.response_text || '');
+          })
+          .catch(() => {});
+        // V1: starter from what was actually saved today (cached archive rows).
+        readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
+          .then((photos) => {
+            if (alive) setStarter(promptStarterForToday({ sharedPhotos: photos }));
           })
           .catch(() => {});
       }
@@ -152,6 +160,17 @@ export default function PromptSheetScreen() {
           caption="Answer in text, voice, or both."
           autoFocus
         />
+        {starter && !value.trim() ? (
+          <Button
+            size="sm"
+            fullWidth={false}
+            variant="ghost"
+            onPress={() => setValue(starter)}
+            accessibilityLabel={PROMPT_STARTER_BUTTON_LABEL}
+          >
+            {PROMPT_STARTER_BUTTON_LABEL}
+          </Button>
+        ) : null}
         <View style={[styles.voiceCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
           <Ionicons name="mic-outline" size={18} color={theme.semantic.primary} />
           <View style={styles.voiceText}>

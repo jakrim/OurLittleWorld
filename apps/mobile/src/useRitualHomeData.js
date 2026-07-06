@@ -181,6 +181,11 @@ export async function readCachedPromptState({ familyId, userId }) {
   return cached?.promptState || null;
 }
 
+export async function readCachedSharedPhotos({ familyId, userId }) {
+  const cached = await readCache({ familyId, userId });
+  return cached?.sharedPhotos || [];
+}
+
 export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyName = null }) {
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState('idle');

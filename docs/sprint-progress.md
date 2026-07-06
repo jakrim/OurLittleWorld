@@ -168,6 +168,15 @@ Verification (whole sprint): `npm test` (tsc + 114 unit tests) green, `expo lint
 
 **Tunable constants introduced (S-B):** `FIRST_SUGGESTION_HIGH_CONFIDENCE_SCORE = 0.75`, `FIRST_SUGGESTION_TRUST_RAISE_AFTER = 2`, `FIRST_SUGGESTION_TRUST_DISABLE_AFTER = 4`, `FIRST_SUGGESTION_TRUST_DISABLE_DAYS = 60` (`src/firstSuggestionModel.js`).
 
+### Sprint UV — suggested notes + prompt starters (U1, V1)
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| U1 suggested note in first-compose | done | (UV commit) | `captionTemplateModel.js`: `suggestedFirstNote` composes only date + computed age + time-derived scene label ("Jul 6 — 11 months, 13 days old. Midday outing."); the labeler's generic 'Family outing' fallback is filtered out (a note must not claim what metadata doesn't show). Ghost row under the compose note field with `Use`; hidden once the note is non-empty; never auto-inserted. Unit tests assert exact templates and part-dropping. Maestro `first-note-suggestion.yaml` green on iPhone 16e: row shows on a seeded first, Use fills the note, offer disappears. |
+| V1 prompt starter | done | (UV commit) | `promptStarterModel.js`: `promptStarterForToday` counts photos captured on the local day and names the latest time of day ("Today we saved 3 moments — one from this afternoon."); empty string when nothing saved (no filler). `useRitualHomeData` exports `readCachedSharedPhotos`; PromptSheetScreen shows a ghost "Start from today's moments" button (hidden once the answer field has text) that inserts the starter. Unit tests cover counts, singular, time-of-day buckets, off-day/junk rows. Sim smoke not feasible today (today's prompt is already answered so the button is correctly hidden); covered by unit tests. |
+
+Verification (whole sprint): `npm test` (tsc + 118 unit tests) green, `expo lint` clean, Maestro U1 flow green on iPhone 16e. SPRINT UV COMPLETE.
+
 ## Notes
 
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.

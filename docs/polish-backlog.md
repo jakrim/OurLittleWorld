@@ -816,9 +816,9 @@ video around Nov 3"). `laugh`/`word` get no photo detectors — catch-up card on
 **Same-spirit tracks (order: U → W → X/Y → Z):**
 - **U1 suggested notes:** one template sentence ("Oct 1 — 7 weeks old. Midday
   outing.") from age/date/scene labels, offered under the compose note field, never
-  auto-inserted.
+  auto-inserted. *(shipped, Sprint UV)*
 - **V1 prompt starters:** starter line from that day's saved moments in the prompt
-  sheet; absent when nothing was saved (no filler).
+  sheet; absent when nothing was saved (no filler). *(shipped, Sprint UV)*
 - **W1+W2 digest highlights:** persist captureQuality/recognitionScore into
   `moment_media.metadata` at upload; digest SQL prefers milestone-linked media, then
   quality, falling back to recency for historical rows.

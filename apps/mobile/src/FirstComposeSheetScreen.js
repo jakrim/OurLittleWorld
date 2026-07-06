@@ -9,6 +9,8 @@ import BirthDatePicker from './ui/BirthDatePicker';
 import { Body, Button, Caption, Field, PhotoPlaceholder, Screen, Title, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { SUGGESTED_NOTE_LABEL, SUGGESTED_NOTE_USE_LABEL, suggestedFirstNote } from './captionTemplateModel.js';
+import { inferPhotoSceneLabels } from './visionSceneLabeler';
 import {
   defaultFirstHappenedDate,
   firstHappenedAgeLabel,
@@ -163,6 +165,17 @@ export default function FirstComposeSheetScreen() {
     [date, family?.babyBirthday, family?.babyName],
   );
   const targetAgeLabel = happenedAgeLabel || existing?.target_age_label || seedTargetAge || '';
+  // U1: one quiet sentence from real metadata, offered — never auto-inserted.
+  // The labeler's generic 'Family outing' fallback is dropped: a note must not
+  // claim what the metadata doesn't show.
+  const suggestedNote = useMemo(() => suggestedFirstNote({
+    babyBirthday: family?.babyBirthday,
+    happenedDate: date,
+    sceneLabels: (selectedPhoto?.creation_time
+      ? inferPhotoSceneLabels({ creationTime: new Date(selectedPhoto.creation_time).getTime() })
+      : []
+    ).filter((label) => label !== 'Family outing'),
+  }), [date, family?.babyBirthday, selectedPhoto?.creation_time]);
   const suggestedTitleLocked = Boolean(seededFirst && !editingTitle);
   const effectiveTitle = title.trim() || (seededFirst ? seedTitle : '');
   const photoRailCaption = firstPhotoWindow
@@ -295,6 +308,20 @@ export default function FirstComposeSheetScreen() {
           placeholder="What happened around it?"
           caption="Optional. One small detail is enough."
         />
+        {suggestedNote && !note.trim() ? (
+          <Pressable
+            onPress={() => setNote(suggestedNote)}
+            accessibilityRole="button"
+            accessibilityLabel={`Use suggested note: ${suggestedNote}`}
+            style={[styles.suggestedNoteRow, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <View style={styles.suggestedNoteText}>
+              <Caption>{SUGGESTED_NOTE_LABEL}</Caption>
+              <Body>{suggestedNote}</Body>
+            </View>
+            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{SUGGESTED_NOTE_USE_LABEL}</Caption>
+          </Pressable>
+        ) : null}
         <View>
           <Caption>Attach a photo, optional</Caption>
           <Caption>{photoRailCaption}</Caption>
@@ -421,6 +448,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xl,
     paddingTop: space.xl,
     paddingBottom: space.xxl,
+  },
+  suggestedNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  suggestedNoteText: {
+    flex: 1,
+    gap: 2,
   },
   photoRow: {
     gap: space.sm,
