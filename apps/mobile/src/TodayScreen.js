@@ -273,18 +273,9 @@ export default function TodayScreen() {
                   fullWidth={false}
                   variant="dark"
                   onPress={() => router.push('/prompt')}
-                  icon={<Ionicons name="mic-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
+                  icon={<Ionicons name="pencil-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
                 >
-                  Voice note
-                </Button>
-                <Button
-                  size="sm"
-                  fullWidth={false}
-                  variant="ghost"
-                  onPress={() => router.push('/prompt')}
-                  icon={<Ionicons name="pencil-outline" size={14} color={theme.semantic.primary} />}
-                >
-                  {mine?.response_text ? 'Edit note' : 'Write it'}
+                  Answer prompt
                 </Button>
               </View>
               <Pressable

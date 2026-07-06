@@ -8,7 +8,6 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 import {
   AppShell,
   Body,
-  Button,
   Caption,
   Card,
   Eyebrow,
@@ -201,7 +200,7 @@ export default function FirstsScreen() {
         </Pressable>
       </Card>
 
-      {!rows.length ? <FirstDayGuide theme={theme} goals={goalDefinitions} onAdd={() => router.push('/first-compose')} /> : null}
+      {!rows.length ? <FirstDayGuide theme={theme} goals={goalDefinitions} /> : null}
 
       {displayRows.map((first) => {
         const photo = first.asset_owner_user_id && first.asset_id
@@ -322,7 +321,7 @@ function GoalProgressSegment({ item, progress, celebrating }) {
   );
 }
 
-function FirstDayGuide({ theme, goals, onAdd }) {
+function FirstDayGuide({ theme, goals }) {
   return (
     <Card variant="muted">
       <View style={styles.guideHeader}>
@@ -342,15 +341,6 @@ function FirstDayGuide({ theme, goals, onAdd }) {
           </Caption>
         ))}
       </View>
-      <Button
-        size="md"
-        fullWidth={false}
-        style={styles.guideButton}
-        onPress={onAdd}
-        icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
-      >
-        Save the first one
-      </Button>
     </Card>
   );
 }
@@ -509,8 +499,5 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     textTransform: 'none',
     letterSpacing: 0,
-  },
-  guideButton: {
-    marginTop: space.lg,
   },
 });
