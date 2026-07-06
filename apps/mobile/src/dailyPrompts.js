@@ -191,16 +191,19 @@ export function promptPoolForDate({ babyBirthday = null, date = new Date() } = {
 
 export function promptForDate({ familyId = '', date = new Date(), babyBirthday = null } = {}) {
   const promptDate = typeof date === 'string' ? date : isoDateForLocalDay(date);
-  const prompt = promptForDateWithoutRepeatGuard({ familyId, date: promptDate, babyBirthday });
-  const previousDate = offsetIsoDate(promptDate, -1);
-  const previous = promptForDateWithoutRepeatGuard({ familyId, date: previousDate, babyBirthday });
-  if (previous?.key !== prompt?.key) return prompt;
-
-  const { prompts } = promptPoolForDate({ babyBirthday, date: promptDate });
-  const bandKey = promptAgeBandForDate({ babyBirthday, date: promptDate })?.key || 'shared';
-  const sequence = shufflePrompts(prompts, `${familyId}:${bandKey}`);
-  const nextIndex = (daysSinceEpoch(promptDate) + 1) % sequence.length;
-  return sequence[nextIndex];
+  const anchorDate = promptAnchorDate({ babyBirthday, date: promptDate });
+  const days = Math.max(0, daysSinceEpoch(promptDate) - daysSinceEpoch(anchorDate));
+  let previous = null;
+  let current = null;
+  for (let offset = 0; offset <= days; offset += 1) {
+    const currentDate = offsetIsoDate(anchorDate, offset);
+    current = promptForDateWithoutRepeatGuard({ familyId, date: currentDate, babyBirthday });
+    if (previous?.key === current?.key) {
+      current = nextPromptForDate({ familyId, date: currentDate, babyBirthday, excludeKey: previous.key });
+    }
+    previous = current;
+  }
+  return current;
 }
 
 function promptForDateWithoutRepeatGuard({ familyId = '', date = new Date(), babyBirthday = null } = {}) {
@@ -208,6 +211,36 @@ function promptForDateWithoutRepeatGuard({ familyId = '', date = new Date(), bab
   const { band, prompts } = promptPoolForDate({ babyBirthday, date: promptDate });
   const sequence = shufflePrompts(prompts, `${familyId}:${band?.key || 'shared'}`);
   return sequence[daysSinceEpoch(promptDate) % sequence.length];
+}
+
+function nextPromptForDate({ familyId = '', date = new Date(), babyBirthday = null, excludeKey = null } = {}) {
+  const promptDate = typeof date === 'string' ? date : isoDateForLocalDay(date);
+  const { band, prompts } = promptPoolForDate({ babyBirthday, date: promptDate });
+  const sequence = shufflePrompts(prompts, `${familyId}:${band?.key || 'shared'}`);
+  const startIndex = daysSinceEpoch(promptDate) % sequence.length;
+  for (let step = 1; step < sequence.length; step += 1) {
+    const candidate = sequence[(startIndex + step) % sequence.length];
+    if (candidate.key !== excludeKey) return candidate;
+  }
+  return sequence[startIndex];
+}
+
+function promptAnchorDate({ babyBirthday = null, date = new Date() } = {}) {
+  const promptDate = typeof date === 'string' ? date : isoDateForLocalDay(date);
+  if (babyBirthday) {
+    const birthday = isoDateForLocalDay(babyBirthday);
+    if (daysSinceEpoch(birthday) <= daysSinceEpoch(promptDate)) {
+      return offsetIsoDate(birthday, -(maxPromptPoolLength() + 1));
+    }
+  }
+  return offsetIsoDate(promptDate, -(maxPromptPoolLength() + 1));
+}
+
+function maxPromptPoolLength() {
+  return Math.max(
+    SHARED_DAILY_PROMPTS.length,
+    ...PROMPT_AGE_BANDS.map((band) => band.prompts.length + SHARED_DAILY_PROMPTS.length),
+  );
 }
 
 function offsetIsoDate(isoDate, days) {
