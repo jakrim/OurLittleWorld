@@ -56,6 +56,17 @@ export default function FirstsScreen() {
   const subtitle = goalProgress.total
     ? `${goalProgress.completed} of ${goalProgress.total} goals complete`
     : rows.length === 1 ? '1 first saved' : `${rows.length} firsts saved`;
+  const openNextGoal = () => {
+    if (!goalProgress.next) return;
+    router.push({
+      pathname: '/first-compose',
+      params: {
+        title: goalProgress.next.title,
+        targetAge: goalProgress.next.targetAgeLabel,
+        goalKey: goalProgress.next.key,
+      },
+    });
+  };
 
   return (
     <AppShell
@@ -93,7 +104,16 @@ export default function FirstsScreen() {
             );
           })}
         </View>
-        <View style={[styles.goalPreview, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+        <Pressable
+          onPress={openNextGoal}
+          disabled={!goalProgress.next}
+          accessible={!!goalProgress.next}
+          accessibilityRole="button"
+          accessibilityLabel={goalProgress.next ? `Add ${goalProgress.next.title}` : undefined}
+          accessibilityHint={goalProgress.next ? 'Opens the first composer with this goal filled in.' : undefined}
+          accessibilityState={{ disabled: !goalProgress.next }}
+          style={[styles.goalPreview, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+        >
           <Caption>
             {goalProgress.next
               ? 'Next family goal'
@@ -107,16 +127,7 @@ export default function FirstsScreen() {
                 : 'Add them whenever the memory comes back.'}
           </Body>
           {goalProgress.next?.description ? <Caption>{goalProgress.next.description}</Caption> : null}
-        </View>
-        <Button
-          size="md"
-          fullWidth={false}
-          style={styles.heroButton}
-          onPress={() => router.push('/first-compose')}
-          icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
-        >
-          Add a first
-        </Button>
+        </Pressable>
       </Card>
 
       {!rows.length ? <FirstDayGuide theme={theme} goals={goalDefinitions} onAdd={() => router.push('/first-compose')} /> : null}
@@ -254,9 +265,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 30,
     marginVertical: space.sm,
-  },
-  heroButton: {
-    marginTop: space.lg,
   },
   progressSegments: {
     flexDirection: 'row',
