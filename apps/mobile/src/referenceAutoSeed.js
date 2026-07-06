@@ -33,7 +33,7 @@ export async function bootstrapBirthdayReference({
 
   const faces = [];
   for (const candidate of sampled) {
-    const details = await getAssetDetailsFn(candidate.assetId).catch(() => null);
+    const details = await getAssetDetailsFn(candidate.assetId, { downloadFromNetwork: true }).catch(() => null);
     const enriched = {
       ...candidate,
       ...(details || {}),

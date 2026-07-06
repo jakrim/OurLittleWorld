@@ -67,7 +67,7 @@ public class ExpoFaceMatcherModule: Module {
           }
           let cropped = try self.crop(cgImage: cgImage, to: primary.boundingBox, padding: 0.18)
           let embedding = try self.computeEmbedding(for: cropped)
-          let qualityFaces = try self.detectFaceCaptureQuality(in: cgImage)
+          let qualityFaces = (try? self.detectFaceCaptureQuality(in: cgImage)) ?? []
           let metrics = self.qualityMetrics(for: primary, cropped: cropped, qualityFaces: qualityFaces)
           promise.resolve([
             "embedding": embedding,
@@ -171,7 +171,7 @@ public class ExpoFaceMatcherModule: Module {
       if let cgImage = try loadCGImage(uri: uri) {
         let faces = try detectFaces(in: cgImage)
         faceCount = faces.count
-        let qualityFaces = try detectFaceCaptureQuality(in: cgImage)
+        let qualityFaces = (try? detectFaceCaptureQuality(in: cgImage)) ?? []
         var best = 0.0
         for face in faces.prefix(3) {
           let cropped = try crop(cgImage: cgImage, to: face.boundingBox, padding: 0.18)
