@@ -25,6 +25,7 @@ import { ageAt, formatAge } from './photos';
 import { deleteForTag } from './photoSync';
 import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
+import { countLabel } from './plural';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
@@ -301,10 +302,10 @@ export default function TodayScreen() {
           </View>
         ) : null}
         <View style={styles.digestGrid}>
-          <Metric label="moments" value={digest.momentCount ?? digest.photoCount} />
-          <Metric label="milestones" value={digest.milestoneCount ?? digest.firstsCount} />
+          <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+          <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
           <Metric label="voice" value={digest.voiceNoteCount || 0} />
-          <Metric label="letters" value={digest.letterCount} />
+          <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
         </View>
         <Button
           size="sm"

@@ -18,6 +18,7 @@ import {
 } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { countLabel } from './plural';
 import { useRitualHomeData } from './useRitualHomeData';
 
 export default function DigestDetailSheetScreen() {
@@ -60,10 +61,10 @@ export default function DigestDetailSheetScreen() {
         </Card>
 
         <View style={styles.metricGrid}>
-          <DigestMetric label="moments" value={digest.momentCount ?? digest.photoCount} />
-          <DigestMetric label="milestones" value={digest.milestoneCount ?? digest.firstsCount} />
+          <DigestMetric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+          <DigestMetric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
           <DigestMetric label="voice" value={digest.voiceNoteCount || 0} />
-          <DigestMetric label="letters" value={digest.letterCount} />
+          <DigestMetric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
         </View>
 
         <Card>
