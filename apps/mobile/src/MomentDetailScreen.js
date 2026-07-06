@@ -19,6 +19,7 @@ import { uploadForTag } from './photoSync';
 import { shareMemoryMoment } from './shareMoment';
 import PhotoActionSheet from './PhotoActionSheet';
 import { isLocalAssetDeleted } from './localAssetDeletion';
+import { formatTagLabel } from './tagModel';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -190,7 +191,7 @@ export default function MomentDetailScreen() {
     setEditTitle(moment?.title || '');
     setEditNote(moment?.caption_note || '');
     setEditPlace(moment?.place_name || '');
-    setEditTags((moment?.tags || []).join(', '));
+    setEditTags((moment?.tags || []).map(formatTagLabel).join(', '));
     setEditOpen(true);
     setMenuVisible(false);
   };
@@ -556,7 +557,7 @@ export default function MomentDetailScreen() {
             <View style={styles.tagRow}>
               {moment.tags.map((tag) => (
                 <Caption key={tag} style={[styles.tagPill, { backgroundColor: theme.semantic.card, color: theme.semantic.textSoft }]}>
-                  #{tag}
+                  #{formatTagLabel(tag)}
                 </Caption>
               ))}
             </View>

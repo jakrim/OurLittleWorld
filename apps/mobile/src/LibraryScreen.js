@@ -33,6 +33,7 @@ import PhotoActionSheet from './PhotoActionSheet';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
 import { useICloudRetryCount } from './iCloudRetryQueue';
+import { formatTagLabel } from './tagModel';
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -966,7 +967,7 @@ function ArchiveResultRow({ record, onPress, theme }) {
         <View style={styles.tagRow}>
           {record.tags.slice(0, 3).map((tag) => (
             <View key={tag} style={[styles.smallTag, { backgroundColor: theme.semantic.cardAlt }]}>
-              <Caption style={styles.smallTagText}>{tag}</Caption>
+              <Caption style={styles.smallTagText}>{formatTagLabel(tag)}</Caption>
             </View>
           ))}
         </View>

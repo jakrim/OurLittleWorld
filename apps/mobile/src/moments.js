@@ -17,6 +17,7 @@ import {
   uploadToStream,
 } from './mediaSession';
 import { supabase } from './supabase';
+import { normalizeMomentTags } from './tagModel';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -67,20 +68,6 @@ function extensionFor({ mimeType, fileName, fallback }) {
   const ext = String(fileName || '').split('.').pop()?.toLowerCase();
   if (ext && /^[a-z0-9]{2,5}$/.test(ext)) return ext;
   return fallback;
-}
-
-function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const raw of tags) {
-    const tag = String(raw || '').trim().replace(/^#/, '');
-    const key = tag.toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(tag);
-  }
-  return out;
 }
 
 function mediaTypeFor(asset) {
@@ -487,7 +474,7 @@ export async function createMomentWithMedia({
   const cleanTitle = String(title || '').trim();
   const cleanNote = String(note || '').trim();
   const cleanPlace = String(placeName || '').trim();
-  const cleanTags = normalizeTags(tags);
+  const cleanTags = normalizeMomentTags(tags);
   const pickedAssets = Array.isArray(assets) ? assets.filter((asset) => asset?.uri) : [];
 
   if (!cleanTitle && !cleanNote && !pickedAssets.length && !voice?.uri) {
@@ -733,7 +720,7 @@ export async function updateMoment({ familyId, momentId, patch = {}, tags }) {
   }
 
   if (tags !== undefined) {
-    const cleanTags = normalizeTags(tags);
+    const cleanTags = normalizeMomentTags(tags);
     const { error: deleteErr } = await supabase
       .from('moment_tags')
       .delete()
