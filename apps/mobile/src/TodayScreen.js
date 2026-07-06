@@ -12,6 +12,8 @@ import {
   Caption,
   Card,
   Eyebrow,
+  EntranceView,
+  ENTRANCE_STAGGER_MS,
   PhotoPlaceholder,
   SegmentedContent,
   SegmentedControl,
@@ -189,215 +191,231 @@ export default function TodayScreen() {
         onScanPress={() => router.push('/scan')}
       />
 
-      <AnimatedPressable
-        onPress={nudge.route ? () => router.push(nudge.route) : undefined}
-        disabled={!nudge.route}
-        accessibilityRole="button"
-        accessibilityLabel={nudge.title}
-        accessibilityState={{ disabled: !nudge.route }}
-      >
-        <Card style={styles.dayCard}>
-          <View style={styles.dayRow}>
-            <View style={styles.dayText}>
-              <Eyebrow>{nudge.eyebrow}</Eyebrow>
-              <Body>{nudge.title}</Body>
+      <EntranceView index={0}>
+        <AnimatedPressable
+          onPress={nudge.route ? () => router.push(nudge.route) : undefined}
+          disabled={!nudge.route}
+          accessibilityRole="button"
+          accessibilityLabel={nudge.title}
+          accessibilityState={{ disabled: !nudge.route }}
+        >
+          <Card style={styles.dayCard}>
+            <View style={styles.dayRow}>
+              <View style={styles.dayText}>
+                <Eyebrow>{nudge.eyebrow}</Eyebrow>
+                <Body>{nudge.title}</Body>
+              </View>
+              <Caption style={[styles.dayCount, { color: theme.semantic.secondary }]}>day {daysSince(family?.babyBirthday) ?? '...'}</Caption>
             </View>
-            <Caption style={[styles.dayCount, { color: theme.semantic.secondary }]}>day {daysSince(family?.babyBirthday) ?? '...'}</Caption>
-          </View>
-          {nudge.kind === 'catchup' ? (
-            <Pressable
-              onPress={onDismissCatchup}
-              accessibilityRole="button"
-              accessibilityLabel="Not yet"
-              hitSlop={8}
-              style={styles.skipPrompt}
-            >
-              <Caption style={{ color: theme.semantic.textMuted }}>Not yet</Caption>
-            </Pressable>
-          ) : null}
-        </Card>
-      </AnimatedPressable>
+            {nudge.kind === 'catchup' ? (
+              <Pressable
+                onPress={onDismissCatchup}
+                accessibilityRole="button"
+                accessibilityLabel="Not yet"
+                hitSlop={8}
+                style={styles.skipPrompt}
+              >
+                <Caption style={{ color: theme.semantic.textMuted }}>Not yet</Caption>
+              </Pressable>
+            ) : null}
+          </Card>
+        </AnimatedPressable>
+      </EntranceView>
 
       {prompt && !snoozed ? (
         mineAnswered ? (
-          <AnimatedPressable
-            onPress={() => router.push('/prompt')}
-            accessibilityRole="button"
-            accessibilityLabel="Edit today's prompt response"
-          >
-            <Card variant="muted">
-              <View style={styles.promptAnsweredRow}>
-                <View style={[styles.promptSavedIcon, { backgroundColor: theme.colors.primarySoft }]}>
-                  <Ionicons name="checkmark" size={16} color={theme.semantic.primary} />
+          <EntranceView index={1}>
+            <AnimatedPressable
+              onPress={() => router.push('/prompt')}
+              accessibilityRole="button"
+              accessibilityLabel="Edit today's prompt response"
+            >
+              <Card variant="muted">
+                <View style={styles.promptAnsweredRow}>
+                  <View style={[styles.promptSavedIcon, { backgroundColor: theme.colors.primarySoft }]}>
+                    <Ionicons name="checkmark" size={16} color={theme.semantic.primary} />
+                  </View>
+                  <View style={styles.promptAnsweredCopy}>
+                    <Eyebrow>Daily prompt</Eyebrow>
+                    <Title style={styles.promptSavedTitle}>Saved for today.</Title>
+                    <Caption>
+                      {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
+                    </Caption>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
                 </View>
-                <View style={styles.promptAnsweredCopy}>
-                  <Eyebrow>Daily prompt</Eyebrow>
-                  <Title style={styles.promptSavedTitle}>Saved for today.</Title>
-                  <Caption>
-                    {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
-                  </Caption>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
-              </View>
-            </Card>
-          </AnimatedPressable>
+              </Card>
+            </AnimatedPressable>
+          </EntranceView>
         ) : (
-        <Card variant="muted">
-          <Eyebrow>Daily prompt</Eyebrow>
-          <Title style={styles.promptText}>{prompt.text}</Title>
-          {promptState?.answeredCount > 0 ? (
-            <Caption>
-              {promptState.answeredCount === 1 ? '1 parent answered' : `${promptState.answeredCount} parents answered`}
-            </Caption>
-          ) : null}
-          <View style={styles.actionRow}>
-            <Button
-              size="sm"
-              fullWidth={false}
-              variant="dark"
-              onPress={() => router.push('/prompt')}
-              icon={<Ionicons name="mic-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
-            >
-              Voice note
-            </Button>
-            <Button
-              size="sm"
-              fullWidth={false}
-              variant="ghost"
-              onPress={() => router.push('/prompt')}
-              icon={<Ionicons name="pencil-outline" size={14} color={theme.semantic.primary} />}
-            >
-              {mine?.response_text ? 'Edit note' : 'Write it'}
-            </Button>
-          </View>
-          <Pressable
-            onPress={snoozePrompt}
-            accessibilityRole="button"
-            accessibilityLabel="Skip today's prompt"
-            hitSlop={8}
-            style={styles.skipPrompt}
-          >
-            <Caption style={{ color: theme.semantic.textMuted }}>Skip today</Caption>
-          </Pressable>
-        </Card>
+          <EntranceView index={1}>
+            <Card variant="muted">
+              <Eyebrow>Daily prompt</Eyebrow>
+              <Title style={styles.promptText}>{prompt.text}</Title>
+              {promptState?.answeredCount > 0 ? (
+                <Caption>
+                  {promptState.answeredCount === 1 ? '1 parent answered' : `${promptState.answeredCount} parents answered`}
+                </Caption>
+              ) : null}
+              <View style={styles.actionRow}>
+                <Button
+                  size="sm"
+                  fullWidth={false}
+                  variant="dark"
+                  onPress={() => router.push('/prompt')}
+                  icon={<Ionicons name="mic-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
+                >
+                  Voice note
+                </Button>
+                <Button
+                  size="sm"
+                  fullWidth={false}
+                  variant="ghost"
+                  onPress={() => router.push('/prompt')}
+                  icon={<Ionicons name="pencil-outline" size={14} color={theme.semantic.primary} />}
+                >
+                  {mine?.response_text ? 'Edit note' : 'Write it'}
+                </Button>
+              </View>
+              <Pressable
+                onPress={snoozePrompt}
+                accessibilityRole="button"
+                accessibilityLabel="Skip today's prompt"
+                hitSlop={8}
+                style={styles.skipPrompt}
+              >
+                <Caption style={{ color: theme.semantic.textMuted }}>Skip today</Caption>
+              </Pressable>
+            </Card>
+          </EntranceView>
         )
       ) : loadingCold ? (
-        <Card variant="muted">
-          <Eyebrow>Daily prompt</Eyebrow>
-          <Title style={styles.promptText}>Loading today's question...</Title>
-        </Card>
+        <EntranceView index={1}>
+          <Card variant="muted">
+            <Eyebrow>Daily prompt</Eyebrow>
+            <Title style={styles.promptText}>Loading today's question...</Title>
+          </Card>
+        </EntranceView>
       ) : null}
 
-      <AnimatedPressable
-        onPress={() => router.push('/digest')}
-        accessibilityRole="button"
-        accessibilityLabel="Open this week's digest"
-      >
-        <Card>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Eyebrow>This week's digest</Eyebrow>
-              <Title style={styles.digestTitle}>{digest.headline}</Title>
+      <EntranceView index={2}>
+        <AnimatedPressable
+          onPress={() => router.push('/digest')}
+          accessibilityRole="button"
+          accessibilityLabel="Open this week's digest"
+        >
+          <Card>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Eyebrow>This week's digest</Eyebrow>
+                <Title style={styles.digestTitle}>{digest.headline}</Title>
+              </View>
+              <View style={styles.cardCue}>
+                <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
+                <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
+              </View>
             </View>
-            <View style={styles.cardCue}>
-              <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
-              <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
+            {digestStripMedia.length ? (
+              <View style={styles.digestStrip}>
+                {digestStripMedia.slice(0, 4).map((media, index) => (
+                  <Pressable
+                    key={media.mediaId || `${media.momentId}:${index}`}
+                    onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
+                    disabled={!media.momentId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open digest moment ${index + 1}`}
+                    accessibilityState={{ disabled: !media.momentId }}
+                    style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
+                  >
+                    <Image
+                      source={{ uri: media.thumbUrl || media.fullUrl }}
+                      style={StyleSheet.absoluteFill}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                    />
+                  </Pressable>
+                ))}
+              </View>
+            ) : digestCoverUri ? (
+              <View style={styles.digestCover}>
+                <Image
+                  source={{ uri: digestCoverUri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              </View>
+            ) : null}
+            <View style={styles.digestGrid}>
+              <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+              <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
+              <Metric label="voice" value={digest.voiceNoteCount || 0} />
+              <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
             </View>
-          </View>
-          {digestStripMedia.length ? (
-            <View style={styles.digestStrip}>
-              {digestStripMedia.slice(0, 4).map((media, index) => (
-                <Pressable
-                  key={media.mediaId || `${media.momentId}:${index}`}
-                  onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
-                  disabled={!media.momentId}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open digest moment ${index + 1}`}
-                  accessibilityState={{ disabled: !media.momentId }}
-                  style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
-                >
-                  <Image
-                    source={{ uri: media.thumbUrl || media.fullUrl }}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                  />
-                </Pressable>
-              ))}
-            </View>
-          ) : digestCoverUri ? (
-            <View style={styles.digestCover}>
-              <Image
-                source={{ uri: digestCoverUri }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-              />
-            </View>
-          ) : null}
-          <View style={styles.digestGrid}>
-            <Metric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
-            <Metric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
-            <Metric label="voice" value={digest.voiceNoteCount || 0} />
-            <Metric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
-          </View>
-        </Card>
-      </AnimatedPressable>
+          </Card>
+        </AnimatedPressable>
+      </EntranceView>
 
-      <MilestoneTeaser
-        summary={firstsSummary}
-        babyName={family?.babyName}
-        onPress={() => router.push('/firsts')}
-        onAdd={() => router.push('/first-compose')}
-      />
+      <EntranceView index={3}>
+        <MilestoneTeaser
+          summary={firstsSummary}
+          babyName={family?.babyName}
+          onPress={() => router.push('/firsts')}
+          onAdd={() => router.push('/first-compose')}
+        />
+      </EntranceView>
 
       {/* The control sits directly above the content it switches (H1). */}
-      <SegmentedControl
-        value={activeSegment}
-        onChange={setSegment}
-        options={[
-          { value: 'timeline', label: 'Timeline' },
-          { value: 'places', label: 'Places' },
-          // A segment that is always empty is worse than no segment (A4).
-          ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
-        ]}
-      />
+      <EntranceView index={4}>
+        <SegmentedControl
+          value={activeSegment}
+          onChange={setSegment}
+          options={[
+            { value: 'timeline', label: 'Timeline' },
+            { value: 'places', label: 'Places' },
+            // A segment that is always empty is worse than no segment (A4).
+            ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
+          ]}
+        />
+      </EntranceView>
 
-      <SegmentedContent segmentKey={activeSegment}>
-        {activeSegment === 'timeline' ? (
-          <>
+      <EntranceView index={5}>
+        <SegmentedContent segmentKey={activeSegment}>
+          {activeSegment === 'timeline' ? (
+            <>
+              <PhotoRail
+                title="For you, today"
+                photos={recentPhotos}
+                babyBirthday={family?.babyBirthday}
+                onPress={openPhoto}
+                onLongPress={onLongPressPhoto}
+                onSeeAll={() => router.push('/library')}
+                empty="No saved moments yet."
+                emptyActionLabel="Add your first"
+                onEmptyAction={() => router.push('/add')}
+              />
+              <MonthTimeline
+                sections={monthSections}
+                onPress={openPhoto}
+                onLongPress={onLongPressPhoto}
+                youUserId={user?.id}
+              />
+            </>
+          ) : activeSegment === 'on-this-day' ? (
             <PhotoRail
-              title="For you, today"
-              photos={recentPhotos}
+              title="On this day"
+              photos={todayMatches}
               babyBirthday={family?.babyBirthday}
               onPress={openPhoto}
               onLongPress={onLongPressPhoto}
-              onSeeAll={() => router.push('/library')}
-              empty="No saved moments yet."
-              emptyActionLabel="Add your first"
-              onEmptyAction={() => router.push('/add')}
+              empty="No matching moments from this date yet."
+              onSeeAll={() => setSegment('timeline')}
             />
-            <MonthTimeline
-              sections={monthSections}
-              onPress={openPhoto}
-              onLongPress={onLongPressPhoto}
-              youUserId={user?.id}
-            />
-          </>
-        ) : activeSegment === 'on-this-day' ? (
-          <PhotoRail
-            title="On this day"
-            photos={todayMatches}
-            babyBirthday={family?.babyBirthday}
-            onPress={openPhoto}
-            onLongPress={onLongPressPhoto}
-            empty="No matching moments from this date yet."
-            onSeeAll={() => setSegment('timeline')}
-          />
-        ) : (
-          <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
-        )}
-      </SegmentedContent>
+          ) : (
+            <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
+          )}
+        </SegmentedContent>
+      </EntranceView>
 
       <PhotoActionSheet
         photo={actionPhoto}
@@ -508,27 +526,28 @@ function PhotoRail({
           contentContainerStyle={styles.photoRailContent}
         >
           {photos.map((photo, index) => (
-            <Pressable
-              key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-              onPress={() => onPress(photo)}
-              onLongPress={() => onLongPress?.(photo)}
-              delayLongPress={220}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${title} moment ${index + 1}`}
-              accessibilityHint={onLongPress ? 'Long press for more actions.' : undefined}
-              style={styles.photoRailTile}
-            >
-              {photo.thumbUrl || photo.fullUrl ? (
-                <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              ) : (
-                <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-              )}
-              <View style={[styles.photoChip, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
-                <Caption style={[styles.photoChipText, { color: theme.colors.bg }]}>
-                  {railChipLabel({ photo, index, babyBirthday, title })}
-                </Caption>
-              </View>
-            </Pressable>
+            <EntranceView key={`${photo.asset_owner_user_id}:${photo.asset_id}`} index={index} delayMs={ENTRANCE_STAGGER_MS * 2}>
+              <Pressable
+                onPress={() => onPress(photo)}
+                onLongPress={() => onLongPress?.(photo)}
+                delayLongPress={220}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${title} moment ${index + 1}`}
+                accessibilityHint={onLongPress ? 'Long press for more actions.' : undefined}
+                style={styles.photoRailTile}
+              >
+                {photo.thumbUrl || photo.fullUrl ? (
+                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                ) : (
+                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+                )}
+                <View style={[styles.photoChip, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
+                  <Caption style={[styles.photoChipText, { color: theme.colors.bg }]}>
+                    {railChipLabel({ photo, index, babyBirthday, title })}
+                  </Caption>
+                </View>
+              </Pressable>
+            </EntranceView>
           ))}
         </ScrollView>
       ) : (
@@ -555,37 +574,39 @@ function MonthTimeline({ sections, onPress, onLongPress, youUserId }) {
   if (!sections.length) return null;
   return (
     <View style={styles.monthList}>
-      {sections.map((section) => (
-        <Card key={section.key} padding="md" style={styles.monthCard}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Eyebrow>{section.monthLabel}</Eyebrow>
-              {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
+      {sections.map((section, sectionIndex) => (
+        <EntranceView key={section.key} index={sectionIndex} delayMs={ENTRANCE_STAGGER_MS * 3}>
+          <Card padding="md" style={styles.monthCard}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Eyebrow>{section.monthLabel}</Eyebrow>
+                {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
+              </View>
+              <Caption>{section.items.length} moments</Caption>
             </View>
-            <Caption>{section.items.length} moments</Caption>
-          </View>
-          <View style={styles.monthGrid}>
-            {section.items.slice(0, 9).map((photo, index) => (
-              <Pressable
-                key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                onPress={() => onPress(photo)}
-                onLongPress={() => onLongPress(photo)}
-                delayLongPress={220}
-                accessibilityRole="button"
-                accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
-                accessibilityHint="Long press for more actions."
-                style={[styles.monthTile, index === 0 && styles.monthHeroTile]}
-              >
-                {photo.thumbUrl || photo.fullUrl ? (
-                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-                {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
-              </Pressable>
-            ))}
-          </View>
-        </Card>
+            <View style={styles.monthGrid}>
+              {section.items.slice(0, 9).map((photo, index) => (
+                <Pressable
+                  key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
+                  onPress={() => onPress(photo)}
+                  onLongPress={() => onLongPress(photo)}
+                  delayLongPress={220}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
+                  accessibilityHint="Long press for more actions."
+                  style={[styles.monthTile, index === 0 && styles.monthHeroTile]}
+                >
+                  {photo.thumbUrl || photo.fullUrl ? (
+                    <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
+                  ) : (
+                    <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+                  )}
+                  {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
+                </Pressable>
+              ))}
+            </View>
+          </Card>
+        </EntranceView>
       ))}
     </View>
   );
@@ -603,34 +624,36 @@ function PlacesPreview({ places, onPress, onLongPress }) {
   }
   return (
     <View style={styles.placeList}>
-      {places.slice(0, 6).map((place) => (
-        <Card key={place.id} padding="md" style={styles.placeCard}>
-          <View style={styles.placeCopy}>
-            <Eyebrow>{place.label}</Eyebrow>
-            <Title style={styles.placeTitle}>{place.photos.length} moments here</Title>
-            <Caption>{place.topScenes.slice(0, 2).join(' · ') || 'Family outing'}</Caption>
-          </View>
-          <View style={styles.placeThumbs}>
-            {place.photos.slice(0, 3).map((photo) => (
-              <Pressable
-                key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                onPress={() => onPress(photo)}
-                onLongPress={() => onLongPress(photo)}
-                delayLongPress={220}
-                accessibilityRole="button"
-                accessibilityLabel={`Open moment from ${place.label}`}
-                accessibilityHint="Long press for more actions."
-                style={styles.placeThumb}
-              >
-                {photo.thumbUrl || photo.fullUrl ? (
-                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-        </Card>
+      {places.slice(0, 6).map((place, placeIndex) => (
+        <EntranceView key={place.id} index={placeIndex} delayMs={ENTRANCE_STAGGER_MS * 2}>
+          <Card padding="md" style={styles.placeCard}>
+            <View style={styles.placeCopy}>
+              <Eyebrow>{place.label}</Eyebrow>
+              <Title style={styles.placeTitle}>{place.photos.length} moments here</Title>
+              <Caption>{place.topScenes.slice(0, 2).join(' · ') || 'Family outing'}</Caption>
+            </View>
+            <View style={styles.placeThumbs}>
+              {place.photos.slice(0, 3).map((photo) => (
+                <Pressable
+                  key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
+                  onPress={() => onPress(photo)}
+                  onLongPress={() => onLongPress(photo)}
+                  delayLongPress={220}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open moment from ${place.label}`}
+                  accessibilityHint="Long press for more actions."
+                  style={styles.placeThumb}
+                >
+                  {photo.thumbUrl || photo.fullUrl ? (
+                    <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
+                  ) : (
+                    <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </Card>
+        </EntranceView>
       ))}
     </View>
   );
