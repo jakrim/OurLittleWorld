@@ -406,10 +406,10 @@ export function formatAge(age) {
   }
   if (age.years === 0) {
     const m = `${age.months} month${age.months === 1 ? '' : 's'}`;
-    const d = age.days ? ` ${age.days}d` : '';
+    const d = age.days ? `, ${age.days} day${age.days === 1 ? '' : 's'}` : '';
     return `${m}${d}`;
   }
   const y = `${age.years} year${age.years === 1 ? '' : 's'}`;
-  const m = age.months ? ` ${age.months}m` : '';
+  const m = age.months ? `, ${age.months} month${age.months === 1 ? '' : 's'}` : '';
   return `${y}${m}`;
 }
