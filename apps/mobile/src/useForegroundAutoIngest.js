@@ -9,6 +9,7 @@ import { readScanCheckpoint } from './scanCheckpoints';
 import { readReferenceProfile } from './recognitionReferences';
 import { hasReferenceProfile, shouldStartForegroundAutoIngest } from './foregroundAutoIngestModel';
 import { startLibraryScan } from './libraryScanLauncher';
+import { registerBackgroundAutoIngestTask } from './backgroundAutoIngestTask';
 import * as Scan from './scanController';
 
 const AUTO_INGEST_ATTEMPT_DEBOUNCE_MS = 15000;
@@ -54,6 +55,7 @@ export default function useForegroundAutoIngest({ enabled = true } = {}) {
   }, [enabled, family, user]);
 
   useEffect(() => {
+    registerBackgroundAutoIngestTask();
     maybeStart();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') maybeStart();

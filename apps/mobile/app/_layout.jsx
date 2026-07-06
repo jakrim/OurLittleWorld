@@ -17,6 +17,7 @@ import {
 } from '@expo-google-fonts/manrope';
 import { Caveat_400Regular } from '@expo-google-fonts/caveat';
 
+import '../src/backgroundAutoIngestTask';
 import { AuthProvider } from '../src/AuthContext';
 import { BillingProvider } from '../src/BillingContext';
 import { FamilyProvider } from '../src/FamilyContext';

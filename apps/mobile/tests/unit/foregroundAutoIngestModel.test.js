@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  BACKGROUND_AUTO_INGEST_MIN_INTERVAL_MINUTES,
   FOREGROUND_AUTO_SCAN_STALE_MS,
   hasReferenceProfile,
+  shouldStartBackgroundAutoIngest,
   shouldStartForegroundAutoIngest,
 } from '../../src/foregroundAutoIngestModel.js';
 
@@ -41,5 +43,26 @@ test('stale or missing checkpoints start foreground auto-ingest', () => {
       nowMs,
     }),
     false,
+  );
+});
+
+test('background auto-ingest keeps the same scan gate on an overnight cadence', () => {
+  const nowMs = Date.UTC(2026, 6, 5, 12);
+  assert.equal(BACKGROUND_AUTO_INGEST_MIN_INTERVAL_MINUTES, 12 * 60);
+  assert.equal(
+    shouldStartBackgroundAutoIngest({
+      checkpoint: { lastScannedAt: new Date(nowMs - FOREGROUND_AUTO_SCAN_STALE_MS + 1).toISOString() },
+      pendingChange: null,
+      nowMs,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldStartBackgroundAutoIngest({
+      checkpoint: { lastScannedAt: new Date(nowMs - 1000).toISOString() },
+      pendingChange: { insertedCount: 1 },
+      nowMs,
+    }),
+    true,
   );
 });

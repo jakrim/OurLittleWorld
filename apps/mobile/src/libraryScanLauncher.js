@@ -13,6 +13,7 @@ export async function startLibraryScan({
   user,
   pendingLibraryChange,
   allowWithoutReference = true,
+  waitForCompletion = false,
 } = {}) {
   if (!family?.id || !user?.id) return { started: false, reason: 'missing-context' };
   if (Scan.isRunning()) return { started: false, reason: 'already-running' };
@@ -146,9 +147,27 @@ export async function startLibraryScan({
       });
     },
   });
+  const scanKey = Scan.getState().scanKey;
+  if (waitForCompletion) {
+    try {
+      await scanPromise;
+    } catch (err) {
+      console.warn('library scan start failed', err?.message);
+      throw err;
+    }
+    const finalState = Scan.getState();
+    return {
+      started: true,
+      scanKey,
+      phase: finalState.phase,
+      autoSavedCount: finalState.autoSavedCount,
+      acceptedCount: finalState.acceptedCount,
+    };
+  }
+
   scanPromise.catch((err) => {
     console.warn('library scan start failed', err?.message);
   });
 
-  return { started: true, scanKey: Scan.getState().scanKey };
+  return { started: true, scanKey };
 }
