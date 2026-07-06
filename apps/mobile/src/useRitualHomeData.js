@@ -18,7 +18,8 @@ import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './phot
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 
-const CACHE_VERSION = 'v1';
+// v2: payload gained catchupGoal/digestUnread and month-versary todayMatches (Sprint 1).
+const CACHE_VERSION = 'v2';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
