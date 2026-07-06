@@ -1,4 +1,5 @@
 import ExpoModulesCore
+import Foundation
 import Vision
 import UIKit
 import Photos
@@ -9,18 +10,20 @@ import CoreImage
  *
  * Two async functions exposed to JS:
  *
- *   embedFace(localUri: String) -> { embedding: [Double], faceCount: Int, primaryBox: {x,y,w,h} | nil }
+ *   embedFace(localUri: String) -> { embedding: [Double], faceCount: Int, primaryBox: {x,y,w,h} | nil, captureQuality, faceSizeRatio, sharpness }
  *     Detects the largest face in the image, crops it, and computes a
  *     VNGenerateImageFeaturePrintObservation feature print, returned as a
  *     normalised [Double] embedding vector.
  *
  *   matchAgainst(reference: { embedding: [Double] },
  *                candidates: [{ assetId: String, localUri: String }])
- *     -> [{ assetId: String, score: Double, faceCount: Int }]
+ *     -> [{ assetId: String, score: Double, faceCount: Int, captureQuality, faceSizeRatio, sharpness }]
  *     For each candidate, detects the largest face, computes its feature
  *     print, and returns cosine similarity (in [-1..1], usually [0..1])
  *     against the reference embedding. Candidate scoring uses bounded parallel
  *     operations (same per-image decode + Vision path as sequential).
+ *     captureQuality is only meaningful when comparing shots of the same
+ *     subject; do not treat it as an absolute cross-subject quality score.
  *
  * URIs accepted:
  *   - file://...   read with Data(contentsOf:)
@@ -55,12 +58,17 @@ public class ExpoFaceMatcherModule: Module {
             promise.resolve([
               "embedding": [Double](),
               "faceCount": 0,
-              "primaryBox": NSNull()
+              "primaryBox": NSNull(),
+              "captureQuality": NSNull(),
+              "faceSizeRatio": 0,
+              "sharpness": 0
             ])
             return
           }
           let cropped = try self.crop(cgImage: cgImage, to: primary.boundingBox, padding: 0.18)
           let embedding = try self.computeEmbedding(for: cropped)
+          let qualityFaces = try self.detectFaceCaptureQuality(in: cgImage)
+          let metrics = self.qualityMetrics(for: primary, cropped: cropped, qualityFaces: qualityFaces)
           promise.resolve([
             "embedding": embedding,
             "faceCount": faces.count,
@@ -69,7 +77,10 @@ public class ExpoFaceMatcherModule: Module {
               "y": primary.boundingBox.origin.y,
               "w": primary.boundingBox.size.width,
               "h": primary.boundingBox.size.height
-            ]
+            ],
+            "captureQuality": self.nullableDouble(metrics.captureQuality),
+            "faceSizeRatio": metrics.faceSizeRatio,
+            "sharpness": metrics.sharpness
           ])
         } catch {
           promise.reject("EFM_EMBED", error.localizedDescription)
@@ -95,6 +106,9 @@ public class ExpoFaceMatcherModule: Module {
         let workers = Self.matchWorkerCount
         var scores = [Double](repeating: 0, count: n)
         var faceCounts = [Int](repeating: 0, count: n)
+        var captureQualities = [Double?](repeating: nil, count: n)
+        var faceSizeRatios = [Double](repeating: 0, count: n)
+        var sharpnesses = [Double](repeating: 0, count: n)
         let lock = NSLock()
 
         if workers <= 1 {
@@ -103,6 +117,9 @@ public class ExpoFaceMatcherModule: Module {
             let out = self.scoreCandidate(uri: uri, refVec: refVec)
             scores[idx] = out.score
             faceCounts[idx] = out.faceCount
+            captureQualities[idx] = out.captureQuality
+            faceSizeRatios[idx] = out.faceSizeRatio
+            sharpnesses[idx] = out.sharpness
           }
         } else {
           let queue = OperationQueue()
@@ -118,6 +135,9 @@ public class ExpoFaceMatcherModule: Module {
               lock.lock()
               scores[index] = out.score
               faceCounts[index] = out.faceCount
+              captureQualities[index] = out.captureQuality
+              faceSizeRatios[index] = out.faceSizeRatio
+              sharpnesses[index] = out.sharpness
               lock.unlock()
             }
           }
@@ -128,7 +148,10 @@ public class ExpoFaceMatcherModule: Module {
           [
             "assetId": candidates[i]["assetId"] ?? "",
             "score": scores[i],
-            "faceCount": faceCounts[i]
+            "faceCount": faceCounts[i],
+            "captureQuality": self.nullableDouble(captureQualities[i]),
+            "faceSizeRatio": faceSizeRatios[i],
+            "sharpness": sharpnesses[i]
           ]
         }
         promise.resolve(results)
@@ -138,26 +161,36 @@ public class ExpoFaceMatcherModule: Module {
 
   /// Per-candidate scoring: identical pipeline to former serial loop (same load,
   /// detection, crop padding, top-3 faces, embeddings, cosine vs `refVec`).
-  private func scoreCandidate(uri: String, refVec: [Double]) -> (score: Double, faceCount: Int) {
+  private func scoreCandidate(uri: String, refVec: [Double]) -> (score: Double, faceCount: Int, captureQuality: Double?, faceSizeRatio: Double, sharpness: Double) {
     var score = 0.0
     var faceCount = 0
+    var bestCaptureQuality: Double?
+    var bestFaceSizeRatio = 0.0
+    var bestSharpness = 0.0
     do {
       if let cgImage = try loadCGImage(uri: uri) {
         let faces = try detectFaces(in: cgImage)
         faceCount = faces.count
+        let qualityFaces = try detectFaceCaptureQuality(in: cgImage)
         var best = 0.0
         for face in faces.prefix(3) {
           let cropped = try crop(cgImage: cgImage, to: face.boundingBox, padding: 0.18)
           let emb = try computeEmbedding(for: cropped)
           let dot = cosine(refVec, l2Normalise(emb))
-          if dot > best { best = dot }
+          if dot > best {
+            let metrics = qualityMetrics(for: face, cropped: cropped, qualityFaces: qualityFaces)
+            best = dot
+            bestCaptureQuality = metrics.captureQuality
+            bestFaceSizeRatio = metrics.faceSizeRatio
+            bestSharpness = metrics.sharpness
+          }
         }
         score = best
       }
     } catch {
       score = 0
     }
-    return (score, faceCount)
+    return (score, faceCount, bestCaptureQuality, bestFaceSizeRatio, bestSharpness)
   }
 
   // MARK: - Vision
@@ -173,6 +206,92 @@ public class ExpoFaceMatcherModule: Module {
       (lhs.boundingBox.size.width * lhs.boundingBox.size.height) >
       (rhs.boundingBox.size.width * rhs.boundingBox.size.height)
     }
+  }
+
+  private func detectFaceCaptureQuality(in cgImage: CGImage) throws -> [VNFaceObservation] {
+    let req = VNDetectFaceCaptureQualityRequest()
+    let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
+    try handler.perform([req])
+    return req.results ?? []
+  }
+
+  private func qualityMetrics(
+    for face: VNFaceObservation,
+    cropped: CGImage,
+    qualityFaces: [VNFaceObservation]
+  ) -> (captureQuality: Double?, faceSizeRatio: Double, sharpness: Double) {
+    let captureQuality = captureQualityFor(face: face, qualityFaces: qualityFaces)
+    let faceSizeRatio = max(0, min(1, Double(face.boundingBox.width * face.boundingBox.height)))
+    let sharpness = laplacianSharpness(cropped)
+    return (captureQuality, faceSizeRatio, sharpness)
+  }
+
+  private func captureQualityFor(face: VNFaceObservation, qualityFaces: [VNFaceObservation]) -> Double? {
+    var best: VNFaceObservation?
+    var bestOverlap = 0.0
+    for candidate in qualityFaces {
+      let overlap = intersectionOverUnion(face.boundingBox, candidate.boundingBox)
+      if overlap > bestOverlap {
+        best = candidate
+        bestOverlap = overlap
+      }
+    }
+    guard bestOverlap > 0.2, let quality = best?.faceCaptureQuality else { return nil }
+    return max(0, min(1, Double(quality)))
+  }
+
+  private func intersectionOverUnion(_ a: CGRect, _ b: CGRect) -> Double {
+    let intersection = a.intersection(b)
+    if intersection.isNull || intersection.isEmpty { return 0 }
+    let intersectionArea = Double(intersection.width * intersection.height)
+    let unionArea = Double(a.width * a.height + b.width * b.height) - intersectionArea
+    if unionArea <= 0 { return 0 }
+    return intersectionArea / unionArea
+  }
+
+  private func laplacianSharpness(_ cgImage: CGImage) -> Double {
+    let width = max(8, min(96, cgImage.width))
+    let height = max(8, min(96, cgImage.height))
+    var pixels = [UInt8](repeating: 0, count: width * height)
+    let colorSpace = CGColorSpaceCreateDeviceGray()
+    return pixels.withUnsafeMutableBytes { raw in
+      guard let context = CGContext(
+        data: raw.baseAddress,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.none.rawValue
+      ) else {
+        return 0
+      }
+      context.interpolationQuality = .low
+      context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+      var sum = 0.0
+      var count = 0
+      for y in stride(from: 1, to: height - 1, by: 2) {
+        for x in stride(from: 1, to: width - 1, by: 2) {
+          let i = y * width + x
+          let laplacian =
+            4 * Int(pixels[i])
+            - Int(pixels[i - 1])
+            - Int(pixels[i + 1])
+            - Int(pixels[i - width])
+            - Int(pixels[i + width])
+          sum += Double(laplacian * laplacian)
+          count += 1
+        }
+      }
+      if count == 0 { return 0 }
+      return min(1, sqrt(sum / Double(count)) / 255.0)
+    }
+  }
+
+  private func nullableDouble(_ value: Double?) -> Any {
+    guard let value else { return NSNull() }
+    return value
   }
 
   /// Compute a feature print from `cgImage` and return as an array of doubles.

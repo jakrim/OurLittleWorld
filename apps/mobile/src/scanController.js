@@ -24,7 +24,7 @@
  *   }
  *
  * Match shape:
- *   { assetId, mediaType, score, faceCount, creationTime, uri, accepted, saved }
+ *   { assetId, mediaType, score, faceCount, captureQuality, faceSizeRatio, sharpness, creationTime, uri, accepted, saved }
  */
 
 import { useEffect, useState } from 'react';
@@ -36,6 +36,7 @@ import {
   fetchVideoFrameCandidatesPage,
 } from './photos';
 import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
+import { shouldAutoSaveMatch } from './scanQualityModel';
 
 const initialState = () => ({
   phase: 'idle',
@@ -413,6 +414,9 @@ export async function start({
           mediaType: c?.mediaType || 'image',
           score: s.score,
           faceCount: s.faceCount,
+          captureQuality: s.captureQuality ?? null,
+          faceSizeRatio: s.faceSizeRatio ?? null,
+          sharpness: s.sharpness ?? null,
           creationTime: c?.creationTime,
           uri: c?.previewUri || c?.localUri,
           localUri: c?.localUri,
@@ -457,7 +461,7 @@ export async function start({
       if (autoSaveFn && newMatches.length) {
         const autoIds = [];
         for (const m of newMatches) {
-          if ((m.score ?? 0) < autoSaveThreshold) continue;
+          if (!shouldAutoSaveMatch(m, { scoreThreshold: autoSaveThreshold })) continue;
           if (autoSaveSeen.has(m.assetId)) continue;
           autoSaveSeen.add(m.assetId);
           autoIds.push(m);

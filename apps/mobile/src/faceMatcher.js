@@ -8,8 +8,8 @@
  *
  * Public API
  * ----------
- *   embedFace(localUri) → { embedding: number[], faceCount, primaryBox } | null
- *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount }]
+ *   embedFace(localUri) → { embedding: number[], faceCount, primaryBox, captureQuality, faceSizeRatio, sharpness } | null
+ *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness }]
  *
  * Embeddings are L2-normalised so cosine similarity == dot product.
  */
@@ -63,7 +63,14 @@ export async function matchAgainst({ reference, candidates }) {
   if (!candidates?.length) return [];
 
   if (!native || !reference?.embedding) {
-    return candidates.map((c) => ({ assetId: c.assetId, score: 0.5, faceCount: 0 }));
+    return candidates.map((c) => ({
+      assetId: c.assetId,
+      score: 0.5,
+      faceCount: 0,
+      captureQuality: null,
+      faceSizeRatio: null,
+      sharpness: null,
+    }));
   }
 
   try {
@@ -74,7 +81,14 @@ export async function matchAgainst({ reference, candidates }) {
     return out.sort((a, b) => b.score - a.score);
   } catch (e) {
     console.warn('matchAgainst failed', e?.message);
-    return candidates.map((c) => ({ assetId: c.assetId, score: 0.5, faceCount: 0 }));
+    return candidates.map((c) => ({
+      assetId: c.assetId,
+      score: 0.5,
+      faceCount: 0,
+      captureQuality: null,
+      faceSizeRatio: null,
+      sharpness: null,
+    }));
   }
 }
 
