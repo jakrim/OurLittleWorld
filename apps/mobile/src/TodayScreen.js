@@ -33,6 +33,7 @@ import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
 import { digestHasContent } from './digestModel.js';
 import { countLabel } from './plural';
+import { scanReviewCaption, scanReviewTitle } from './scanBannerCopyModel.js';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
 import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
@@ -759,7 +760,7 @@ function ScanBanner({ babyName, familyId, userId, pendingChange, onPress, onScan
       ? `Auto-saving ${queued.toLocaleString()}`
       : iCloudWaiting > 0
         ? iCloudLabel
-        : `${waiting.toLocaleString()} new ${waiting === 1 ? 'moment' : 'moments'} of ${babyName || 'your little one'}`;
+        : scanReviewTitle({ waiting, babyName });
   return (
     <Pressable
       onPress={onPress}
@@ -773,9 +774,7 @@ function ScanBanner({ babyName, familyId, userId, pendingChange, onPress, onScan
         <Caption>
           {iCloudWaiting > 0
             ? `${iCloudLabel}; they will retry on the next scan.`
-            : waiting > 0
-              ? 'Take a look before they join the vault.'
-              : 'Tap to review the media that needs a parent.'}
+            : scanReviewCaption({ waiting, babyName })}
         </Caption>
       </View>
       <Ionicons name="chevron-forward" size={17} />
