@@ -37,7 +37,16 @@ Loop state: IN PROGRESS. Working branch: `polish-sprints`. Source of truth: `doc
 
 ### Sprint 2 — feel (G1, F1, F2, H2, H3 layers 1-3)
 
-All todo.
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| G1 Today-screen cards pressable | done | 90c8c07 | `CI=true npm run lint` + `npm test` green. Simulator-verified on iPhone 16e: day nudge card opens seeded first composer, answered prompt card opens `/prompt`, digest card opens `/digest`, milestone teaser opens `/firsts`; all four expose button accessibility labels. Tunables: none. |
+| F1 Empty Letters duplicate CTAs | done | cb282de | `CI=true npm run lint` + `npm test` green. Simulator-verified on iPhone 16e with zero letters: hero has no compose button, empty-state "Seal the first letter for Reuben" card keeps the single "Write the first letter" CTA, and the "Leave one more line for later" footer is hidden. Tunables: none. |
+| F2 Firsts duplicate add affordances | done | e420777 | `CI=true npm run lint` + `npm test` green. Simulator-verified on iPhone 16e: hero no longer shows its duplicate "Add a first" CTA, header "+" remains for freeform adds, Next family goal preview opens a First word / 9-14 months seeded composer, and placeholder rows still open their own seeded composer. Tunables: none. |
+| H2 animated SegmentedControl | done | d6c2ca5 | `CI=true npm run lint` + `npm test` green. Simulator-verified on iPhone 16e: Today Timeline↔Places and Library Photos→Places→Search use the sliding thumb and shared fade wrapper without blank content; Metro showed no H2 runtime errors. Tunables: none. |
+| H3 motion vocabulary layers 1-3 | done | 9946d62 | `CI=true npm run lint` + `npm test` green. Simulator-verified on iPhone 16e: Today first-mount entrance settles into the expected card/grid layout, wrapped digest card remains tappable, photo rail/timeline/places content remains interactive, and H2 segment transitions still work. Layers covered: G1 press wrapper, H3 Today entrance stagger, H2 segment transitions. Tunables: none. |
+| Sprint 2 review | done | 7bf6faf | Full-diff review; fix: inner "Not yet" and digest strip controls now stop propagation so nested card presses do not double-route. `CI=true npm run lint` + `npm test` green. Maestro/iPhone 16e smoke: Today visible and digest card still opens `/digest`; current fixture used cover fallback, so digest-strip inner routing was verified by code review. Tunables: none. |
+
+**Sprint 2 summary:** Today, Letters, and Firsts now have one clear primary action per card/screen without duplicate CTAs or tiny-only targets. Shared segmented controls and first-mount motion are in place for Today/Library while preserving reduced-motion behavior and wrapped controls. Full-diff review found and fixed nested press propagation; lint, full tests, and iPhone 16e simulator smoke checks are green. SPRINT 2 COMPLETE.
 
 ### Sprint 3 — vault fills itself (I1, I3 phase 1, I4, I7)
 
@@ -62,3 +71,4 @@ All todo.
 - Known minor: after reading the digest, Today's "story is ready" nudge can persist up to the 30s refresh TTL before clearing.
 - B1 keeps the standalone prompt card below the nudge slot per backlog spec; F3 (Sprint 5) may revisit the duplication when the nudge is the prompt.
 - Sim verification: dev-client build on iPhone 16e simulator + Metro at :8092; deep-link `com.jessekrim.ourlittleworld://expo-development-client/?url=http://localhost:8092` to load the branch bundle.
+- Sprint 1 re-review before Sprint 2: no changes needed; `CI=true npm run lint` and `npm test` were green.
