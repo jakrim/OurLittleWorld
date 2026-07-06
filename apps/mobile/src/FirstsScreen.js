@@ -380,7 +380,7 @@ function AgePill({ first, birthday }) {
 }
 
 function formatDate(value) {
-  if (!value) return 'someday';
+  if (!value) return 'Someday';
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
