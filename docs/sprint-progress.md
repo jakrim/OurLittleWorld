@@ -11,6 +11,10 @@ Loop state: IN PROGRESS. Working branch: `polish-sprints`. Source of truth: `doc
 - Goal age windows (days): in `FIRST_GOAL_DEFINITIONS` (`src/rituals.js`) and the A1 migration — smile 42-70, laugh 90-135, roll 120-195, food 165-240, crawl 210-320, word 270-430, steps 300-560.
 - `CATCHUP_DISMISS_DAYS = 30` (`src/firstsModel.js`) — catch-up nudge dismissal window.
 - `MONTHVERSARY_BUCKET_MONTHS = [1,2,3,6]`, `MONTHVERSARY_WINDOW_DAYS = 1`, `MONTHVERSARY_MAX_PER_BUCKET = 6`, `MONTHVERSARY_MAX_AGE_DAYS = 730` (`src/onThisDay.js`).
+- `AUTO_SEED_MONTH_SAMPLE_LIMIT = 30`, `AUTO_SEED_CLUSTER_SIMILARITY = 0.55`, `AUTO_SEED_MIN_BUCKET_COVERAGE = 0.6` (`src/referenceAutoSeedModel.js`) — I1 birthday reference auto-seed gates.
+- `FOREGROUND_AUTO_SCAN_STALE_MS = 24h`, `AUTO_INGEST_ATTEMPT_DEBOUNCE_MS = 15s` (`src/foregroundAutoIngestModel.js`, `src/useForegroundAutoIngest.js`) — I3 foreground auto-ingest freshness/debounce guards.
+- `ICLOUD_QUEUE_MAX_ITEMS = 200`, `ICLOUD_QUEUE_MAX_AGE_MS = 14d` (`src/iCloudRetryQueue.js`) — I4 local iCloud-original retry queue bounds.
+- `AUTO_SAVE_CAPTURE_QUALITY_FLOOR = 0.25` (`src/scanQualityModel.js`) — I7 low-quality match review floor for silent auto-save.
 
 ## Items
 
@@ -50,7 +54,15 @@ Loop state: IN PROGRESS. Working branch: `polish-sprints`. Source of truth: `doc
 
 ### Sprint 3 — vault fills itself (I1, I3 phase 1, I4, I7)
 
-All todo.
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| I1 bootstrap birthday reference | blocked | 4b383ed | Implemented setup-triggered auto-seed route, monthly/birth-window sampling, greedy clustering, auto-seed rollback, and confirm/manual fallback UI. `CI=true npm run lint` + `npm test` green; unit tests cover windows, tunables, clustering, confidence gates, and reference spread. Simulator/iPhone 16e verification blocked: after granting Photos and importing 11 temporary Reuben face photos across July 2025-May 2026, native `embedFace` failed every sampled image with `EFM_EMBED: undefined reason`, so the screen safely fell back to the manual picker and the Accept confirmation could not be verified. Tunables: `AUTO_SEED_MONTH_SAMPLE_LIMIT`, `AUTO_SEED_CLUSTER_SIMILARITY`, `AUTO_SEED_MIN_BUCKET_COVERAGE`. |
+| I3 phase 1 foreground auto-ingest | blocked | 87908f9 | Implemented foreground/app-open incremental scan launcher gated by reference profile, photo permission, pending-change-or-24h-stale checkpoint, `Scan.isRunning`, and best-effort Low Power Mode; auto-save still uses the existing `Tags.setBaby` path. `CI=true npm run lint` + `npm test` green; unit tests cover reference-profile gating, pending-change start, and stale/missing checkpoint start. Simulator/iPhone 16e smoke verified Today launches with no foreground-hook runtime errors, but full Accept is blocked by I1/native reference setup: no local reference profile exists because `embedFace` fails with `EFM_EMBED: undefined reason`, so "take photo → kill app → reopen → N new moments" cannot be produced here. Constants: `FOREGROUND_AUTO_SCAN_STALE_MS`, `AUTO_INGEST_ATTEMPT_DEBOUNCE_MS`. |
+| I4 iCloud-original retry queue | done | c477da8 | Implemented local family/user-scoped iCloud retry queue, targeted scan retries, scan wait/ready callbacks, upload-job persistence before iCloud resolution, PHImage progress handler, and Today/Library copy ("N photos are waiting for iCloud"). `CI=true npm run lint` + `npm test` green. Simulator/iPhone 16e verification: seeded a temporary AsyncStorage queue with 3 items, visually confirmed Today rendered "3 photos are waiting for iCloud", Maestro asserted the "Retry iCloud photos" accessibility label, then cleared the seed and relaunched. Constants: `ICLOUD_QUEUE_MAX_ITEMS`, `ICLOUD_QUEUE_MAX_AGE_MS`. |
+| I7 native capture-quality scoring | blocked | 92bfff7 | Implemented native `VNDetectFaceCaptureQualityRequest` metrics plus face-size ratio and Laplacian sharpness, carried quality fields through JS match objects/calibration records, and added the 0.25 auto-save quality floor so low-quality high-score matches remain in review. `CI=true npm run lint` + `npm test` green; unit tests cover the tunable floor and review routing policy. Simulator/iPhone 16e smoke verified the app still launches, but Accept is blocked: this repo has no generated `ios/` project/workspace to compile the Swift module locally, the running dev-client binary cannot contain the new native code, and the existing simulator native matcher still fails reference setup with `EFM_EMBED: undefined reason`, so a deliberately blurred face-match test cannot be verified here. Tunable: `AUTO_SAVE_CAPTURE_QUALITY_FLOOR`. |
+| Sprint 3 review | done | 9a08467 | Full-diff review; fixes: made native capture-quality scoring best-effort so it cannot break face matching, and made I1 auto-seed request network-backed asset details. `CI=true npm run lint` + `npm test` green; Maestro/iPhone 16e smoke verified Today still launches. |
+
+**Sprint 3 summary:** Auto-seed, foreground ingest, iCloud retry handling, and native quality metadata are implemented with local fallbacks and no remote migrations. I4 is fully verified; I1/I3/I7 remain blocked only on native reference/matcher verification in this simulator/dev-client state. 38 unit tests, lint, and iPhone 16e smoke are green after full-diff review. SPRINT 3 COMPLETE WITH BLOCKERS.
 
 ### Sprint 4 — assistant follow-through (C1, C2, C3, A3, I2, I8)
 
