@@ -13,6 +13,7 @@ import {
   Card,
   Eyebrow,
   PhotoPlaceholder,
+  SegmentedContent,
   SegmentedControl,
   Title,
   glass,
@@ -362,39 +363,41 @@ export default function TodayScreen() {
         ]}
       />
 
-      {activeSegment === 'timeline' ? (
-        <>
+      <SegmentedContent segmentKey={activeSegment}>
+        {activeSegment === 'timeline' ? (
+          <>
+            <PhotoRail
+              title="For you, today"
+              photos={recentPhotos}
+              babyBirthday={family?.babyBirthday}
+              onPress={openPhoto}
+              onLongPress={onLongPressPhoto}
+              onSeeAll={() => router.push('/library')}
+              empty="No saved moments yet."
+              emptyActionLabel="Add your first"
+              onEmptyAction={() => router.push('/add')}
+            />
+            <MonthTimeline
+              sections={monthSections}
+              onPress={openPhoto}
+              onLongPress={onLongPressPhoto}
+              youUserId={user?.id}
+            />
+          </>
+        ) : activeSegment === 'on-this-day' ? (
           <PhotoRail
-            title="For you, today"
-            photos={recentPhotos}
+            title="On this day"
+            photos={todayMatches}
             babyBirthday={family?.babyBirthday}
             onPress={openPhoto}
             onLongPress={onLongPressPhoto}
-            onSeeAll={() => router.push('/library')}
-            empty="No saved moments yet."
-            emptyActionLabel="Add your first"
-            onEmptyAction={() => router.push('/add')}
+            empty="No matching moments from this date yet."
+            onSeeAll={() => setSegment('timeline')}
           />
-          <MonthTimeline
-            sections={monthSections}
-            onPress={openPhoto}
-            onLongPress={onLongPressPhoto}
-            youUserId={user?.id}
-          />
-        </>
-      ) : activeSegment === 'on-this-day' ? (
-        <PhotoRail
-          title="On this day"
-          photos={todayMatches}
-          babyBirthday={family?.babyBirthday}
-          onPress={openPhoto}
-          onLongPress={onLongPressPhoto}
-          empty="No matching moments from this date yet."
-          onSeeAll={() => setSegment('timeline')}
-        />
-      ) : (
-        <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
-      )}
+        ) : (
+          <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
+        )}
+      </SegmentedContent>
 
       <PhotoActionSheet
         photo={actionPhoto}

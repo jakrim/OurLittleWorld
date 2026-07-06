@@ -13,6 +13,7 @@ import {
   Card,
   Eyebrow,
   PhotoPlaceholder,
+  SegmentedContent,
   SegmentedControl,
   Title,
   glass,
@@ -298,99 +299,101 @@ export default function LibraryScreen() {
         ]}
       />
 
-      {segment === 'photos' ? (
-        <>
-          <LibraryChangePanel
-            change={pendingChange}
-            onScan={() => router.push('/scan')}
-            theme={theme}
-          />
-          <UploadQueuePanel status={uploadQueue} repairing={repairingUploads} onRepair={repairUploadQueue} theme={theme} />
-          <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
-          <SavedMomentGrid moments={moments} onPress={openMoment} theme={theme} />
-          {!moments.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
-          <LocalCameraRollPanel
-            visible={showLocalPhotos}
-            onShow={() => {
-              setShowLocalPhotos(true);
-              if (!local.length) loadLocalInitial();
-            }}
-            local={local}
-            loading={loading}
-            hasNext={hasNext}
-            permissionDenied={permissionDenied}
-            tags={tags}
-            userId={user?.id}
-            babyBirthday={family?.babyBirthday}
-            onGrant={loadLocalInitial}
-            onLoadMore={loadMore}
-            onOpen={openLocal}
-            theme={theme}
-          />
-        </>
-      ) : segment === 'places' ? (
-        <View style={styles.placeList}>
-          {places.length ? places.map((place) => (
-            <Card key={place.id} padding="md" style={styles.placeRow}>
-              <View style={styles.placeText}>
-                <Eyebrow>{place.label}</Eyebrow>
-                <Title style={styles.placeTitle}>{place.photos.length} saved moments</Title>
-                <Caption>{place.topScenes.slice(0, 3).join(' · ') || 'Family outing'}</Caption>
-              </View>
-              <View style={styles.placeThumbRow}>
-                {place.photos.slice(0, 3).map((photo) => (
-                  <Pressable
-                    key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                    onPress={() => openShared(photo)}
-                    onLongPress={() => setActionPhoto(photo)}
-                    delayLongPress={220}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open moment from ${place.label}`}
-                    accessibilityHint="Long press for more actions."
-                    style={styles.placeThumb}
-                  >
-                    {photo.thumbUrl || photo.fullUrl ? (
-                      <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                    ) : (
-                      <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-            </Card>
-          )) : (
-            <Card>
-              <Eyebrow>Places</Eyebrow>
-              <Title style={styles.cardTitle}>No mapped moments yet.</Title>
-              <Body>Photos with location metadata will collect here as the archive grows.</Body>
-            </Card>
-          )}
-        </View>
-      ) : (
-        segment === 'search' ? (
-          <SearchPanel
-            query={query}
-            onQueryChange={setQuery}
-            filter={archiveFilter}
-            onFilterChange={setArchiveFilter}
-            results={searchResults}
-            stats={archiveStats}
-            onOpen={openMoment}
-            theme={theme}
-          />
+      <SegmentedContent segmentKey={segment}>
+        {segment === 'photos' ? (
+          <>
+            <LibraryChangePanel
+              change={pendingChange}
+              onScan={() => router.push('/scan')}
+              theme={theme}
+            />
+            <UploadQueuePanel status={uploadQueue} repairing={repairingUploads} onRepair={repairUploadQueue} theme={theme} />
+            <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
+            <SavedMomentGrid moments={moments} onPress={openMoment} theme={theme} />
+            {!moments.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
+            <LocalCameraRollPanel
+              visible={showLocalPhotos}
+              onShow={() => {
+                setShowLocalPhotos(true);
+                if (!local.length) loadLocalInitial();
+              }}
+              local={local}
+              loading={loading}
+              hasNext={hasNext}
+              permissionDenied={permissionDenied}
+              tags={tags}
+              userId={user?.id}
+              babyBirthday={family?.babyBirthday}
+              onGrant={loadLocalInitial}
+              onLoadMore={loadMore}
+              onOpen={openLocal}
+              theme={theme}
+            />
+          </>
+        ) : segment === 'places' ? (
+          <View style={styles.placeList}>
+            {places.length ? places.map((place) => (
+              <Card key={place.id} padding="md" style={styles.placeRow}>
+                <View style={styles.placeText}>
+                  <Eyebrow>{place.label}</Eyebrow>
+                  <Title style={styles.placeTitle}>{place.photos.length} saved moments</Title>
+                  <Caption>{place.topScenes.slice(0, 3).join(' · ') || 'Family outing'}</Caption>
+                </View>
+                <View style={styles.placeThumbRow}>
+                  {place.photos.slice(0, 3).map((photo) => (
+                    <Pressable
+                      key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
+                      onPress={() => openShared(photo)}
+                      onLongPress={() => setActionPhoto(photo)}
+                      delayLongPress={220}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open moment from ${place.label}`}
+                      accessibilityHint="Long press for more actions."
+                      style={styles.placeThumb}
+                    >
+                      {photo.thumbUrl || photo.fullUrl ? (
+                        <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      ) : (
+                        <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
+              </Card>
+            )) : (
+              <Card>
+                <Eyebrow>Places</Eyebrow>
+                <Title style={styles.cardTitle}>No mapped moments yet.</Title>
+                <Body>Photos with location metadata will collect here as the archive grows.</Body>
+              </Card>
+            )}
+          </View>
         ) : (
-          <ExportPanel
-            stats={archiveStats}
-            years={yearSummaries}
-            onShare={shareArchiveSummary}
-            onBuildFile={buildPhotoBookFile}
-            buildingFile={buildingExport}
-            exportFile={exportFile}
-            onOpen={openMoment}
-            theme={theme}
-          />
-        )
-      )}
+          segment === 'search' ? (
+            <SearchPanel
+              query={query}
+              onQueryChange={setQuery}
+              filter={archiveFilter}
+              onFilterChange={setArchiveFilter}
+              results={searchResults}
+              stats={archiveStats}
+              onOpen={openMoment}
+              theme={theme}
+            />
+          ) : (
+            <ExportPanel
+              stats={archiveStats}
+              years={yearSummaries}
+              onShare={shareArchiveSummary}
+              onBuildFile={buildPhotoBookFile}
+              buildingFile={buildingExport}
+              exportFile={exportFile}
+              onOpen={openMoment}
+              theme={theme}
+            />
+          )
+        )}
+      </SegmentedContent>
       <PhotoActionSheet
         photo={actionPhoto}
         visible={!!actionPhoto}

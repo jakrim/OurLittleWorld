@@ -28,6 +28,6 @@ export { AppStatusBar, HomeIndicator } from './SystemChrome';
 export { default as GlassButton } from './GlassButton';
 export { default as AnimatedPressable } from './AnimatedPressable';
 export { default as PhotoPlaceholder, default as PhotoBox } from './PhotoPlaceholder';
-export { default as SegmentedControl } from './SegmentedControl';
+export { default as SegmentedControl, SegmentedContent } from './SegmentedControl';
 export { Display, Hero, Title, Subtitle, Body, BodyTight, Caption, Eyebrow, Brand } from './Type';
 export { V, H, Spacer, Divider } from './Stack';
