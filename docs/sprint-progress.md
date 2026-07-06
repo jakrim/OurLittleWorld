@@ -177,6 +177,15 @@ Verification (whole sprint): `npm test` (tsc + 114 unit tests) green, `expo lint
 
 Verification (whole sprint): `npm test` (tsc + 118 unit tests) green, `expo lint` clean, Maestro U1 flow green on iPhone 16e. SPRINT UV COMPLETE.
 
+### Sprint W — quality-ranked digest highlights (W1, W2)
+
+| Item | Status | Commit | Verification |
+|---|---|---|---|
+| W1 quality metadata at upload | done | (W commit) | `mediaUploadMetadataModel.js` (pure) wraps the metadata objects in all three photoSync upload paths (image, video, poster-only) so scan-produced `captureQuality`/`recognitionScore`/`faceCount` ride into `moment_media.metadata` (jsonb, no migration). Keys added only when the scan produced them — unit test caught and fixed a `Number(null) === 0` coercion that would have written `captureQuality: 0` for missing signals. |
+| W2 digest representative media ranking | done | (W commit) | Migration `20260706202414_digest_quality_highlights.sql` replaces only the `v_representative_media` block of `assemble_weekly_digest`: milestone-linked media first, then `captureQuality` desc (regex-guarded numeric cast), then recency + sort_order exactly as before (historical rows fall back via `-1`). `supabase db reset --local --no-seed` + `db lint` green; seeded psql smoke verified pick order `milestone-low-q → plain-high-q → plain-mid-q → plain-no-metadata` (milestone wins despite lowest quality; quality beats recency). **Applied remotely 2026-07-06** (version 20260706202414; local file renamed to match). DigestDetailSheetScreen needed no change. |
+
+Verification (whole sprint): `npm test` (tsc + 120 unit tests) green, `expo lint` clean, local db reset + lint + seeded RPC smoke, remote migration applied. SPRINT W COMPLETE.
+
 ## Notes
 
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.

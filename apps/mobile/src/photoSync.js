@@ -6,6 +6,7 @@ import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
 import * as mediaDb from './mediaDb';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
+import { mediaUploadMetadata } from './mediaUploadMetadataModel';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
@@ -243,12 +244,12 @@ async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
       thumb_object: thumbId,
       width: info.width || null,
       height: info.height || null,
-      metadata: {
+      metadata: mediaUploadMetadata({
         source: 'library-review',
         localAssetId: assetId,
         fullPath,
         thumbPath,
-      },
+      }, match),
       upload_status: 'uploading',
       upload_error: null,
       sort_order: 0,
@@ -383,7 +384,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
   const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const metadata = {
+  const metadata = mediaUploadMetadata({
     source: 'library-review',
     localAssetId: assetId,
     ...(fullPath ? { fullPath } : {}),
@@ -391,7 +392,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     recognitionFrameTimeMs: match?.frameTimeMs ?? null,
     recognitionCandidateId: match?.candidateId || null,
     originalFileName: info.fileName || match?.fileName || null,
-  };
+  }, match);
 
   if (!existingTag?.moment_id) {
     const { error: momentErr } = await supabase.from('moments').insert({
@@ -590,7 +591,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
   await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
   const posterBytes = fileSizeOf(poster.uri);
 
-  const metadata = {
+  const metadata = mediaUploadMetadata({
     source: 'scan-auto-save',
     localAssetId: assetId,
     posterPath,
@@ -601,7 +602,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
     posterOnly: true,
     sourceDurationSec: durationSec,
     originalFileName: info.fileName || match?.fileName || null,
-  };
+  }, match);
 
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {

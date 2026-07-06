@@ -821,7 +821,7 @@ video around Nov 3"). `laugh`/`word` get no photo detectors — catch-up card on
   sheet; absent when nothing was saved (no filler). *(shipped, Sprint UV)*
 - **W1+W2 digest highlights:** persist captureQuality/recognitionScore into
   `moment_media.metadata` at upload; digest SQL prefers milestone-linked media, then
-  quality, falling back to recency for historical rows.
+  quality, falling back to recency for historical rows. *(shipped, Sprint W)*
 - **X1 suggested letters:** post-first-save nudge seeds letter compose with facts
   only ("On October 1, at 7 weeks old, we saved your first smile." — a fact about
   the archive, never a claim about the world).
