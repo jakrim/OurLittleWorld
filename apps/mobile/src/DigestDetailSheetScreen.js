@@ -6,6 +6,7 @@ import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
   Body,
+  Button,
   Caption,
   Card,
   Eyebrow,
@@ -42,6 +43,7 @@ export default function DigestDetailSheetScreen() {
     if (!momentId) return;
     router.push({ pathname: '/moment/[momentId]', params: { momentId } });
   };
+  const representativeMedia = (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl);
 
   return (
     <Screen bare>
@@ -85,9 +87,9 @@ export default function DigestDetailSheetScreen() {
             </View>
             <Ionicons name="book-outline" size={20} color={theme.semantic.primary} />
           </View>
-          {digest.representativeMedia?.length ? (
+          {representativeMedia.length ? (
             <View style={styles.mediaGrid}>
-              {digest.representativeMedia.slice(0, 8).map((media, index) => (
+              {representativeMedia.slice(0, 8).map((media, index) => (
                 <Pressable
                   key={media.mediaId || `${media.momentId}:${index}`}
                   onPress={() => openMoment(media.momentId)}
@@ -119,6 +121,13 @@ export default function DigestDetailSheetScreen() {
             <View style={[styles.emptyPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
               <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
               <Body style={styles.emptyCopy}>No representative media landed in this week yet.</Body>
+              <Button
+                size="sm"
+                fullWidth={false}
+                onPress={() => router.push('/add')}
+              >
+                Add a moment from this week
+              </Button>
             </View>
           )}
         </Card>
