@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-07-12T17:20:17Z",
+  "product": "our-little-world",
+  "posthog": {
+    "region": "us",
+    "project_id": 509026,
+    "capture_host": "https://us.i.posthog.com",
+    "client_token_configured": {
+      "vercel": ["production", "preview"],
+      "eas": ["production", "preview", "development"]
+    },
+    "personal_api_key_persisted": false,
+    "provider_readback": {
+      "event_id": "019f5758-139f-76cc-a506-95cff9baedfd",
+      "event": "olw_measurement_checkpoint",
+      "accepted": true,
+      "properties": {
+        "product_id": "our-little-world",
+        "campaign_id": "unfinished-baby-book",
+        "angle_id": "unfinished-baby-book",
+        "creative_id": "measurement-checkpoint-v1",
+        "channel_id": "codex-qa",
+        "landing_page_id": "unfinished-baby-book-v1",
+        "consent_state": "granted",
+        "$process_person_profile": false
+      },
+      "person_profile_created": false
+    },
+    "qa_cleanup": {
+      "malformed_test_profile_deleted": true,
+      "delete_status": 202,
+      "remaining_profiles": 0,
+      "contained_private_family_data": false
+    }
+  },
+  "vercel_preview": {
+    "deployment_id": "dpl_52eg85YEdLXDNTm8Sziwmt1MT6os",
+    "url": "https://our-little-world-gicjfjk80-jessekrim.vercel.app",
+    "status": "ready",
+    "production_promoted": false
+  },
+  "remaining_release_gates": [
+    "Stripe sandbox credentials and end-to-end subscription receipt",
+    "Stripe sandbox gift purchase, delivery, redemption, and entitlement receipt",
+    "verified database migration and function deployment",
+    "self-service account deletion"
+  ]
+}
