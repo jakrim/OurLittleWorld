@@ -1,4 +1,5 @@
 import {
+  acquisitionMetadataFromRecord,
   corsHeaders,
   errorResponse,
   json,
@@ -86,6 +87,13 @@ async function handleCheckoutCompleted(session: Record<string, any>) {
 
 async function provisionGift(session: Record<string, any>) {
   const metadata = session.metadata || {};
+  const acquisition = acquisitionMetadataFromRecord({
+    campaign: metadata.acquisition_campaign,
+    angle: metadata.acquisition_angle,
+    creative: metadata.acquisition_creative,
+    channel: metadata.acquisition_channel,
+    landing_page: metadata.acquisition_landing_page,
+  });
   const deliveryDay = /^\d{4}-\d{2}-\d{2}$/.test(metadata.delivery_day || '') ? metadata.delivery_day : null;
   const rows = await restInsert('gift_purchases', {
     giver_name: metadata.giver_name || null,
@@ -114,6 +122,7 @@ async function provisionGift(session: Record<string, any>) {
     metadata: {
       stripe_checkout_session_id: session.id,
       delivery_day: deliveryDay,
+      acquisition,
     },
   }, { onConflict: 'code_hash', merge: true });
 }

@@ -4,6 +4,12 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { createIcons, icons } from "lucide";
 
+import {
+  checkoutAttributionPayload,
+  marketingTarget,
+  trackMarketingEvent,
+} from "@/lib/marketingAnalytics";
+
 const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "support@ourlittleworld.me";
 const checkoutLinks = {
   monthly: process.env.NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY || "",
@@ -116,6 +122,21 @@ export default function SiteEnhancer() {
       },
     });
 
+    void trackMarketingEvent("landing_view", {
+      path: pathname || "/",
+      surface: "marketing_site",
+    });
+
+    document.querySelectorAll<HTMLAnchorElement>("a.button").forEach((link) => {
+      on(link, "click", () => {
+        void trackMarketingEvent("primary_cta_clicked", {
+          path: pathname || "/",
+          surface: "marketing_site",
+          target: marketingTarget(link.getAttribute("href")),
+        });
+      });
+    });
+
     const navToggle = document.querySelector("[data-menu-toggle]");
     const navLinks = document.querySelector("[data-nav-links]");
 
@@ -215,10 +236,18 @@ export default function SiteEnhancer() {
         }
 
         const kind = form.getAttribute("data-conversion-form");
-        const payload = formPayload(form);
+        const payload = {
+          ...formPayload(form),
+          ...checkoutAttributionPayload(),
+        };
 
         if (kind === "self") {
           const plan = payload.plan || "family_yearly";
+          void trackMarketingEvent("checkout_started", {
+            path: pathname || "/pricing",
+            surface: "web_pricing",
+            product_key: plan,
+          });
           if (checkoutEndpoint) {
             try {
               setStatus(status, "Opening secure checkout...");
@@ -261,6 +290,11 @@ export default function SiteEnhancer() {
         }
 
         if (kind === "gift") {
+          void trackMarketingEvent("gift_started", {
+            path: pathname || "/gift",
+            surface: "web_gift",
+            product_key: payload.plan || "gift_year",
+          });
           if (giftCheckoutEndpoint) {
             try {
               setStatus(status, "Preparing gift checkout...");

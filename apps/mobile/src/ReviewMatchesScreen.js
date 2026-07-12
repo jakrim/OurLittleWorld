@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList } from 'react-native';
+import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -22,6 +22,10 @@ import {
 } from './photoStackModel';
 import { maybePromptForPushNotifications } from './pushNotifications';
 import * as Scan from './scanController';
+import { trackAnalyticsEvent } from './analytics';
+import { bucketCount } from './analyticsEventsModel';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import { getFamilyAcquisitionContext } from './billing';
 
 /**
  * Live review grid.
@@ -203,6 +207,35 @@ export default function ReviewMatchesScreen() {
         familyId: family.id,
         userId: user.id,
         reason: 'review-save',
+      });
+    }
+    if (savedIds.length) {
+      let acquisition = {};
+      try {
+        acquisition = await getFamilyAcquisitionContext(family.id);
+      } catch {
+        // Saving reviewed memories does not depend on attribution readback.
+      }
+      const mediaKinds = new Set(savedMatches.map((match) => match.mediaType));
+      const mediaKind = mediaKinds.has('video') && (mediaKinds.has('photo') || mediaKinds.has('image'))
+        ? 'photo_video'
+        : mediaKinds.has('video')
+          ? 'video'
+          : 'photo';
+      trackAnalyticsEvent('moment_saved', {
+        surface: 'review',
+        save_source: 'review_batch',
+        media_kind: mediaKind,
+        media_count_bucket: bucketCount(savedIds.length),
+        has_voice: false,
+        has_text_note: false,
+      }, {
+        family_id: family.id,
+        actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+        plan_state: 'unknown',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+        ...acquisition,
       });
     }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -20,6 +20,10 @@ import { createMomentWithMedia } from './moments';
 import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
 import { selectPostSaveNudge } from './postSaveNudgeModel';
 import { Firsts } from './rituals';
+import { trackAnalyticsEvent } from './analytics';
+import { bucketCount } from './analyticsEventsModel';
+import { analyticsEnvironment, analyticsPlatform, mediaKindForAssets } from './analyticsProductContext';
+import { getFamilyAcquisitionContext } from './billing';
 
 const SECONDARY_ACTIONS = [
   { icon: 'chatbubble-ellipses-outline', title: "Answer today's prompt", route: '/prompt' },
@@ -158,6 +162,27 @@ export default function AddSheetScreen() {
         assets,
         voice,
         videoPosterOnly,
+      });
+      let acquisition = {};
+      try {
+        acquisition = await getFamilyAcquisitionContext(family.id);
+      } catch {
+        // The memory save is authoritative; attribution lookup is best-effort.
+      }
+      trackAnalyticsEvent('moment_saved', {
+        surface: 'add',
+        save_source: 'add_sheet',
+        media_kind: mediaKindForAssets(assets, Boolean(voice)),
+        media_count_bucket: bucketCount(assets.length),
+        has_voice: Boolean(voice),
+        has_text_note: Boolean(note.trim()),
+      }, {
+        family_id: family.id,
+        actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+        plan_state: 'unknown',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+        ...acquisition,
       });
       const nudge = await buildPostSaveNudge({
         family,

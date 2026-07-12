@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
+
 export const metadata: Metadata = {
   title: "Checkout Complete",
   description: "Connect your Our Little World website subscription to your family space.",
@@ -13,9 +15,11 @@ type CheckoutSuccessProps = {
 export default async function CheckoutSuccessPage({ searchParams }: CheckoutSuccessProps) {
   const params = await searchParams;
   const claimCode = value(params?.claim_code);
+  const hasProviderReceipt = Boolean(value(params?.session_id));
 
   return (
     <main id="main">
+      <ConversionCompleteBeacon kind="purchase" hasProviderReceipt={hasProviderReceipt} />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">

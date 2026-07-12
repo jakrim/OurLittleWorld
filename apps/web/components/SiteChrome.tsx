@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import AnalyticsConsentControls from "./AnalyticsConsentControls";
 import SiteEnhancer from "./SiteEnhancer";
 
 const navItems = [
@@ -92,6 +93,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       </footer>
 
       <SiteEnhancer />
+      <AnalyticsConsentControls compact />
     </>
   );
 }

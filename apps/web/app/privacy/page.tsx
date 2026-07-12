@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import AnalyticsConsentControls from "@/components/AnalyticsConsentControls";
+
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
@@ -80,6 +82,23 @@ export default function PrivacyPage() {
               process purchases and gift codes, provide support, prevent abuse, maintain security,
               comply with law, and improve the service.
             </p>
+          </PolicyItem>
+
+          <PolicyItem title="Optional Product Analytics">
+            <p>
+              Analytics is off unless you choose to allow it. When allowed, we use a
+              dedicated Our Little World analytics project with person profiles disabled.
+              Events contain coarse actions and campaign labels only. They do not contain
+              child names, birthdays, captions, notes, letters, prompt answers, photos,
+              media identifiers, precise locations, contacts, checkout session IDs, or
+              gift and redemption codes.
+            </p>
+            <p>
+              You can deny analytics, change your choice, or revoke consent at any time.
+              Revoking clears the anonymous analytics identifier and campaign attribution
+              stored by this browser and stops future analytics delivery.
+            </p>
+            <AnalyticsConsentControls />
           </PolicyItem>
 
           <PolicyItem title="Photo Library Access and Discovery">

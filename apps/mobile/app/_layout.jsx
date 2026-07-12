@@ -22,6 +22,7 @@ import { AuthProvider } from '../src/AuthContext';
 import { BillingProvider } from '../src/BillingContext';
 import { FamilyProvider } from '../src/FamilyContext';
 import LaunchScreen from '../src/LaunchScreen';
+import { initializePosthogAnalytics } from '../src/posthogAnalyticsTransport';
 import {
   nativeAddSheetOptions,
   nativeComposeSheetOptions,
@@ -67,6 +68,7 @@ export default function RootLayout() {
           <AuthProvider>
             <FamilyProvider>
               <BillingProvider>
+                <AnalyticsBootstrap />
                 <ForegroundAutoIngest />
                 <PushNotifications />
                 <Stack
@@ -108,6 +110,15 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+function AnalyticsBootstrap() {
+  React.useEffect(() => {
+    initializePosthogAnalytics().catch((error) => {
+      console.warn('[analytics] initialization failed', error?.message || error);
+    });
+  }, []);
+  return null;
 }
 
 function ForegroundAutoIngest() {

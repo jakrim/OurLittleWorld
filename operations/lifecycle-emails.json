@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "project_id": "our-little-world",
+  "purpose": "Activation, gifting, billing, privacy, and retention messages without a generic editorial newsletter.",
+  "global_rules": {
+    "audience_isolation": "Our Little World recipients only; never import or reuse another product audience.",
+    "sender_required": true,
+    "production_send_default": false,
+    "marketing_requires_explicit_consent": true,
+    "transactional_requires_service_relationship": true,
+    "unsubscribe_required_for_marketing": true,
+    "suppression_applies_to_marketing": true,
+    "private_content_in_provider_payloads": false,
+    "forbidden_provider_fields": [
+      "child_name",
+      "birthday",
+      "caption",
+      "letter_body",
+      "prompt_answer",
+      "media_identifier",
+      "location",
+      "invite_code",
+      "redemption_code_in_marketing",
+      "private_family_content"
+    ]
+  },
+  "sequences": [
+    {
+      "sequence_id": "service-gift-purchase",
+      "classification": "transactional",
+      "entry": "stripe checkout.session.completed with kind gift_year or gift_vault_year",
+      "consent_requirement": "none; required to fulfill the purchased gift",
+      "exit": "gift refunded or delivery completed",
+      "messages": [
+        {
+          "message_id": "gift-purchase-confirmed",
+          "delay": "immediate after verified payment webhook",
+          "subject": "Your Our Little World gift is ready",
+          "preview": "Review the delivery date and the private gift instructions.",
+          "body": "Your gift purchase is confirmed. We will deliver the private redemption instructions on the date you chose. The recipient will create their own family space and decide what to save. If the delivery details need to change, contact support before the scheduled date.",
+          "cta": "Review gift details",
+          "destination": "/gift/",
+          "provider_data": ["gift_purchase_id", "delivery_state", "plan_key"]
+        },
+        {
+          "message_id": "gift-recipient-delivery",
+          "delay": "selected delivery date after paid-state recheck",
+          "subject": "A private baby book was gifted to you",
+          "preview": "Create your family space, then redeem the private code.",
+          "body": "Someone has given you a year of Our Little World: a private place for the photos, firsts, voice notes, and letters you choose to keep. Create your family space in the app, then use the private redemption code in this message. The app does not post to a public feed and does not save a suggestion until you approve it.",
+          "cta": "Create your family space",
+          "destination": "/?utm_source=transactional_email&utm_medium=email&utm_campaign=gift_recipient_delivery",
+          "provider_data": ["gift_purchase_id", "delivery_state", "redemption_code"],
+          "sensitive_delivery_rule": "The redemption code may appear only in this transactional fulfillment message and must never enter analytics or marketing audience fields."
+        }
+      ]
+    },
+    {
+      "sequence_id": "service-account-and-billing",
+      "classification": "transactional",
+      "entry": "verified account, entitlement, export, deletion, or billing event",
+      "consent_requirement": "none; necessary service communication",
+      "exit": "event resolved",
+      "messages": [
+        {
+          "message_id": "website-purchase-linked",
+          "delay": "immediate after successful code redemption",
+          "subject": "Your family plan is connected",
+          "preview": "Your private family space now has active access.",
+          "body": "Your website purchase is now connected to your family space. You can begin with one approved moment. Photo-library discovery is optional, and you control what is saved.",
+          "cta": "Open Our Little World",
+          "destination": "ourlittleworld://today",
+          "provider_data": ["family_id", "plan_key", "entitlement_state"]
+        },
+        {
+          "message_id": "gift-redeemed",
+          "delay": "immediate after successful gift redemption",
+          "subject": "Your gift year is active",
+          "preview": "Start with one moment you want to keep.",
+          "body": "Your Our Little World gift year is active. Begin with one photo, one line, or one first. Suggestions remain review-first until you choose what belongs in the private family archive.",
+          "cta": "Save the first moment",
+          "destination": "ourlittleworld://add",
+          "provider_data": ["family_id", "plan_key", "entitlement_state"]
+        },
+        {
+          "message_id": "export-ready",
+          "delay": "when a requested export is ready",
+          "subject": "Your family export is ready",
+          "preview": "Download the export before the secure link expires.",
+          "body": "The export you requested is ready. The download describes any current video-poster or voice-reference limitations. This link expires for security.",
+          "cta": "Download the export",
+          "destination": "signed_export_url",
+          "provider_data": ["export_job_id", "expiry_bucket", "format"]
+        },
+        {
+          "message_id": "deletion-request-update",
+          "delay": "at each verified deletion-request state change",
+          "subject": "Update on your deletion request",
+          "preview": "Here is the current status of the verified request.",
+          "body": "Your verified deletion request has moved to the status shown below. We will describe any legally required retention separately and will not use private family content for marketing.",
+          "cta": "Review request status",
+          "destination": "/support/deletion-status/",
+          "provider_data": ["deletion_request_id", "status", "retention_category"]
+        }
+      ]
+    },
+    {
+      "sequence_id": "activation-first-approved-memory",
+      "classification": "marketing",
+      "entry": "account created with explicit Our Little World marketing consent and no moment_saved event",
+      "consent_requirement": "explicit marketing consent with recorded source and timestamp",
+      "suppression": ["unsubscribed", "hard_bounced", "complained", "consent_revoked", "account_deleted"],
+      "exit": "first moment_saved, consent revoked, unsubscribe, or account deletion",
+      "messages": [
+        {
+          "message_id": "orientation-one-moment",
+          "delay": "immediate",
+          "subject": "Start with one moment, not a whole baby book",
+          "preview": "One photo or one line is enough for today.",
+          "body": "You do not need to organize the camera roll or catch up on every milestone. Open Our Little World and save one moment that still feels close. If you allow photo access, the app can surface likely possibilities for you to review. Nothing becomes part of the book until you choose to keep it.",
+          "cta": "Save one moment",
+          "destination": "ourlittleworld://add?utm_source=lifecycle_email&utm_medium=email&utm_campaign=activation_first_memory&utm_content=orientation",
+          "provider_data": ["user_id", "consent_source", "consent_timestamp"]
+        },
+        {
+          "message_id": "permission-and-review-help",
+          "delay": "2 days if no moment_saved",
+          "subject": "Let the app sort; you make the call",
+          "preview": "Photo discovery is optional and suggestions stay review-first.",
+          "body": "If a growing camera roll is the hard part, optional discovery can help sort likely moments on your device. You decide the photo permission, review each suggestion, and choose what is saved. The app does not delete camera-roll originals or publish memories to a feed.",
+          "cta": "Review photo settings",
+          "destination": "ourlittleworld://reference?utm_source=lifecycle_email&utm_medium=email&utm_campaign=activation_first_memory&utm_content=permission_help",
+          "provider_data": ["user_id", "coarse_activation_state"]
+        },
+        {
+          "message_id": "first-memory-gentle-nudge",
+          "delay": "5 days if no moment_saved",
+          "subject": "A baby book can begin with one sentence",
+          "preview": "No streak, score, or backlog required.",
+          "body": "A useful beginning can be as small as one sentence about today. There is no streak to protect and no completion score. Save something only when it feels worth keeping.",
+          "cta": "Write one line",
+          "destination": "ourlittleworld://add?utm_source=lifecycle_email&utm_medium=email&utm_campaign=activation_first_memory&utm_content=gentle_nudge",
+          "provider_data": ["user_id", "coarse_activation_state"]
+        }
+      ]
+    },
+    {
+      "sequence_id": "retention-thoughtful-inactivity",
+      "classification": "marketing",
+      "entry": "explicitly consented active account with at least one saved memory and 21 days without a meaningful app action",
+      "consent_requirement": "explicit marketing consent",
+      "suppression": ["unsubscribed", "hard_bounced", "complained", "consent_revoked", "account_deleted", "deletion_pending"],
+      "exit": "meaningful app return, consent revoked, unsubscribe, or account deletion",
+      "messages": [
+        {
+          "message_id": "inactivity-no-guilt",
+          "delay": "at 21 days",
+          "subject": "Nothing to catch up on",
+          "preview": "Keep one recent moment if it matters; leave the rest alone.",
+          "body": "You have not fallen behind. Our Little World does not require daily entries. If there is one recent photo, phrase, or first you want to keep, add that one and let the rest wait.",
+          "cta": "Keep one recent moment",
+          "destination": "ourlittleworld://add?utm_source=lifecycle_email&utm_medium=email&utm_campaign=thoughtful_inactivity&utm_content=no_guilt",
+          "provider_data": ["user_id", "inactivity_bucket"]
+        },
+        {
+          "message_id": "inactivity-preference-check",
+          "delay": "7 days later if still inactive",
+          "subject": "Should we stop these reminders?",
+          "preview": "Choose whether Our Little World should keep emailing.",
+          "body": "A quiet family archive should not become inbox pressure. Keep these occasional reminders if they help, or turn them off with one click. Transactional billing, privacy, export, and security messages are managed separately.",
+          "cta": "Choose email preferences",
+          "destination": "/email-preferences/?utm_source=lifecycle_email&utm_medium=email&utm_campaign=thoughtful_inactivity&utm_content=preferences",
+          "provider_data": ["user_id", "inactivity_bucket"]
+        }
+      ]
+    }
+  ]
+}

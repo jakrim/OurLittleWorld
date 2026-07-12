@@ -36,6 +36,7 @@ pnpm dev
 - `/privacy/`
 - `/terms/`
 - `/refunds/`
+- `/for/unfinished-baby-book/`
 
 `Begin Chapter One` points to `/pricing/#chapter-one`.
 `Gift the first year` points to `/gift/`.
@@ -68,3 +69,16 @@ NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT=https://...
 - `partnerInquiryEndpoint` is required if the partner form should submit without relying on email fallback.
 
 If these values are blank, the forms do not fake success. They show an honest fallback message with an email link.
+
+## Consent-aware measurement
+
+Web analytics is disabled until a visitor explicitly allows it. Configure only
+a dedicated Our Little World PostHog project token using the variables documented
+in `.env.example`. The browser stores only allowlisted campaign, angle, creative,
+channel, and landing-page dimensions; denying or revoking consent clears that
+local attribution and the anonymous analytics identifier.
+
+The same allowlisted attribution is submitted to the checkout Edge Functions,
+copied into Stripe metadata, retained by the webhook, and attached to the family
+entitlement when a website or gift code is redeemed. Private checkout form fields
+are never placed in analytics payloads.

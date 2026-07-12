@@ -30,6 +30,7 @@ import {
   entitlementStatusLabel,
   formatBytes,
   formatVideoMinutes,
+  getFamilyAcquisitionContext,
   getFamilyStorageUsage,
   openManageSubscription,
   verifyStorePurchase,
@@ -37,6 +38,11 @@ import {
 import { Family } from './families';
 import { ageAt, formatAge } from './photos';
 import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
+import {
+  readAnalyticsConsent,
+  revokeAnalyticsConsent,
+  setAnalyticsConsent,
+} from './posthogAnalyticsTransport';
 import {
   NOTIFICATION_CATEGORIES,
   TRANSACTIONAL_NOTIFICATION_CATEGORY,
@@ -61,6 +67,8 @@ import {
   normalizeRitualSettings,
   saveFamilyRitualSettings,
 } from './ritualSettings';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 const THEME_MODE_OPTIONS = [
   { value: 'system', label: 'Auto', icon: 'phone-portrait-outline' },
@@ -109,11 +117,21 @@ export default function SettingsMenuSheetScreen() {
   const [billingBusy, setBillingBusy] = useState(null);
   const [purchaseCode, setPurchaseCode] = useState('');
   const [storageUsage, setStorageUsage] = useState(null);
+  const [analyticsConsent, setAnalyticsConsentState] = useState('unknown');
+  const [analyticsConsentBusy, setAnalyticsConsentBusy] = useState(false);
   const scrollRef = useRef(null);
   const [notificationsSectionY, setNotificationsSectionY] = useState(0);
   const [notificationsRowY, setNotificationsRowY] = useState(0);
   const [pendingNotificationsScroll, setPendingNotificationsScroll] = useState(false);
   const requestedSection = Array.isArray(params.section) ? params.section[0] : params.section;
+
+  useEffect(() => {
+    let alive = true;
+    readAnalyticsConsent()
+      .then((value) => { if (alive) setAnalyticsConsentState(value); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     if (requestedSection !== 'notifications') return;
@@ -329,8 +347,24 @@ export default function SettingsMenuSheetScreen() {
     const trimmed = purchaseCode.trim();
     if (!trimmed || billingBusy) return;
     setBillingBusy('redeem');
+    trackAnalyticsEvent('gift_started', {
+      surface: 'settings',
+      gift_source: 'settings',
+      gift_product_key: 'unknown',
+    }, settingsAnalyticsContext(family));
     try {
-      await redeemCode(trimmed);
+      const redeemed = await redeemCode(trimmed);
+      let acquisition = {};
+      try {
+        acquisition = await getFamilyAcquisitionContext(family?.id);
+      } catch {
+        // A successful redemption must not depend on analytics readback.
+      }
+      trackAnalyticsEvent('gift_redeemed', {
+        surface: 'settings',
+        redemption_type: redeemed?.source === 'gift' ? 'gift' : redeemed?.source === 'partner' ? 'partner' : 'website',
+        plan_state_after: redeemed?.source === 'gift' ? 'gift' : 'active',
+      }, { ...settingsAnalyticsContext(family), ...acquisition });
       setPurchaseCode('');
       Alert.alert('Code redeemed', 'Your family plan is active.');
     } catch (err) {
@@ -342,6 +376,21 @@ export default function SettingsMenuSheetScreen() {
 
   const contactSupport = () => {
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
+  };
+
+  const updateAnalyticsConsent = async (nextConsent) => {
+    if (analyticsConsentBusy) return;
+    setAnalyticsConsentBusy(true);
+    try {
+      const result = nextConsent === 'revoked'
+        ? await revokeAnalyticsConsent()
+        : await setAnalyticsConsent(nextConsent);
+      setAnalyticsConsentState(result.consent);
+    } catch (err) {
+      Alert.alert('Could not update analytics choice', err?.message || String(err));
+    } finally {
+      setAnalyticsConsentBusy(false);
+    }
   };
 
   return (
@@ -654,6 +703,13 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'privacy'}
               onPress={() => setActiveEditor(activeEditor === 'privacy' ? null : 'privacy')}
             />
+            <MenuItem
+              icon="analytics-outline"
+              label="Optional product analytics"
+              detail={`Current choice: ${analyticsConsent}`}
+              active={activeEditor === 'analytics'}
+              onPress={() => setActiveEditor(activeEditor === 'analytics' ? null : 'analytics')}
+            />
           </View>
           {activeEditor === 'privacy' ? (
             <PrivacyPanel
@@ -662,10 +718,27 @@ export default function SettingsMenuSheetScreen() {
               onReview={() => go({ pathname: '/library', params: { segment: 'search' } })}
             />
           ) : null}
+          {activeEditor === 'analytics' ? (
+            <AnalyticsConsentPanel
+              consent={analyticsConsent}
+              busy={analyticsConsentBusy}
+              onChange={updateAnalyticsConsent}
+            />
+          ) : null}
         </View>
       </ScrollView>
     </Screen>
   );
+}
+
+function settingsAnalyticsContext(family) {
+  return {
+    family_id: family?.id || null,
+    actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
 }
 
 function FamilyHero({ family }) {
@@ -972,6 +1045,54 @@ function PrivacyPanel({ counts, onManage, onReview }) {
           <Caption style={[styles.panelButtonText, { color: theme.semantic.textSoft }]}>Review moments</Caption>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function AnalyticsConsentPanel({ consent, busy, onChange }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <Eyebrow>Optional analytics</Eyebrow>
+      <Title style={styles.panelMetric}>Your family content stays out.</Title>
+      <Caption>
+        If you allow analytics, Our Little World sends coarse actions such as onboarding,
+        checkout, and whether a moment was saved to a dedicated product project. It never
+        sends child names, birthdays, photos, captions, notes, letters, prompt answers,
+        media identifiers, locations, contacts, or gift and redemption codes.
+      </Caption>
+      <Caption>Current choice: {consent}. Analytics is off unless this says granted.</Caption>
+      <View style={styles.panelButtonRow}>
+        <Pressable
+          onPress={() => onChange('granted')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Allow optional product analytics"
+          style={[styles.panelButton, styles.panelButtonInline, { borderColor: theme.semantic.border }]}
+        >
+          <Caption style={{ color: theme.semantic.primary }}>Allow analytics</Caption>
+        </Pressable>
+        <Pressable
+          onPress={() => onChange('denied')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Deny optional product analytics"
+          style={[styles.panelButton, styles.panelButtonInline, { borderColor: theme.semantic.border }]}
+        >
+          <Caption>Do not allow</Caption>
+        </Pressable>
+      </View>
+      {consent === 'granted' ? (
+        <Pressable
+          onPress={() => onChange('revoked')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Revoke analytics consent"
+          style={[styles.panelButton, { borderColor: theme.semantic.border }]}
+        >
+          <Caption>Revoke consent and reset this device's analytics session</Caption>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

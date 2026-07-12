@@ -18,6 +18,7 @@ import {
   SUPPORT_EMAIL,
   VAULT_MONTHLY_PRODUCT_ID,
   VAULT_YEARLY_PRODUCT_ID,
+  getFamilyAcquisitionContext,
   verifyStorePurchase,
 } from './billing';
 import {
@@ -34,6 +35,8 @@ import {
   space,
   useTheme,
 } from './ui';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform, productKeyForTier } from './analyticsProductContext';
 
 const TIERS = [
   {
@@ -105,6 +108,12 @@ export default function PurchaseScreen() {
       });
       await finishTransaction({ purchase, isConsumable: false });
       await refresh();
+      trackAnalyticsEvent('purchase_completed', {
+        surface: 'purchase',
+        product_key: productKeyFromProductId(purchase.productId),
+        purchase_channel: 'in_app',
+        plan_state_after: 'active',
+      }, purchaseAnalyticsContext(family));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStatus('Your family plan is active.');
     } catch (err) {
@@ -117,7 +126,7 @@ export default function PurchaseScreen() {
       verifyingRef.current = false;
       setBusyProductId(null);
     }
-  }, [family?.id, refresh]);
+  }, [family, refresh]);
 
   const onPurchaseError = useCallback((error) => {
     const message = String(error?.message || '');
@@ -170,6 +179,12 @@ export default function PurchaseScreen() {
     if (!family?.id || !user?.id || !selectedProduct) return;
     setBusyProductId(selectedProduct.productId);
     setStatus('Opening store purchase...');
+    trackAnalyticsEvent('purchase_started', {
+      surface: 'purchase',
+      purchase_source: 'paywall',
+      product_key: productKeyForTier(selectedTierKey, cadence),
+      purchase_channel: 'in_app',
+    }, purchaseAnalyticsContext(family));
     try {
       const offerToken = firstGoogleOfferToken(selectedProduct.native);
       await requestPurchase({
@@ -235,8 +250,24 @@ export default function PurchaseScreen() {
     }
     setRedeeming(true);
     setStatus('Redeeming code...');
+    trackAnalyticsEvent('gift_started', {
+      surface: 'purchase',
+      gift_source: 'settings',
+      gift_product_key: 'unknown',
+    }, purchaseAnalyticsContext(family));
     try {
-      await redeemCode(trimmed);
+      const redeemed = await redeemCode(trimmed);
+      let acquisition = {};
+      try {
+        acquisition = await getFamilyAcquisitionContext(family?.id);
+      } catch {
+        // Redemption remains successful when attribution readback is unavailable.
+      }
+      trackAnalyticsEvent('gift_redeemed', {
+        surface: 'purchase',
+        redemption_type: redemptionType(redeemed?.source),
+        plan_state_after: redeemed?.source === 'gift' ? 'gift' : 'active',
+      }, { ...purchaseAnalyticsContext(family), ...acquisition });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCode('');
       setStatus('Code redeemed. Your family plan is active.');
@@ -353,6 +384,30 @@ export default function PurchaseScreen() {
       </Caption>
     </Screen>
   );
+}
+
+function purchaseAnalyticsContext(family) {
+  return {
+    family_id: family?.id || null,
+    actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
+}
+
+function productKeyFromProductId(productId) {
+  if (productId === FAMILY_MONTHLY_PRODUCT_ID) return 'family_month';
+  if (productId === FAMILY_YEARLY_PRODUCT_ID) return 'family_year';
+  if (productId === VAULT_MONTHLY_PRODUCT_ID) return 'vault_month';
+  if (productId === VAULT_YEARLY_PRODUCT_ID) return 'vault_year';
+  return 'unknown';
+}
+
+function redemptionType(source) {
+  if (source === 'gift') return 'gift';
+  if (source === 'partner') return 'partner';
+  return 'website';
 }
 
 function TierCard({ tier, active, onPress }) {

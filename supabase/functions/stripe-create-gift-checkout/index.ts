@@ -1,4 +1,6 @@
 import {
+  acquisitionMetadataFromBody,
+  appendAcquisitionMetadata,
   codeHint,
   corsHeaders,
   errorResponse,
@@ -51,6 +53,7 @@ Deno.serve(async (req) => {
     params.set('metadata[delivery_day]', String(body.delivery_day || '').slice(0, 32));
     params.set('metadata[code_hash]', giftCodeHash);
     params.set('metadata[code_hint]', codeHint(giftCode));
+    appendAcquisitionMetadata(params, acquisitionMetadataFromBody(body));
 
     const session = await stripeFormRequest('/v1/checkout/sessions', params);
     return json({ url: session.url });

@@ -1,4 +1,6 @@
 import {
+  acquisitionMetadataFromBody,
+  appendAcquisitionMetadata,
   codeHint,
   corsHeaders,
   errorResponse,
@@ -49,6 +51,10 @@ Deno.serve(async (req) => {
     params.set('subscription_data[metadata][plan_key]', plan.planKey);
     params.set('subscription_data[metadata][claim_code_hash]', claimCodeHash);
     params.set('subscription_data[metadata][claim_code_hint]', codeHint(claimCode));
+    appendAcquisitionMetadata(params, acquisitionMetadataFromBody(body), [
+      'metadata',
+      'subscription_data[metadata]',
+    ]);
 
     const session = await stripeFormRequest('/v1/checkout/sessions', params);
     return json({ url: session.url });

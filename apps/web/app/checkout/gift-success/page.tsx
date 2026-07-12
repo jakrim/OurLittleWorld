@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
+
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",
   description: "Your Our Little World gift year purchase is ready to send or redeem.",
@@ -13,9 +15,11 @@ type GiftSuccessProps = {
 export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps) {
   const params = await searchParams;
   const giftCode = value(params?.gift_code);
+  const hasProviderReceipt = Boolean(value(params?.session_id));
 
   return (
     <main id="main">
+      <ConversionCompleteBeacon kind="gift" hasProviderReceipt={hasProviderReceipt} />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">

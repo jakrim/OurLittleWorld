@@ -2,6 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { deepLinkToSubscriptions } from 'expo-iap';
 
 import { supabase } from './supabase';
+import { sanitizeAcquisitionContext } from './analyticsProductContext';
 
 export const SUPPORT_EMAIL = 'support@ourlittleworld.me';
 export const FAMILY_MONTHLY_PRODUCT_ID = 'olw.family.monthly';
@@ -148,6 +149,17 @@ export async function getFamilyEntitlement(familyId) {
   });
   if (error) throw error;
   return normalizeEntitlement(Array.isArray(data) ? data[0] : data);
+}
+
+export async function getFamilyAcquisitionContext(familyId) {
+  if (!familyId) return {};
+  const { data, error } = await supabase.rpc('get_my_family_acquisition_attribution', {
+    target_family_id: familyId,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return {};
+  return sanitizeAcquisitionContext(row);
 }
 
 export async function redeemPurchaseCode({ familyId, code }) {
