@@ -3,7 +3,7 @@
   "sequence_id": "our-little-world-new-user-welcome-v1",
   "name": "Our Little World — New User Welcome",
   "source_sequence": "operations/lifecycle-emails.json#activation-first-approved-memory",
-  "status": "mailchimp_templates_uploaded_sender_and_flow_blocked",
+  "status": "mailchimp_flow_built_sender_and_activation_blocked",
   "classification": "marketing",
   "goal": "Help an explicitly consented new user save a first parent-approved memory without guilt, privacy ambiguity, or a manufactured backlog.",
   "entry": {
@@ -43,6 +43,17 @@
     "welcome-no-catch-up": 10054327,
     "first-memory-gentle-nudge": 10054328
   },
+  "mailchimp_flow": {
+    "flow_id": 7274,
+    "status": "draft_not_activated",
+    "campaign_ids": {
+      "orientation-one-moment": "1e30992877",
+      "permission-and-review-help": "9400f6fd31",
+      "privacy-and-control": "cca06254a1",
+      "welcome-no-catch-up": "d37f43d9fd",
+      "first-memory-gentle-nudge": "fd83d5b121"
+    }
+  },
   "tracking": {
     "utm_source": "lifecycle_email",
     "utm_medium": "email",
@@ -53,7 +64,6 @@
   "activation_requirements": [
     "Verify and authenticate ourlittleworld.me in Mailchimp",
     "Deploy marketing consent capture and moment_saved exit synchronization",
-    "Build the five-step Mailchimp Automation Flow in paused state",
     "Render and link-check every email on desktop and mobile",
     "Send tests and verify unsubscribe, suppression, and provider receipts",
     "Turn the flow on only after all prior requirements pass"
