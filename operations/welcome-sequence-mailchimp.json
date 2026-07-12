@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "sequence_id": "our-little-world-new-user-welcome-v1",
+  "name": "Our Little World — New User Welcome",
+  "source_sequence": "operations/lifecycle-emails.json#activation-first-approved-memory",
+  "status": "mailchimp_templates_uploaded_audience_and_sender_blocked",
+  "classification": "marketing",
+  "goal": "Help an explicitly consented new user save a first parent-approved memory without guilt, privacy ambiguity, or a manufactured backlog.",
+  "entry": {
+    "audience_name": "Our Little World",
+    "audience_id": null,
+    "trigger": "Mailchimp tag welcome-our-little-world-v1 added only after server-authored Our Little World marketing consent",
+    "required_fields": ["marketing_consent", "consent_source", "consent_timestamp", "coarse_activation_state"],
+    "forbidden_sources": ["Get Mentors", "LiveVault", "unconsented product accounts"]
+  },
+  "suppression": [
+    "unsubscribed",
+    "cleaned_or_hard_bounced",
+    "abuse_complaint",
+    "consent_revoked",
+    "account_deleted",
+    "deletion_pending"
+  ],
+  "behavioral_exit": "moment_saved",
+  "sender": {
+    "from_name": "Jesse at Our Little World",
+    "from_email": "support@ourlittleworld.me",
+    "reply_to": "support@ourlittleworld.me",
+    "verification_required": true,
+    "verified": false
+  },
+  "flow": [
+    {"message_id": "orientation-one-moment", "delay": "immediate"},
+    {"message_id": "permission-and-review-help", "delay": "2 days if no moment_saved"},
+    {"message_id": "privacy-and-control", "delay": "4 days if no moment_saved"},
+    {"message_id": "welcome-no-catch-up", "delay": "7 days if no moment_saved"},
+    {"message_id": "first-memory-gentle-nudge", "delay": "10 days if no moment_saved"}
+  ],
+  "mailchimp_templates": {
+    "orientation-one-moment": 10054324,
+    "permission-and-review-help": 10054325,
+    "privacy-and-control": 10054326,
+    "welcome-no-catch-up": 10054327,
+    "first-memory-gentle-nudge": 10054328
+  },
+  "tracking": {
+    "utm_source": "lifecycle_email",
+    "utm_medium": "email",
+    "utm_campaign": "activation_first_memory",
+    "primary_outcome": "moment_saved",
+    "guardrails": ["consent_revoked", "unsubscribed", "complained", "hard_bounced"]
+  },
+  "activation_requirements": [
+    "Delete the locked Beta Testers v1 and Test Audience after Mailchimp's seven-day hold",
+    "Create a clean empty double-opt-in audience named Our Little World",
+    "Verify and authenticate ourlittleworld.me in Mailchimp",
+    "Deploy marketing consent capture and moment_saved exit synchronization",
+    "Build the five-step Mailchimp Automation Flow in paused state",
+    "Render and link-check every email on desktop and mobile",
+    "Send tests and verify unsubscribe, suppression, and provider receipts",
+    "Turn the flow on only after all prior requirements pass"
+  ]
+}
