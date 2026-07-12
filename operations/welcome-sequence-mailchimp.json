@@ -3,12 +3,12 @@
   "sequence_id": "our-little-world-new-user-welcome-v1",
   "name": "Our Little World — New User Welcome",
   "source_sequence": "operations/lifecycle-emails.json#activation-first-approved-memory",
-  "status": "mailchimp_templates_uploaded_audience_and_sender_blocked",
+  "status": "mailchimp_templates_uploaded_sender_and_flow_blocked",
   "classification": "marketing",
   "goal": "Help an explicitly consented new user save a first parent-approved memory without guilt, privacy ambiguity, or a manufactured backlog.",
   "entry": {
     "audience_name": "Our Little World",
-    "audience_id": null,
+    "audience_id": "333fbdbba0",
     "trigger": "Mailchimp tag welcome-our-little-world-v1 added only after server-authored Our Little World marketing consent",
     "required_fields": ["marketing_consent", "consent_source", "consent_timestamp", "coarse_activation_state"],
     "forbidden_sources": ["Get Mentors", "LiveVault", "unconsented product accounts"]
@@ -51,8 +51,6 @@
     "guardrails": ["consent_revoked", "unsubscribed", "complained", "hard_bounced"]
   },
   "activation_requirements": [
-    "Delete the locked Beta Testers v1 and Test Audience after Mailchimp's seven-day hold",
-    "Create a clean empty double-opt-in audience named Our Little World",
     "Verify and authenticate ourlittleworld.me in Mailchimp",
     "Deploy marketing consent capture and moment_saved exit synchronization",
     "Build the five-step Mailchimp Automation Flow in paused state",
