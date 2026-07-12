@@ -1,0 +1,22 @@
+Build together · invite
+
+*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+
+One person never sees the whole beginning.
+
+The other caregiver remembers a different joke, catches a different photo, and notices the routine you stopped seeing because you were inside it.
+
+Invite that one person into the same private family space. The goal is not a bigger audience. It is one shared story with both points of view.
+
+Two perspectives, one story
+Invite one trusted caregiver. Keep the circle small and the record shared.
+
+Invite a caregiver: ourlittleworld://invite?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=invite-caregiver
+
+— Jesse
+
+You are receiving this because you explicitly opted in to Our Little World product guidance.
+
+Update preferences: *|UPDATE_PROFILE|*
+Unsubscribe: *|UNSUB|*
+*|LIST:ADDRESS|*

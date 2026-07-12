@@ -54,6 +54,29 @@ test('valid first-memory attribution contains only coarse dimensions', () => {
   assert.equal(JSON.stringify(event).includes('birthday'), false);
 });
 
+test('lifecycle outcome events keep only coarse product state', () => {
+  const first = buildAnalyticsEvent('first_created', {
+    surface: 'firsts',
+    creation_source: 'manual',
+    has_note: true,
+    has_media: true,
+  }, { family_id: 'family-1', actor_role: 'creator' });
+  const letter = buildAnalyticsEvent('letter_created', {
+    surface: 'letters',
+    has_title: false,
+  }, { family_id: 'family-1', actor_role: 'partner' });
+  const invite = buildAnalyticsEvent('caregiver_invite_created', {
+    surface: 'invite',
+    invite_role: 'partner',
+  }, { family_id: 'family-1', actor_role: 'creator' });
+
+  assert.equal(first.has_note, true);
+  assert.equal(letter.has_title, false);
+  assert.equal(invite.invite_role, 'partner');
+  assert.equal(JSON.stringify({ first, letter, invite }).includes('title_text'), false);
+  assert.equal(JSON.stringify({ first, letter, invite }).includes('invite_code'), false);
+});
+
 test('acquisition sanitizer rejects contact data and URLs', () => {
   assert.deepEqual(sanitizeAcquisitionContext({
     campaign: 'parent@example.com',

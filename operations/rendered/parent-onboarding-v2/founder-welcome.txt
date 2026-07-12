@@ -1,0 +1,22 @@
+Begin small · welcome
+
+*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+
+My wife and I kept taking photos and videos of our baby, just like everyone does. But when we tried to revisit them, the camera roll gave us files—not the family story we wanted to remember.
+
+Our Little World began with that gap. It is a private place for the photos, firsts, voice notes, and letters we choose to keep, with the meaning still attached.
+
+You do not need to organize the camera roll or reconstruct every month. Choose one recent photo that still feels close and add one line about why you kept it. That is a real beginning.
+
+One photo + one line
+Not the best photo. Not the whole month. Just the moment whose story you still know.
+
+Save one moment: ourlittleworld://add?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=founder-welcome
+
+— Jesse
+
+You are receiving this because you explicitly opted in to Our Little World product guidance.
+
+Update preferences: *|UPDATE_PROFILE|*
+Unsubscribe: *|UNSUB|*
+*|LIST:ADDRESS|*

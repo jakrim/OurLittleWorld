@@ -106,6 +106,9 @@
     },
     {
       "sequence_id": "activation-first-approved-memory",
+      "status": "retired_no_entry",
+      "superseded_by": "operations/parent-onboarding-v2.json",
+      "retirement_reason": "The fixed five-email path could send first-memory prompts after activation and did not include the founder relationship or post-activation baby-book value.",
       "classification": "marketing",
       "entry": "account created with explicit Our Little World marketing consent and no moment_saved event",
       "consent_requirement": "explicit marketing consent with recorded source and timestamp",

@@ -1,71 +1,40 @@
 {
-  "schema_version": 1,
-  "sequence_id": "our-little-world-new-user-welcome-v1",
-  "name": "Our Little World — New User Welcome",
-  "source_sequence": "operations/lifecycle-emails.json#activation-first-approved-memory",
-  "status": "mailchimp_flow_built_sender_and_activation_blocked",
+  "schema_version": 2,
+  "sequence_id": "olw-parent-onboarding-v2",
+  "name": "Our Little World — Begin Small, Build Together",
+  "source_sequence": "operations/parent-onboarding-v2.json",
+  "status": "mailchimp_drafts_updated_activation_blocked",
   "classification": "marketing",
-  "goal": "Help an explicitly consented new user save a first parent-approved memory without guilt, privacy ambiguity, or a manufactured backlog.",
-  "entry": {
-    "audience_name": "Our Little World",
-    "audience_id": "333fbdbba0",
-    "trigger": "Mailchimp tag welcome-our-little-world-v1 added only after server-authored Our Little World marketing consent",
-    "required_fields": ["marketing_consent", "consent_source", "consent_timestamp", "coarse_activation_state"],
-    "forbidden_sources": ["Get Mentors", "LiveVault", "unconsented product accounts"]
+  "audience_id": "333fbdbba0",
+  "audience_members": 0,
+  "flow_id": 7274,
+  "flow_status": "draft_not_activated",
+  "architecture": {
+    "pre_activation": ["founder-welcome", "one-photo-one-line", "privacy-control"],
+    "exit_to_post_activation": "moment_saved",
+    "post_activation": ["invite-caregiver", "firsts-payoff", "letter-ritual"]
   },
-  "suppression": [
-    "unsubscribed",
-    "cleaned_or_hard_bounced",
-    "abuse_complaint",
-    "consent_revoked",
-    "account_deleted",
-    "deletion_pending"
+  "mailchimp": {
+    "founder-welcome": {"template_id": 10054324, "campaign_id": "1e30992877"},
+    "one-photo-one-line": {"template_id": 10054325, "campaign_id": "9400f6fd31"},
+    "privacy-control": {"template_id": 10054326, "campaign_id": "cca06254a1"},
+    "invite-caregiver": {"template_id": 10054327, "campaign_id": "d37f43d9fd"},
+    "firsts-payoff": {"template_id": 10054328, "campaign_id": "fd83d5b121"},
+    "letter-ritual": {"template_id": 10054329, "campaign_id": null}
+  },
+  "activation_blockers": [
+    "ourlittleworld.me is not authenticated in Mailchimp",
+    "explicit server-authored marketing consent synchronization is not deployed",
+    "moment_saved and downstream outcome synchronization to provider state is not deployed",
+    "the letter-ritual template is not attached to a post-activation journey campaign",
+    "reply routing from support@ourlittleworld.me is not verified",
+    "representative real-client rendering beyond controlled receipt is incomplete"
   ],
-  "behavioral_exit": "moment_saved",
-  "sender": {
-    "from_name": "Jesse at Our Little World",
-    "from_email": "support@ourlittleworld.me",
-    "reply_to": "support@ourlittleworld.me",
-    "verification_required": true,
-    "verified": false
-  },
-  "flow": [
-    {"message_id": "orientation-one-moment", "delay": "immediate"},
-    {"message_id": "permission-and-review-help", "delay": "2 days if no moment_saved"},
-    {"message_id": "privacy-and-control", "delay": "4 days if no moment_saved"},
-    {"message_id": "welcome-no-catch-up", "delay": "7 days if no moment_saved"},
-    {"message_id": "first-memory-gentle-nudge", "delay": "10 days if no moment_saved"}
-  ],
-  "mailchimp_templates": {
-    "orientation-one-moment": 10054324,
-    "permission-and-review-help": 10054325,
-    "privacy-and-control": 10054326,
-    "welcome-no-catch-up": 10054327,
-    "first-memory-gentle-nudge": 10054328
-  },
-  "mailchimp_flow": {
-    "flow_id": 7274,
-    "status": "draft_not_activated",
-    "campaign_ids": {
-      "orientation-one-moment": "1e30992877",
-      "permission-and-review-help": "9400f6fd31",
-      "privacy-and-control": "cca06254a1",
-      "welcome-no-catch-up": "d37f43d9fd",
-      "first-memory-gentle-nudge": "fd83d5b121"
-    }
-  },
-  "tracking": {
-    "utm_source": "lifecycle_email",
-    "utm_medium": "email",
-    "utm_campaign": "activation_first_memory",
-    "primary_outcome": "moment_saved",
-    "guardrails": ["consent_revoked", "unsubscribed", "complained", "hard_bounced"]
-  },
-  "activation_requirements": [
-    "Verify and authenticate ourlittleworld.me in Mailchimp",
-    "Deploy marketing consent capture and moment_saved exit synchronization",
-    "Render and link-check every email on desktop and mobile",
-    "Send tests and verify unsubscribe, suppression, and provider receipts",
-    "Turn the flow on only after all prior requirements pass"
-  ]
+  "controlled_test": {
+    "received": true,
+    "content_and_footer_present": true,
+    "sender_gate_passed": false,
+    "failure": "Mailchimp substituted the authenticated Get Mentors account sender",
+    "temporary_test_campaign_deleted": true
+  }
 }

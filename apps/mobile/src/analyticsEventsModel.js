@@ -16,6 +16,18 @@ const EVENT_SPECS = Object.freeze({
       media_count_bucket: ['0', '1', '2_4', '5_9', '10_24', '25_plus'],
     },
   },
+  caregiver_invite_created: {
+    required: ['surface', 'invite_role'],
+    values: { surface: ['invite'], invite_role: ['partner', 'circle'] },
+  },
+  first_created: {
+    required: ['surface', 'creation_source', 'has_note', 'has_media'],
+    values: { surface: ['firsts'], creation_source: ['manual', 'suggested', 'completed_existing'] },
+  },
+  letter_created: {
+    required: ['surface', 'has_title'],
+    values: { surface: ['letters'] },
+  },
   purchase_started: {
     required: ['surface', 'purchase_source', 'product_key', 'purchase_channel'],
     values: {

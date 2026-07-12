@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -20,6 +20,8 @@ import { notifyPartnerFirstSaved } from './notificationEvents';
 import { fetchPhotosPage, getLibraryPermissionStatus, normalizeMediaLibraryAssetId } from './photos';
 import { listSharedTagged, listSharedTaggedChronological, uploadForTag } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 const RECENT_PHOTO_LIMIT = 60;
 const FIRST_PHOTO_CANDIDATE_LIMIT = 120;
@@ -186,6 +188,19 @@ export default function FirstComposeSheetScreen() {
           firstId: savedFirst?.id,
           title: savedFirst?.title || effectiveTitle,
         }).catch((err) => console.warn('notify partner first saved', err?.message));
+      }
+      if (!existing || existing.done === false) {
+        trackAnalyticsEvent('first_created', {
+          surface: 'firsts',
+          creation_source: existing ? 'completed_existing' : seededFirst ? 'suggested' : 'manual',
+          has_note: Boolean(note.trim()),
+          has_media: Boolean(assetId),
+        }, {
+          family_id: family?.id || null,
+          actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+          platform: analyticsPlatform(Platform.OS),
+          environment: analyticsEnvironment(),
+        });
       }
       close();
     } catch (err) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Share, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, Share, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -8,6 +8,8 @@ import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyeb
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 /**
  * Generates a single-use invite code (8 chars, 7-day expiry). The deep
@@ -52,6 +54,15 @@ export default function InviteScreen() {
       setCode(inv.code);
       setExpires(inv.expiresAt);
       setCodeRole(inviteRole);
+      trackAnalyticsEvent('caregiver_invite_created', {
+        surface: 'invite',
+        invite_role: inviteRole,
+      }, {
+        family_id: familyId,
+        actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+      });
     } catch (err) {
       Alert.alert('Could not create invite', err.message || String(err));
     } finally {

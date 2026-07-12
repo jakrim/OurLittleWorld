@@ -1,0 +1,25 @@
+Begin small · your control
+
+*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+
+Family media deserves a clear boundary.
+
+You choose what photo access to grant. Manual adds use the system picker or the permission on your device. Optional discovery can scan locally to surface likely moments for review. Selected manual imports and calibrated auto-saves are uploaded to the private family archive; nothing is posted to a public feed.
+
+If broad library access does not feel right, keep it limited and add a photo manually. You should be able to begin without surrendering the choice.
+
+The choices stay with you
+
+- Choose limited, full, or no photo-library access in device settings
+- Review or manually select what belongs
+- Change the permission later if you want
+
+Review privacy and control: https://ourlittleworld.me/privacy/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=privacy-control
+
+— Jesse
+
+You are receiving this because you explicitly opted in to Our Little World product guidance.
+
+Update preferences: *|UPDATE_PROFILE|*
+Unsubscribe: *|UNSUB|*
+*|LIST:ADDRESS|*

@@ -1,0 +1,22 @@
+Build together · firsts
+
+*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+
+A milestone list can tell you what changed. It rarely keeps the part your family will actually repeat later.
+
+In Firsts, record one change and add the detail around it: where you were, what happened just before, or the phrase everyone kept using afterward.
+
+The milestone is the label. The detail is the family story.
+
+Name the change. Keep the detail.
+One milestone, described in the language your family will recognize later.
+
+Add one first: ourlittleworld://firsts?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=firsts-payoff
+
+— Jesse
+
+You are receiving this because you explicitly opted in to Our Little World product guidance.
+
+Update preferences: *|UPDATE_PROFILE|*
+Unsubscribe: *|UNSUB|*
+*|LIST:ADDRESS|*

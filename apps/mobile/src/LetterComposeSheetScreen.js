@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Platform, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } from './ui';
@@ -7,6 +7,8 @@ import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { notifyPartnerLetterSealed } from './notificationEvents';
 import { addYearsToIsoDate, Letters } from './rituals';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 export default function LetterComposeSheetScreen() {
   const router = useRouter();
@@ -37,6 +39,15 @@ export default function LetterComposeSheetScreen() {
         actorUserId: user?.id,
         letterId: letter?.id,
       }).catch((err) => console.warn('notify partner letter sealed', err?.message));
+      trackAnalyticsEvent('letter_created', {
+        surface: 'letters',
+        has_title: Boolean(title.trim()),
+      }, {
+        family_id: family?.id || null,
+        actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+      });
       close();
     } catch (err) {
       Alert.alert('Could not seal letter', err?.message || String(err));

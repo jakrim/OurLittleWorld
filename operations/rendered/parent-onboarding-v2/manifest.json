@@ -1,0 +1,38 @@
+[
+  {
+    "id": "founder-welcome",
+    "subject": "Why our camera roll wasn't enough",
+    "preview": "My wife and I wanted the story around our baby's photos—not another project for someday.",
+    "name": "OLW Parent Welcome V2 01 — founder-welcome"
+  },
+  {
+    "id": "one-photo-one-line",
+    "subject": "Try the photo that needs one sentence",
+    "preview": "Choose an ordinary photo and write the detail only you would know.",
+    "name": "OLW Parent Welcome V2 02 — one-photo-one-line"
+  },
+  {
+    "id": "privacy-control",
+    "subject": "What Our Little World does with your photos",
+    "preview": "Discovery is optional. A memory enters the family space only through the product's documented save behavior.",
+    "name": "OLW Parent Welcome V2 03 — privacy-control"
+  },
+  {
+    "id": "invite-caregiver",
+    "subject": "Invite the person who remembers the other half",
+    "preview": "Add one trusted caregiver to the private family space—without making another feed.",
+    "name": "OLW Parent Welcome V2 04 — invite-caregiver"
+  },
+  {
+    "id": "firsts-payoff",
+    "subject": "A first is more than a milestone",
+    "preview": "Record one change and the small detail that makes it yours.",
+    "name": "OLW Parent Welcome V2 05 — firsts-payoff"
+  },
+  {
+    "id": "letter-ritual",
+    "subject": "Write one sentence for later",
+    "preview": "Begin with one thing you noticed today. Stop after one sentence if that is enough.",
+    "name": "OLW Parent Welcome V2 06 — letter-ritual"
+  }
+]
