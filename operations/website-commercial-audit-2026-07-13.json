@@ -165,11 +165,20 @@
     "canonical_brand_assets_verified": true
   },
   "deployment": {
+    "source_commit": "6f29c17bea3b73f52eea4968d67c5d983a8c85b1",
     "production_url": "https://ourlittleworld.me",
     "platform": "Vercel",
+    "deployment_id": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployment_url": "https://our-little-world-62fnys3ir-jessekrim.vercel.app",
+    "inspector_url": "https://vercel.com/jessekrim/our-little-world/6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployed_at": "2026-07-13T18:08:11Z",
+    "verified_at": "2026-07-13T18:09:31.859Z",
+    "health_release": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
     "apex_and_www_verified": true,
     "health_endpoint_verified": true,
     "all_public_routes_verified_after_deploy": true,
+    "runtime_error_logs_last_30_minutes": 0,
+    "http_500_logs_last_30_minutes": 0,
     "rollback": "Promote the previous healthy Vercel production deployment and keep commerce coming_soon. Set OUR_LITTLE_WORLD_MAILCHIMP_SYNC_ENABLED=false to stop provider writes while retaining signed suppression webhooks. Redeploy prior Edge Function source if needed. Database migrations are additive and must not be destructively rolled back."
   },
   "release_blockers": [

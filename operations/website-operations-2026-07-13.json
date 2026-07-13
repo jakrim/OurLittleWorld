@@ -4,6 +4,17 @@
   "recorded_at": "2026-07-13",
   "environment": "production",
   "public_url": "https://ourlittleworld.me",
+  "release": {
+    "source_commit": "6f29c17bea3b73f52eea4968d67c5d983a8c85b1",
+    "deployment_id": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployment_url": "https://our-little-world-62fnys3ir-jessekrim.vercel.app",
+    "inspector_url": "https://vercel.com/jessekrim/our-little-world/6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployed_at": "2026-07-13T18:08:11Z",
+    "verified_at": "2026-07-13T18:09:31.859Z",
+    "health_release": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "runtime_error_logs_last_30_minutes": 0,
+    "http_500_logs_last_30_minutes": 0
+  },
   "owners": {
     "website": "Vercel project our-little-world",
     "canonical_marketing_ledger": "Supabase project baxgullapuksjbzkogii",
