@@ -3,18 +3,19 @@
   "theme": "our-little-world",
   "email_brand": {
     "layout": "lockup",
+    "align": "center",
     "tagline": "For two, for now, for later",
     "logo": {
       "mailchimp_file_id": 3221780,
       "src": "https://mcusercontent.com/0477f4a0be2483e172607c403/images/63e93442-dbe2-2411-0867-888f4626d3a4.png",
       "alt": "Our Little World",
-      "width": 280
+      "width": 250
     }
   },
   "template_prefix": "OLW Parent Welcome V2",
   "sequence_id": "olw-parent-onboarding-v2",
   "name": "Our Little World — Begin Small, Build Together",
-  "status": "provider_draft_activation_blocked",
+  "status": "provider_active",
   "classification": "marketing",
   "goal": "Help a consented parent save a first meaningful, parent-approved memory and then experience the shared baby-book value.",
   "activation_event": "moment_saved",

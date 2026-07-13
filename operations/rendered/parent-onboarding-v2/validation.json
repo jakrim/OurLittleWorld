@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-13T15:46:51.381Z",
+  "generated_at": "2026-07-13T17:10:43.291Z",
   "input_dir": "/Users/jessekrim/Desktop/app-marketing/_worktrees/olw-growth-measurement/operations/rendered/parent-onboarding-v2",
   "total": 6,
   "passed": 6,
   "rows": [
     {
       "file": "firsts-payoff.html",
-      "bytes": 7233,
+      "bytes": 7244,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
@@ -37,7 +37,7 @@
     },
     {
       "file": "founder-welcome.html",
-      "bytes": 8818,
+      "bytes": 8829,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
@@ -68,7 +68,7 @@
     },
     {
       "file": "invite-caregiver.html",
-      "bytes": 7893,
+      "bytes": 7904,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
@@ -99,7 +99,7 @@
     },
     {
       "file": "letter-ritual.html",
-      "bytes": 8283,
+      "bytes": 8294,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
@@ -130,7 +130,7 @@
     },
     {
       "file": "one-photo-one-line.html",
-      "bytes": 7995,
+      "bytes": 8006,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
@@ -161,7 +161,7 @@
     },
     {
       "file": "privacy-control.html",
-      "bytes": 8153,
+      "bytes": 8164,
       "checks": {
         "html_under_100kb": true,
         "no_javascript": true,
