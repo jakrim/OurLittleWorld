@@ -43,11 +43,18 @@ test("public pre-launch pages hide commerce forms and all Partners links", () =>
   }
 
   assert.doesNotMatch(publicPageContent("pricing", options), /data-conversion-form="self"/);
-  assert.doesNotMatch(publicPageContent("gift", options), /data-conversion-form="gift"/);
+  const pricing = publicPageContent("pricing", options);
+  const gift = publicPageContent("gift", options);
+  assert.doesNotMatch(gift, /data-conversion-form="gift"/);
+  assert.doesNotMatch(gift, /Giving Our Little World to more than one family/);
   const home = publicPageContent("home", options);
   assert.match(home, /Join the launch list/);
   assert.doesNotMatch(home, /Start your (private )?baby book/);
   assert.doesNotMatch(home, /Gift the first year/);
+  assert.doesNotMatch(home, /Create a private family space today/);
+  assert.doesNotMatch(home, /Send a year of Our Little World/);
+  assert.doesNotMatch(pricing, /Yes\. The gift flow collects/);
+  assert.match(gift, /Purchase and redemption are not publicly available yet|Planned gift years/);
   assert.equal(sitemap().some((entry) => entry.url.includes("/partners/")), false);
   assert.ok(robots().rules && !Array.isArray(robots().rules));
   assert.ok((robots().rules as { disallow?: string[] }).disallow?.includes("/partners/"));

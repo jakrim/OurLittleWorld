@@ -48,6 +48,7 @@ export function publicPageContent(
     html = html
       .replace(/<a class="button button-ghost" href="\/partners\/">[\s\S]*?<\/a>/g, "")
       .replace(/<div class="cta-row" style="justify-content: center;">\s*<a class="button button-dark" href="\/partners\/">[\s\S]*?<\/a>\s*<\/div>/g, "");
+    if (key === "gift") html = removeSection(html, '<section class="final-cta band-soft">');
   }
 
   if (commerceState !== "live" && commerceState !== "test") {
@@ -68,7 +69,27 @@ export function publicPageContent(
       .replaceAll('href="#checkout">Choose Vault', 'href="#launch-list">Get Vault launch updates')
       .replaceAll('href="/gift/">Gift a year', 'href="/gift/#launch-list">Get gift launch updates')
       .replace("<p class=\"script\">pricing</p>", "<p class=\"script\">planned launch pricing</p>")
-      .replace("<p class=\"script\">gift the first year</p>", "<p class=\"script\">gift years at launch</p>");
+      .replace("<p class=\"script\">gift the first year</p>", "<p class=\"script\">gift years at launch</p>")
+      .replaceAll(
+        "Create a private family space today, or gift the first year to someone you love.",
+        "Join the launch list for app availability, website purchasing, and gift-year updates.",
+      )
+      .replaceAll(
+        "Send a year of Our Little World to a friend, sibling, client, or new-parent couple. It gives them a quiet place to keep the beginning before the first months blur together.",
+        "Gift years are planned for friends, siblings, clients, and new-parent couples. Join the launch list for purchase and redemption availability.",
+      )
+      .replaceAll(
+        "Yes. The gift flow collects recipient details and a personal note before secure gift checkout, for a Family or Vault gift year.",
+        "Gift years are planned for Family and Vault. Purchase and redemption are not publicly available yet.",
+      )
+      .replaceAll(
+        "A year of Our Little World gives new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately.",
+        "Planned gift years will give new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately.",
+      )
+      .replaceAll(
+        "Send it before the baby arrives so the family can start from day one.",
+        "Plan it before the baby arrives so the family can start from day one once gifting is available.",
+      );
   }
 
   if (commerceState === "test") {
