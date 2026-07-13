@@ -38,8 +38,9 @@ pnpm dev
 - `/for/unfinished-baby-book/`
 
 `/partners/` is retained in source behind `NEXT_PUBLIC_OLW_PARTNERS_ENABLED`, but
-returns 404, is excluded from navigation and the sitemap, and is disallowed in
-robots while the program does not exist.
+returns a noindex 404 and is excluded from navigation and the sitemap while the
+program does not exist. `robots.txt` does not hide the URL so crawlers can observe
+the 404 and remove any stale listing.
 
 ## Vercel Deployment
 
@@ -95,6 +96,20 @@ The same allowlisted first-touch and last-touch attribution is submitted to the
 checkout Edge Functions, copied into Stripe metadata, retained by the webhook,
 and attached to the family entitlement when a website or gift code is redeemed.
 Private checkout fields are never placed in analytics payloads. The launch list
-is stored in the consent-only `marketing_contacts` ledger; it is not synced to
-Mailchimp until the Our Little World sending domain and server-side consent sync
-are verified.
+is first stored in the consent-only `marketing_contacts` ledger, then synchronized
+through a retryable server-side outbox to the dedicated `Our Little World Website
+Launch` Mailchimp audience. Signed provider webhooks feed unsubscribe, complaint,
+bounce, and confirmed resubscribe state back into the canonical ledger. Website
+interest never enters the separate parent-product onboarding audience.
+
+## Website operations
+
+- `/api/health/` is a no-store, noindex liveness endpoint for the public site.
+- Supabase dispatches route and marketing work every five minutes, evaluates
+  operational alerts every ten minutes, and keeps durable open/resolved records.
+- Marketing contacts are RPC-only; direct table access is denied even with the
+  service role. Consent history is append-only and suppression wins over form
+  resubmission until the provider confirms a new subscription.
+- The launch-signup function acknowledges after durable enqueue. Mailchimp
+  delivery is asynchronous, leased, idempotent, and retried with a terminal
+  quarantine instead of blocking the browser request.

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "our-little-world",
   "reviewed_at": "2026-07-13",
   "branch": "codex/olw-growth-measurement",
@@ -16,39 +16,75 @@
     "informational: story, pricing, privacy, terms, and refunds"
   ],
   "responsive_review": {
-    "root_cause": "The fixed analytics-consent panel used the full content width and obscured the mobile hero and actions; the hero image itself already used bounded aspect-ratio and object-fit rules.",
-    "repair": "The consent panel is now width-capped, compact, centered, and uses mobile action wrapping; the hero and secondary gift action remain visible at 390x844.",
-    "mobile_navigation_verified": true,
-    "desktop_layout_verified": true,
-    "gift_form_mobile_verified": true,
-    "production_desktop_viewport": "1440x900",
-    "production_mobile_viewport": "390x844",
-    "production_browser_errors": 0
+    "root_cause": "The old hero mixed absolute positioning, negative offsets, and short-height sizing rules, allowing the product visual to escape its layout area and clip or collide with copy and actions.",
+    "repair": "The hero now uses a bounded in-flow grid on wider screens and a stacked flow at 680px and below, with intrinsic image dimensions, capped artwork height, and no off-canvas positioning.",
+    "required_viewports_passed": 14,
+    "required_viewports_total": 14,
+    "continuous_width_sweep_passed": 33,
+    "continuous_width_sweep_total": 33,
+    "continuous_width_range": "320px through 1600px in 40px increments",
+    "checks": [
+      "no horizontal overflow",
+      "hero art remains inside viewport",
+      "copy and art do not overlap",
+      "actions remain inside viewport",
+      "hero image loads"
+    ],
+    "browser": "Chromium in-app browser",
+    "safari_status": "not_verified_local_mac_locked"
+  },
+  "seo_geo_review": {
+    "indexable_routes": 8,
+    "all_indexable_routes_status_200": true,
+    "all_indexable_routes_have_self_canonical": true,
+    "all_indexable_routes_have_unique_metadata": true,
+    "sitemap_exact_indexable_route_set": true,
+    "robots_allows_crawling": true,
+    "partners_route": "404_noindex_no_canonical",
+    "checkout_results": "200_noindex_no_canonical",
+    "email_preferences": "200_noindex",
+    "unknown_routes": "404_noindex_no_canonical",
+    "homepage_structured_data": ["Organization", "WebSite"],
+    "content_route_structured_data": ["BreadcrumbList"],
+    "unsupported_commercial_schema_absent": true,
+    "social_image_dimensions": "1200x630",
+    "www_redirect": "308_to_apex"
   },
   "performance_review": {
     "production_build": "passed",
-    "route_count": 16,
     "core_web_vitals_trace": "blocked_chrome_devtools_mcp_not_configured",
     "network_dependency_analysis": "not_measured",
-    "accessibility_tree_snapshot": "verified_in_browser_but_not_measured_by_chrome_devtools"
+    "browser_geometry_and_asset_load": "passed"
+  },
+  "accessibility_review": {
+    "launch_form_labels_consent_and_live_status": "passed",
+    "native_email_keyboard_and_autocomplete": "passed_by_implementation_and_browser_interaction",
+    "responsive_zoom_and_overflow": "passed_in_chromium_width_sweep",
+    "gift_form_semantics": "native_labels_and_controls_present_in_test_live_implementation",
+    "real_screen_reader_pass": "not_run",
+    "automated_devtools_audit": "not_run_chrome_devtools_mcp_not_configured"
   },
   "stripe_test_mode": {
     "mode_pin_verified": true,
     "successful_subscription": "passed",
     "declined_card": "passed_no_entitlement",
-    "3ds_required": "passed",
+    "three_ds_required": "passed",
     "checkout_cancellation": "passed_visible_no_charge_state",
     "abandoned_checkout": "passed_unpaid_no_code",
     "expired_checkout": "covered_by_server_state_branch_not_provider_waited",
     "duplicate_submission": "passed_same_checkout_session",
-    "webhook_signature_tolerance": "passed_300_second_unit_gate",
     "duplicate_webhook": "unique_event_and_outbox_constraints_verified",
-    "out_of_order_gift_refund": "reconciliation_path_implemented_not_forced_at_provider",
-    "failed_email_worker_retry": "passed_five_attempt_ceiling",
+    "delayed_webhook": "verified_by_signature_idempotency_and_reconciliation_tests_not_forced_at_provider",
+    "failed_webhook_then_retry": "verified_by_retry_tests_not_forced_at_provider",
+    "out_of_order_webhook": "reconciliation_path_and_constraints_verified_not_forced_at_provider",
+    "existing_customer": "canonical_identity_idempotency_and_existing_account_redemption_paths_passed",
     "canonical_subscription": "passed_active_hashed_code_redacted_receipt",
     "scheduled_cancellation": "passed_access_retained_to_paid_period",
     "immediate_lapse": "passed_subscription_and_entitlement_canceled",
-    "provider_refund": "passed"
+    "provider_refund": "passed",
+    "provider_receipt": "not_delivered_missing_transactional_provider",
+    "verified_completion_analytics": "server_origin_implemented_provider_readback_pending",
+    "live_mode_exercised": false
   },
   "gift_test_mode": {
     "checkout": "passed",
@@ -65,27 +101,58 @@
     "delivery_provider": "blocked_missing_transactional_provider_and_scheduler"
   },
   "acquisition": {
-    "launch_form_acceptance": "passed_in_production_browser_to_marketing_contacts_with_controlled_example_address",
+    "launch_form_acceptance": "passed_in_production_browser",
     "explicit_marketing_consent": true,
     "transactional_marketing_separation": true,
+    "canonical_ledger": "supabase_rpc_only",
+    "mailchimp_sync": "active_server_side_outbox",
+    "mailchimp_audience_id": "91d293c5c4",
+    "mailchimp_audience_name": "Our Little World Website Launch",
+    "mailchimp_campaign_count": 0,
+    "mailchimp_domain_status": "authenticated",
+    "signed_webhook": true,
+    "suppression_round_trip": "verified_unsubscribe_reconfirmation_and_confirmed_resubscribe",
+    "idempotency": "verified_repeat_form_and_duplicate_webhook",
+    "parent_onboarding_audience_isolated": true,
     "first_touch_checkout_metadata": "verified",
     "last_touch_checkout_metadata": "verified",
     "entitlement_touch_ledger": "verified",
-    "posthog_provider_readback": "dedicated_project_checkpoint_verified_2026-07-12_new_funnel_triggers_exercised_after_consent_in_production_2026-07-13_provider_readback_still_pending",
-    "mailchimp_acceptance": "blocked_domain_not_authenticated_and_sync_not_deployed"
+    "posthog_provider_readback": "pending"
+  },
+  "monitoring": {
+    "public_health_endpoint": "/api/health/",
+    "health_cache_policy": "no-store",
+    "health_index_policy": "noindex_nofollow_noarchive",
+    "route_and_marketing_dispatch_interval_minutes": 5,
+    "operational_alert_evaluation_interval_minutes": 10,
+    "durable_open_and_resolved_alerts": true,
+    "marketing_health_at_final_review": {
+      "measured_at": "2026-07-13T17:58:00Z",
+      "contacts_total": 6,
+      "active": 3,
+      "unsubscribed": 3,
+      "outbox_active_or_terminal": 0,
+      "blocked_or_dead_letter": 0,
+      "pending_confirmation_or_reconfirmation": 0,
+      "open_alerts": 0,
+      "critical_alerts": 0
+    },
+    "external_alert_destination": "not_configured"
   },
   "privacy_security": {
     "arbitrary_price_rejected": true,
     "success_query_grants_access": false,
     "unpaid_payment_grants_access": false,
     "gift_codes_in_urls": false,
-    "provider_session_ids_in_server_request_urls": false,
     "gift_codes_in_analytics": false,
     "raw_stripe_payloads_stored": false,
     "stripe_test_live_confusion_blocked": true,
     "checkout_redirect_origin_allowlisted": true,
-    "billing_portal_return_origin_allowlisted": true,
-    "unnecessary_subscription_profile_fields_removed": true
+    "marketing_contact_direct_table_access": "denied_including_service_role",
+    "consent_history": "append_only",
+    "provider_webhook_authentication": "signed",
+    "secret_scan_in_worktree": "passed",
+    "historical_mailchimp_key_outside_worktree": "rotation_required"
   },
   "public_surface": {
     "partners_route": 404,
@@ -94,40 +161,25 @@
     "partners_indexable": false,
     "store_badges_without_listing": false,
     "coming_soon_copy": true,
-    "checkout_forms_in_production": false
+    "checkout_forms_in_production": false,
+    "canonical_brand_assets_verified": true
   },
   "deployment": {
-    "source_commit": "7169714bc3e72e7d083ad1f1fcfe55d5de1a860a",
     "production_url": "https://ourlittleworld.me",
-    "vercel_deployment_id": "dpl_Civo8tDFwThw1NbsFLyjuGqEnxZy",
-    "vercel_deployment_url": "https://our-little-world-a27h4nchh-jessekrim.vercel.app",
-    "vercel_ready": true,
-    "vercel_runtime_error_logs_last_30m": 0,
-    "vercel_500_logs_last_30m": 0,
-    "dedicated_error_monitoring": "not_configured",
-    "aliases_verified": [
-      "https://ourlittleworld.me",
-      "https://www.ourlittleworld.me"
-    ],
-    "verified_after_deploy": true,
-    "verified_surfaces": [
-      "homepage CTA hierarchy and prelaunch copy",
-      "pricing and gift pages without public checkout forms",
-      "Partners 404 plus noindex, sitemap exclusion, and robots disallow",
-      "checkout result no-store and noindex headers",
-      "desktop 1440x900 and mobile 390x844 rendering",
-      "explicit-consent production launch signup",
-      "consent-gated homepage and form-start analytics triggers"
-    ],
-    "rollback": "Promote the previous healthy Vercel production deployment; keep commerce coming_soon. Redeploy prior Edge Function source if needed. Database migrations are additive and should not be destructively rolled back."
+    "platform": "Vercel",
+    "apex_and_www_verified": true,
+    "health_endpoint_verified": true,
+    "all_public_routes_verified_after_deploy": true,
+    "rollback": "Promote the previous healthy Vercel production deployment and keep commerce coming_soon. Set OUR_LITTLE_WORLD_MAILCHIMP_SYNC_ENABLED=false to stop provider writes while retaining signed suppression webhooks. Redeploy prior Edge Function source if needed. Database migrations are additive and must not be destructively rolled back."
   },
   "release_blockers": [
-    "Decide whether website purchases may launch before public app redemption is available.",
-    "Configure and verify a transactional email provider, authenticated sender, reply handling, and scheduler.",
-    "Authenticate ourlittleworld.me in Mailchimp and deploy server-authored consent and suppression synchronization.",
-    "Verify provider readback for the new website funnel event names in the already configured dedicated Our Little World PostHog project.",
-    "Run the production Core Web Vitals and network trace after the Chrome DevTools MCP service is configured.",
-    "Complete legal review and native App Store/Google Play purchase, restore, refund, and lapse QA.",
-    "Authorize and execute a separate low-value live Stripe test before enabling live commerce."
+    "Configure and verify a transactional email provider, authenticated sender, reply handling, and scheduler before gift delivery or live commerce.",
+    "Keep parent onboarding isolated until product-authored role, consent, activation, exit, and frequency-cap synchronization is deployed.",
+    "Verify provider readback for the current website funnel events in the dedicated PostHog project.",
+    "Configure an external destination for durable website and marketing alerts.",
+    "Run Core Web Vitals and Safari checks when the required browser surfaces are available.",
+    "Complete legal review and native App Store and Google Play purchase, restore, refund, and lapse QA.",
+    "Authorize and execute a separate low-value live Stripe test before enabling live commerce.",
+    "Rotate the historically exposed Mailchimp API key and remove it from retained history where policy permits."
   ]
 }

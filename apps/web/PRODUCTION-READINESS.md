@@ -4,24 +4,26 @@ Last reviewed: July 13, 2026
 
 ## Current Status
 
-The public website is in an explicit prelaunch state. It accurately says the app
-is coming soon, stores consented launch interest, does not render checkout forms,
-and returns 404 for the hidden Partners route. Stripe test mode is fully
-provisioned and has passed end-to-end payment, webhook, entitlement, gift,
-redemption, cancellation, and refund scenarios. Test mode does not grant
-production access.
+The production website is in an explicit prelaunch state. It accurately says the
+app is coming soon, stores and synchronizes consented launch interest, does not
+render checkout forms, and returns a noindex 404 for the hidden Partners route.
+The launch audience is isolated from the parent-product onboarding audience, and
+unsubscribe, complaint, bounce, and confirmed-resubscribe state round-trip through
+signed provider webhooks. Stripe test mode is fully provisioned and has passed
+end-to-end payment, webhook, entitlement, gift, redemption, cancellation, and
+refund scenarios. Test mode does not grant production access.
 
-## Critical Launch Blockers
+## Remaining Launch Blockers
 
 1. Transactional gift email is not connected.
    - Configure a dedicated transactional provider, authenticated sender, reply handling, and scheduler.
    - Verify buyer confirmation and scheduled recipient delivery in real email clients.
    - The outbox fails closed and stops after five attempts; it must not be described as delivered before this gate passes.
 
-2. Mailchimp launch-list synchronization is not active.
-   - The website successfully stores explicit consent in `marketing_contacts`.
-   - `ourlittleworld.me` is not authenticated in Mailchimp and the existing flow remains draft/inactive.
-   - Add server-authored consent synchronization only after domain authentication and unsubscribe/suppression behavior are verified.
+2. Parent-product onboarding is not connected to product eligibility state.
+   - Website interest synchronizes only to the dedicated `Our Little World Website Launch` audience.
+   - The six-message parent sequence remains on the separate `Our Little World` audience for controlled/internal use; a visitor signup cannot enter it.
+   - Do not connect real product accounts until server-authored role, explicit consent, activation, exit, and frequency-cap signals are deployed and verified.
 
 3. Product analytics needs post-deploy event readback.
    - A dedicated Our Little World PostHog project and public token are configured in Vercel, with a prior privacy-safe checkpoint verified.
@@ -37,6 +39,11 @@ production access.
    - Configure live Stripe credentials/prices only after that decision and run a separately authorized low-value live test.
    - Publish and verify official Apple/Google listings before changing store availability to `available`.
    - App Store sandbox, Google Play test purchases, restore, export/read-only lapse policy, and store refund paths still require their own release QA.
+
+6. Operational escalation is durable but not externally paged.
+   - Route and marketing work is dispatched every five minutes; operational alerts are evaluated every ten minutes, with open/resolved incidents retained in Supabase.
+   - Configure an external alert destination before relying on this as an unattended revenue surface.
+   - Verify the full reply loop for the intended `hello@ourlittleworld.me` alias before replacing the current `support@ourlittleworld.me` sender or inviting replies in lifecycle email.
 
 ## Page Flow Audit
 
@@ -57,7 +64,7 @@ Current flow:
 Missing before scale:
 - Real testimonials or proof once available.
 - Verified store links once live.
-- Dedicated analytics provider configuration and readback.
+- Analytics provider readback for the current funnel event names.
 
 ### Pricing
 
@@ -66,7 +73,8 @@ Purpose: help a family choose Family vs Vault (monthly/yearly) or route gift buy
 Current flow:
 - Two tiers: Family ($7.99 monthly / $69.99 yearly, recommended) and Vault ($14.99 monthly / $149.99 yearly) for video-heavy families who want original backup.
 - Gift years: Family $70, Vault $150.
-- Checkout form submits explicit plan keys (`family_monthly`, `family_yearly`, `vault_monthly`, `vault_yearly`; gifts use `gift_year` / `gift_vault_year`).
+- Production presents these as planned prices and routes visitors to the launch list; it does not render checkout controls.
+- In explicit test/live configuration, the implementation submits server-allowlisted plan keys (`family_monthly`, `family_yearly`, `vault_monthly`, `vault_yearly`; gifts use `gift_year` / `gift_vault_year`).
 
 Missing before paid launch:
 - Explicit live-mode credentials and a separately authorized live smoke test.
@@ -78,8 +86,8 @@ Purpose: make "purchase for a friend" a primary conversion path.
 
 Current flow:
 - Gift page speaks to baby showers, births, first birthdays, clients, employees, siblings, and close friends.
-- Form collects giver, recipient, gift note, and delivery date.
-- Preview makes the gift feel personal.
+- Production describes planned gift years and routes visitors to the launch list; no buyer or recipient form is rendered.
+- In explicit test/live configuration, the form collects giver, recipient, gift note, and delivery date and includes a personal preview.
 
 Missing before paid launch:
 - Authenticated transactional sender and scheduler.
@@ -131,12 +139,13 @@ Missing before launch:
 
 - Resolve the website-before-app availability decision.
 - Configure and test transactional gift email plus scheduling.
-- Authenticate the Our Little World marketing domain and sync consent/suppression safely.
+- Connect the isolated parent onboarding sequence only after product eligibility and exit-state synchronization exists.
 - Verify the new website funnel events in the dedicated analytics project without PII.
 - Legal-review Privacy, Terms, and Refunds.
 - Publish verified store listings or keep the honest coming-soon state.
 - Run separately authorized live Stripe and native-store release tests.
 - Confirm support ownership for refunds, failed delivery, lost codes, and billing transfers.
+- Configure an external destination for durable website and marketing alerts.
 
 ## Rollback
 
@@ -144,6 +153,9 @@ Missing before launch:
   `NEXT_PUBLIC_OLW_COMMERCE_STATE=coming_soon`.
 - Edge Functions: redeploy the previous source version. Current database
   migrations are additive; do not remove columns/tables during an incident.
+- Marketing sync: set `OUR_LITTLE_WORLD_MAILCHIMP_SYNC_ENABLED=false` to stop provider writes;
+  keep signed webhooks enabled so suppressions continue to flow inward. Do not
+  delete the launch audience or merge it into the parent audience during rollback.
 - Payments: leave live commerce disabled. If payment processing becomes unsafe,
   change commerce to `temporarily_unavailable` before investigating.
 

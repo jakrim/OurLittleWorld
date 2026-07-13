@@ -15,7 +15,7 @@
   "template_prefix": "OLW Parent Welcome V2",
   "sequence_id": "olw-parent-onboarding-v2",
   "name": "Our Little World — Begin Small, Build Together",
-  "status": "provider_active",
+  "status": "provider_isolated_not_product_activated",
   "classification": "marketing",
   "goal": "Help a consented parent save a first meaningful, parent-approved memory and then experience the shared baby-book value.",
   "activation_event": "moment_saved",
@@ -37,7 +37,9 @@
     "audience_name": "Our Little World",
     "trigger": "olw-parent-welcome-v2 may be applied once only after server-authored marketing consent and role=parent_or_guardian",
     "required_fields": ["marketing_consent", "consent_source", "consent_timestamp", "coarse_activation_state", "actor_role"],
-    "forbidden_sources": ["Get Mentors", "LiveVault", "account creation without marketing consent", "gift recipient without separate consent"]
+    "forbidden_sources": ["Get Mentors", "LiveVault", "website launch form", "account creation without marketing consent", "gift recipient without separate consent"],
+    "website_launch_audience_id": "91d293c5c4",
+    "website_launch_isolated": true
   },
   "frequency_policy": {
     "maximum_marketing_messages_in_7_days": 3,
@@ -51,7 +53,7 @@
     "from_email": "support@ourlittleworld.me",
     "reply_to": "support@ourlittleworld.me",
     "domain_authentication": "authenticated_2026-07-13",
-    "reply_mailbox_monitoring": "must be verified before activation"
+    "reply_mailbox_monitoring": "unverified_do_not_invite_replies"
   },
   "founder_story": {
     "source": "Jesse Krim, provided 2026-07-13",
@@ -87,7 +89,9 @@
     "entry_trigger": "signup_include_imported_contacts",
     "active_email_count": 6,
     "controlled_enrollment": "signup trigger completed; first email sent; next delay queued",
-    "migration": "The six-email flow is active on provider-native subscribed-audience entry. Product account creation remains excluded unless explicit marketing consent is recorded."
+    "migration": "The six-email flow remains provider-native on the isolated parent audience for controlled/internal use. Website launch interest synchronizes to audience 91d293c5c4, which has zero campaigns. Product accounts must not be connected until server-authored role, consent, activation, exit, and frequency-cap state is deployed.",
+    "public_website_signup_can_enter": false,
+    "product_eligibility_sync_deployed": false
   },
   "emails": [
     {
@@ -294,12 +298,12 @@
   "activation_requirements": [
     "Maintain authenticated ourlittleworld.me sender status and confirm SPF, DKIM, and DMARC alignment before activation.",
     "Verify support@ourlittleworld.me is monitored before sending reply invitations.",
-    "Implement explicit marketing-consent capture and server-authored audience eligibility; product account creation alone is insufficient.",
+    "Implement parent-product marketing-consent and server-authored audience eligibility synchronization; website launch consent already uses a separate isolated audience and product account creation alone is insufficient.",
     "Synchronize moment_saved exits and coarse role/permission state without sending private family content to Mailchimp.",
     "Add privacy-safe caregiver invite, first_created, and letter_created outcome events before enabling those skips.",
     "Keep gift purchase, gift delivery, redemption, billing, export, deletion, and security communications transactional and separate.",
     "Render, link-check, accessibility-check, and inspect every HTML and plain-text version.",
     "Send controlled tests to verified internal recipients and inspect receipt in representative clients.",
-    "The active audience contains one internal QA subscriber; ordinary product users remain ineligible until explicit consent synchronization is deployed."
+    "The parent audience contains controlled internal QA only; ordinary product users remain ineligible until parent-product consent and eligibility synchronization is deployed."
   ]
 }

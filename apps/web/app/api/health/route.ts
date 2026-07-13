@@ -11,7 +11,11 @@ export function GET() {
       service: "our-little-world-web",
       commerce: publicCommercialConfig.commerceState,
       app_availability: publicCommercialConfig.storeAvailability,
-      release: process.env.VERCEL_GIT_COMMIT_SHA || "local",
+      release:
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.VERCEL_DEPLOYMENT_ID ||
+        process.env.VERCEL_URL ||
+        "local",
     },
     {
       headers: {
