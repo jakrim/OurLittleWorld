@@ -20,7 +20,10 @@
     "repair": "The consent panel is now width-capped, compact, centered, and uses mobile action wrapping; the hero and secondary gift action remain visible at 390x844.",
     "mobile_navigation_verified": true,
     "desktop_layout_verified": true,
-    "gift_form_mobile_verified": true
+    "gift_form_mobile_verified": true,
+    "production_desktop_viewport": "1440x900",
+    "production_mobile_viewport": "390x844",
+    "production_browser_errors": 0
   },
   "stripe_test_mode": {
     "mode_pin_verified": true,
@@ -55,13 +58,13 @@
     "delivery_provider": "blocked_missing_transactional_provider_and_scheduler"
   },
   "acquisition": {
-    "launch_form_acceptance": "passed_to_marketing_contacts",
+    "launch_form_acceptance": "passed_in_production_browser_to_marketing_contacts_with_controlled_example_address",
     "explicit_marketing_consent": true,
     "transactional_marketing_separation": true,
     "first_touch_checkout_metadata": "verified",
     "last_touch_checkout_metadata": "verified",
     "entitlement_touch_ledger": "verified",
-    "posthog_provider_readback": "dedicated_project_checkpoint_verified_2026-07-12_new_funnel_names_pending_post_deploy_readback",
+    "posthog_provider_readback": "dedicated_project_checkpoint_verified_2026-07-12_new_funnel_triggers_exercised_after_consent_in_production_2026-07-13_provider_readback_still_pending",
     "mailchimp_acceptance": "blocked_domain_not_authenticated_and_sync_not_deployed"
   },
   "privacy_security": {
@@ -87,10 +90,25 @@
     "checkout_forms_in_production": false
   },
   "deployment": {
-    "source_commit": null,
+    "source_commit": "7169714bc3e72e7d083ad1f1fcfe55d5de1a860a",
     "production_url": "https://ourlittleworld.me",
-    "vercel_deployment_url": null,
-    "verified_after_deploy": false,
+    "vercel_deployment_id": "dpl_Civo8tDFwThw1NbsFLyjuGqEnxZy",
+    "vercel_deployment_url": "https://our-little-world-a27h4nchh-jessekrim.vercel.app",
+    "vercel_ready": true,
+    "aliases_verified": [
+      "https://ourlittleworld.me",
+      "https://www.ourlittleworld.me"
+    ],
+    "verified_after_deploy": true,
+    "verified_surfaces": [
+      "homepage CTA hierarchy and prelaunch copy",
+      "pricing and gift pages without public checkout forms",
+      "Partners 404 plus noindex, sitemap exclusion, and robots disallow",
+      "checkout result no-store and noindex headers",
+      "desktop 1440x900 and mobile 390x844 rendering",
+      "explicit-consent production launch signup",
+      "consent-gated homepage and form-start analytics triggers"
+    ],
     "rollback": "Promote the previous healthy Vercel production deployment; keep commerce coming_soon. Redeploy prior Edge Function source if needed. Database migrations are additive and should not be destructively rolled back."
   },
   "release_blockers": [
