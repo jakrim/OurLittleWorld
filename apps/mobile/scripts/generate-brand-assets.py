@@ -12,7 +12,7 @@ from PIL import ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "assets" / "brand"
-MARK_SOURCE = BRAND / "logo-mark.png"
+MARK_SOURCE = BRAND / "logo-mark-circle.png"
 
 BG = (250, 244, 238, 255)  # #FAF4EE (hearth bg / launch screen)
 DARK_BG = (26, 19, 14, 255)  # #1A130E
@@ -273,23 +273,14 @@ def write_ios_copies(app_icon: Image.Image, splash: Image.Image, dark_splash: Im
 
 def main():
     source = Image.open(MARK_SOURCE)
-    mark = extract_mark(source)
     app_icon_mark = crop_visual(source)
     transparent_mark = transparent_logo(source)
-    ring_logo = crop_primary_ring_logo(source)
-
-    flat_hires = fit_on_canvas(mark, 1024, fill=0.82, bg=(0, 0, 0, 0))
-    flat = flat_hires.resize((512, 512), Image.Resampling.LANCZOS)
-    flat.save(BRAND / "logo-mark-flat.png")
-
-    header_logo = fit_on_canvas(ring_logo, 512, fill=1.0, bg=(0, 0, 0, 0))
-    header_logo.save(BRAND / "logo-mark-circle.png")
 
     icon = fit_on_canvas(app_icon_mark, 1024, fill=0.86)
     icon_rgb = icon.convert("RGB")
     icon_rgb.save(BRAND / "icon.png")
 
-    adaptive_icon = fit_on_canvas(mark, 1024, fill=0.78, bg=(0, 0, 0, 0))
+    adaptive_icon = fit_on_canvas(app_icon_mark, 1024, fill=0.78, bg=(0, 0, 0, 0))
     adaptive_icon.save(BRAND / "adaptive-icon.png")
 
     splash = splash_canvas(app_icon_mark, 800, fill=0.76)
