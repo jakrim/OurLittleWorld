@@ -1,19 +1,21 @@
 Build together · a quiet ritual
 
-*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+Hi there,
 
-A letter for later can feel too important to start. So do not start with a letter.
+When I think about Letters, I imagine Reuben reading something we wrote while he was small and hearing the people we were then—not polished authors, just his parents trying to notice him well.
 
-Start with one sentence: “Today I noticed…” Write the detail you would tell your future self if you could send a note forward in time. Stop there if that is enough.
+That sounds important, which can make it hard to begin. So do not start with a letter. Start with one sentence: “Today I noticed…”
 
-The best ritual is the one that does not turn family life into homework. Our Little World should make the story easier to keep, then stay quiet.
+Write one true detail you would want to send forward in time. Stop after that sentence if it feels complete.
 
-If the product is helping—or asking too much—reply and tell me. I want to understand where it feels light and where it still feels like work.
+Our Little World should never turn loving your family into homework. It should help you keep what matters, then get out of the way.
+
+If it is helping—or still asking too much—reply and tell me. I am building this as Reuben's dad, and I want it to feel worthy of the families who trust it.
 
 Today I noticed…
-One true detail. No polished letter required.
+One true detail in the voice of the parent you are right now.
 
-Write one sentence: ourlittleworld://letters?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=letter-ritual
+See letters for later: https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=letter-ritual#closer-look
 
 — Jesse
 

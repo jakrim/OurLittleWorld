@@ -1,17 +1,19 @@
 Build together · firsts
 
-*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+Hi there,
 
-A milestone list can tell you what changed. It rarely keeps the part your family will actually repeat later.
+The photo I shared earlier says eleven months on a little wooden sign. It marks the age beautifully. But the number is not the whole memory.
 
-In Firsts, record one change and add the detail around it: where you were, what happened just before, or the phrase everyone kept using afterward.
+A milestone photo cannot automatically keep what changed that month, what the family had started noticing, or the story everyone will tell later.
 
-The milestone is the label. The detail is the family story.
+That is the idea behind Firsts. Record one change, then add the detail that makes it belong to your family: where you were, what happened around it, or the words you kept using afterward.
 
-Name the change. Keep the detail.
-One milestone, described in the language your family will recognize later.
+The milestone is the label. The detail is what brings your little world back.
 
-Add one first: ourlittleworld://firsts?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=firsts-payoff
+eleven months
+Your memory can keep everything the number leaves out.
+
+See how firsts stay close: https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=firsts-payoff#closer-look
 
 — Jesse
 

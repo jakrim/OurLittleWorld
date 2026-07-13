@@ -1,17 +1,23 @@
 Begin small · welcome
 
-*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+Hi there,
 
-My wife and I kept taking photos and videos of our baby, just like everyone does. But when we tried to revisit them, the camera roll gave us files—not the family story we wanted to remember.
+After my wife and I put our son, Reuben, in his crib, we would get into bed—and almost immediately start missing him.
 
-Our Little World began with that gap. It is a private place for the photos, firsts, voice notes, and letters we choose to keep, with the meaning still attached.
+We would open Apple Photos, watch the videos from that day, and keep scrolling backward: yesterday, last month, all the way to his birth. Sometimes an hour disappeared like that.
 
-You do not need to organize the camera roll or reconstruct every month. Choose one recent photo that still feels close and add one line about why you kept it. That is a real beginning.
+The photos brought the moments back. But they could not hold the things we were saying to each other while we looked: the details only we knew, what made us laugh, how a season felt, and what we hoped we would never forget.
 
-One photo + one line
-Not the best photo. Not the whole month. Just the moment whose story you still know.
+I kept thinking there had to be a better way to keep the story around the photos. Then the idea grew: what if we built a baby company that could use the latest technology carefully to create genuinely wonderful experiences for parents—beginning with a private place for these memories? That is where Our Little World was born.
 
-Save one moment: ourlittleworld://add?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=founder-welcome
+You do not need to rebuild the past tonight. Choose one photo that still makes you feel something and add the sentence you would tell someone who was not there. That is enough to begin.
+
+Photo: Reuben at eleven months—the little world that started all of this.
+
+We missed him while he was sleeping.
+Our Little World began in the hour after bedtime, scrolling backward through Reuben's life.
+
+See how one moment begins: https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=founder-welcome#closer-look
 
 — Jesse
 

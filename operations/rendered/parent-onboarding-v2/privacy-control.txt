@@ -1,12 +1,14 @@
 Begin small · your control
 
-*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+Hi there,
 
-Family media deserves a clear boundary.
+If I was going to build a product around our son's photos and memories, the first rule had to be simple: Reuben's story is not content for a public feed.
 
-You choose what photo access to grant. Manual adds use the system picker or the permission on your device. Optional discovery can scan locally to surface likely moments for review. Selected manual imports and calibrated auto-saves are uploaded to the private family archive; nothing is posted to a public feed.
+Technology should do quiet work for a family—not take the story away from them. In Our Little World, you choose the photo access on your device. You can add a photo manually, or use optional discovery to surface likely moments for review.
 
-If broad library access does not feel right, keep it limited and add a photo manually. You should be able to begin without surrendering the choice.
+Selected manual imports and calibrated auto-saves can enter the private family archive. Nothing is posted to a public feed. If broader library access does not feel right, keep it limited and choose photos yourself.
+
+The product should earn trust through clear choices. You should never have to trade control for convenience.
 
 The choices stay with you
 

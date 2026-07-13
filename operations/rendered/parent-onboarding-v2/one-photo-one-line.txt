@@ -1,17 +1,19 @@
 Begin small · one memory
 
-*|IF:FNAME|*Hi *|FNAME|*,*|ELSE:|*Hi there,*|END:IF|*
+Hi there,
 
-The best first memory is not necessarily the biggest milestone. It may be the photo that needs one sentence before its meaning disappears.
+When my wife and I looked through photos of Reuben, we would stop on the same image and start telling each other what had happened around it.
 
-Choose something ordinary from the last few days: a look, a routine, the way a room felt. Then add the detail the image cannot hold by itself.
+One of us remembered the routine. The other remembered a look, a sound, or why we had taken the photo in the first place. The image held the scene; our conversation held the memory.
 
-That small piece of context is what turns a file into part of the family story.
+Try that with one ordinary photo from the last few days. Add the detail only you would know: what was happening just outside the frame, what had become part of the daily rhythm, or why this small moment stayed with you.
 
-what happened
-Your one sentence can keep how it felt, what they were doing every day, or why you laughed.
+That sentence is not a caption for an audience. It is a note to your future family.
 
-Add the missing sentence: ourlittleworld://add?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=one-photo-one-line
+what it looked like
+Your sentence can keep what it meant, what happened around it, and why you still remember.
+
+See how a moment keeps its story: https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=one-photo-one-line#closer-look
 
 — Jesse
 

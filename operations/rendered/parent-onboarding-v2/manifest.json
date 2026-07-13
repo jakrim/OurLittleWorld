@@ -1,38 +1,38 @@
 [
   {
     "id": "founder-welcome",
-    "subject": "Why our camera roll wasn't enough",
-    "preview": "My wife and I wanted the story around our baby's photos—not another project for someday.",
+    "subject": "We missed him while he was sleeping",
+    "preview": "After we put Reuben in his crib, my wife and I would get into bed, open Apple Photos, and scroll all the way back to his birth.",
     "name": "OLW Parent Welcome V2 01 — founder-welcome"
   },
   {
     "id": "one-photo-one-line",
-    "subject": "Try the photo that needs one sentence",
-    "preview": "Choose an ordinary photo and write the detail only you would know.",
+    "subject": "The photo wasn't the whole memory",
+    "preview": "My wife and I would stop on the same photo and remember different pieces of what happened around it.",
     "name": "OLW Parent Welcome V2 02 — one-photo-one-line"
   },
   {
     "id": "privacy-control",
-    "subject": "What Our Little World does with your photos",
-    "preview": "Discovery is optional. A memory enters the family space only through the product's documented save behavior.",
+    "subject": "Why Reuben's story stays private",
+    "preview": "If I was going to build around our son's memories, the first promise had to be clear: parents stay in control.",
     "name": "OLW Parent Welcome V2 03 — privacy-control"
   },
   {
     "id": "invite-caregiver",
-    "subject": "Invite the person who remembers the other half",
-    "preview": "Add one trusted caregiver to the private family space—without making another feed.",
+    "subject": "My wife remembers what I miss",
+    "preview": "Looking at Reuben's photos together taught me that one family memory can hold two completely different details.",
     "name": "OLW Parent Welcome V2 04 — invite-caregiver"
   },
   {
     "id": "firsts-payoff",
-    "subject": "A first is more than a milestone",
-    "preview": "Record one change and the small detail that makes it yours.",
+    "subject": "What the eleven-month photo can't tell you",
+    "preview": "A wooden sign can mark the month. It cannot preserve what changed, how the house felt, or what the family kept saying.",
     "name": "OLW Parent Welcome V2 05 — firsts-payoff"
   },
   {
     "id": "letter-ritual",
-    "subject": "Write one sentence for later",
-    "preview": "Begin with one thing you noticed today. Stop after one sentence if that is enough.",
+    "subject": "One sentence I want Reuben to read someday",
+    "preview": "I imagine Reuben reading something we wrote while he was small and hearing the people we were then.",
     "name": "OLW Parent Welcome V2 06 — letter-ritual"
   }
 ]
