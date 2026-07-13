@@ -23,6 +23,13 @@
         "resourceClass": "m-medium"
       }
     },
+    "development-no-push": {
+      "extends": "development",
+      "environment": "development",
+      "env": {
+        "OLW_DISABLE_NOTIFICATIONS_PLUGIN": "true"
+      }
+    },
     "preview": {
       "extends": "base",
       "distribution": "internal",

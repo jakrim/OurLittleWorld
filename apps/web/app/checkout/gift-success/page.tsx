@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
 
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",
-  description: "Your Our Little World gift year purchase is ready to send or redeem.",
+  description: "Your Our Little World Family gift year is ready to send or redeem.",
 };
 
 type GiftSuccessProps = {
@@ -16,6 +17,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
 
   return (
     <main id="main">
+      <ConversionCompleteBeacon kind="gift" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -41,7 +43,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
               <p>Your gift code is being prepared. If it does not appear, contact support with your Stripe receipt email.</p>
             )}
             <p>
-              The recipient should choose Redeem website gift or partner access from the app purchase screen.
+              The recipient should choose Redeem gift, website, or partner access from the app purchase screen.
             </p>
           </article>
           <article className="policy-item">

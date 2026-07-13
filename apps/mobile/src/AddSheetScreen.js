@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -9,18 +9,26 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
+import BirthDatePicker from './ui/BirthDatePicker';
 import { Body, Button, Caption, Field, Screen, Title, radius, shadow, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { buildAddMomentState } from './addMomentModel';
+import { CONTEXT_DRAFT_LABEL, CONTEXT_DRAFT_USE_LABEL, factsOnlyContextDraft } from './captionTemplateModel.js';
+import { firstHappenedDateCaption } from './firstComposeSeedModel.js';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { createMomentWithMedia } from './moments';
 import PostSaveNudgeSheet from './PostSaveNudgeSheet';
 import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
 import { selectPostSaveNudge } from './postSaveNudgeModel';
 import { Firsts } from './rituals';
+import { buildAddManualQaFixture, buildAddManualQaPostSaveNudge } from './addManualQaFixtures';
+import { trackAnalyticsEvent } from './analytics';
+import { bucketCount } from './analyticsEventsModel';
+import { analyticsEnvironment, analyticsPlatform, mediaKindForAssets } from './analyticsProductContext';
 
 const SECONDARY_ACTIONS = [
   { icon: 'chatbubble-ellipses-outline', title: "Answer today's prompt", route: '/prompt' },
@@ -31,6 +39,7 @@ const SECONDARY_ACTIONS = [
 
 export default function AddSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
@@ -42,14 +51,54 @@ export default function AddSheetScreen() {
   const [note, setNote] = useState('');
   const [place, setPlace] = useState('');
   const [tagText, setTagText] = useState('');
+  const [happenedDate, setHappenedDate] = useState('');
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
   const [postSaveNudge, setPostSaveNudge] = useState(null);
+  const [postSaveDryRun, setPostSaveDryRun] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const manualQaFixture = useMemo(
+    () => (__DEV__ ? buildAddManualQaFixture(params.qa) : null),
+    [params.qa],
+  );
+
+  useEffect(() => {
+    if (!manualQaFixture) return;
+    setAssets(manualQaFixture.assets);
+    setTitle('');
+    setNote('');
+    setPlace('');
+    setTagText('');
+    setHappenedDate('');
+    setVoice(null);
+    setContextOpen(false);
+  }, [manualQaFixture]);
 
   const tags = useMemo(
     () => tagText.split(',').map((tag) => tag.trim()).filter(Boolean),
     [tagText],
+  );
+  const addState = useMemo(
+    () => buildAddMomentState({ assets, voice, note, title, place, tags }),
+    [assets, note, place, tags, title, voice],
+  );
+  const happenedDateCaption = useMemo(
+    () => firstHappenedDateCaption({
+      babyBirthday: family?.babyBirthday,
+      babyName: family?.babyName,
+      happenedDate,
+    }),
+    [family?.babyBirthday, family?.babyName, happenedDate],
+  );
+  const contextDraft = useMemo(
+    () => factsOnlyContextDraft({
+      babyBirthday: family?.babyBirthday,
+      happenedDate,
+      placeLabel: place,
+      tags,
+    }),
+    [family?.babyBirthday, happenedDate, place, tags],
   );
 
   const close = useCallback(() => {
@@ -134,7 +183,7 @@ export default function AddSheetScreen() {
 
   const finishPostSave = useCallback(async (route = null) => {
     const nudge = postSaveNudge;
-    if (nudge?.momentId && family?.id) {
+    if (nudge?.momentId && family?.id && !postSaveDryRun) {
       await dismissPostSaveNudge({
         familyId: family.id,
         userId: user?.id,
@@ -142,34 +191,60 @@ export default function AddSheetScreen() {
       });
     }
     setPostSaveNudge(null);
+    setPostSaveDryRun(false);
     router.replace('/timeline');
     if (route) requestAnimationFrame(() => router.push(route));
-  }, [family?.id, postSaveNudge, router, user?.id]);
+  }, [family?.id, postSaveDryRun, postSaveNudge, router, user?.id]);
 
   const saveMoment = async ({ videoPosterOnly = false } = {}) => {
     if (!family?.id) return;
     setSaving(true);
     try {
-      const moment = await createMomentWithMedia({
-        familyId: family.id,
-        title,
-        note,
-        placeName: place,
-        tags,
-        assets,
-        voice,
-        videoPosterOnly,
-      });
-      const nudge = await buildPostSaveNudge({
-        family,
-        user,
-        moment,
-        assets,
-        note,
-        voice,
-      });
+      const dryRun = !!manualQaFixture;
+      const moment = dryRun
+        ? manualQaFixture.moment
+        : await createMomentWithMedia({
+          familyId: family.id,
+          title,
+          note,
+          placeName: place,
+          tags,
+          assets,
+          voice,
+          videoPosterOnly,
+          capturedAt: capturedAtFromDate(happenedDate),
+        });
+      if (!dryRun) {
+        trackAnalyticsEvent('moment_saved', {
+          surface: 'add',
+          save_source: 'add_sheet',
+          media_kind: mediaKindForAssets(assets, Boolean(voice)),
+          media_count_bucket: bucketCount(assets.length),
+          has_voice: Boolean(voice),
+          has_text_note: Boolean(note.trim()),
+          happened_at_changed: Boolean(happenedDate),
+          child_age_band: 'unknown',
+        }, {
+          family_id: family.id,
+          actor_role: family?.me?.role || 'creator',
+          plan_state: 'unknown',
+          platform: analyticsPlatform(Platform.OS),
+          environment: analyticsEnvironment(),
+        });
+      }
+      const nudge = dryRun
+        ? buildAddManualQaPostSaveNudge(manualQaFixture, { family, assets, note, voice })
+        : await buildPostSaveNudge({
+          family,
+          user,
+          moment,
+          assets,
+          note,
+          voice,
+        });
       if (nudge) {
-        await recordPostSaveNudgeShown({ familyId: family.id, userId: user?.id });
+        if (!dryRun) await recordPostSaveNudgeShown({ familyId: family.id, userId: user?.id });
+        setPostSaveDryRun(dryRun);
         setPostSaveNudge(nudge);
         return;
       }
@@ -188,7 +263,8 @@ export default function AddSheetScreen() {
     }
   };
 
-  const hasContent = assets.length > 0 || voice?.uri || title.trim() || note.trim();
+  const contextExpanded = addState.canShowContext && (contextOpen || addState.hasContext);
+  const showHappenedDate = addState.hasPrimaryContent || Boolean(happenedDate);
   const recording = !!recorderState.isRecording;
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
@@ -211,7 +287,7 @@ export default function AddSheetScreen() {
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Title style={styles.title}>Save a moment</Title>
-            <Caption>Photos, video, voice, place, and the words around it.</Caption>
+            <Caption>Add a photo, a voice note, or a few words. Context can come later.</Caption>
           </View>
           <Pressable
             onPress={close}
@@ -294,38 +370,97 @@ export default function AddSheetScreen() {
           </View>
         ) : null}
 
-        <View style={styles.fields}>
-          <Field
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Moment title, optional"
-            caption="Optional. Leave it blank if the photo already says enough."
-          />
-          <Field
-            as="textarea"
-            value={note}
-            onChangeText={setNote}
-            placeholder="What happened?"
-            caption="Optional. A sentence or two helps this memory make sense later."
-          />
-          <Field
-            value={place}
-            onChangeText={setPlace}
-            placeholder="Place, optional"
-            caption="Optional. Helps Library group memories by where they happened."
-          />
-          <Field
-            value={tagText}
-            onChangeText={setTagText}
-            placeholder="Tags, comma separated"
-            caption={tags.length
-              ? tags.map((tag) => `#${tag}`).join(' ')
-              : 'Separate with commas; we clean up duplicates and #tags.'}
-            autoCapitalize="none"
-          />
-        </View>
+        <Field
+          as="textarea"
+          value={note}
+          onChangeText={setNote}
+          placeholder="Write one line about this moment"
+          caption="A few words are enough, or leave this blank if the media or voice already says it."
+        />
+        {contextDraft && !note.trim() ? (
+          <Pressable
+            onPress={() => setNote(contextDraft)}
+            accessibilityRole="button"
+            accessibilityLabel={`Use suggested line: ${contextDraft}`}
+            style={[styles.contextDraftRow, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <View style={styles.contextDraftText}>
+              <Caption>{CONTEXT_DRAFT_LABEL}</Caption>
+              <Body>{contextDraft}</Body>
+            </View>
+            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{CONTEXT_DRAFT_USE_LABEL}</Caption>
+          </Pressable>
+        ) : null}
 
-        <Button onPress={saveMoment} loading={saving} disabled={!hasContent || saving}>
+        {showHappenedDate ? (
+          <BirthDatePicker
+            value={happenedDate}
+            onChange={setHappenedDate}
+            placeholder="When did it happen? (optional)"
+            accessibilityLabel="Moment happened date"
+            caption={happenedDateCaption}
+            defaultDate={todayIsoDate()}
+          />
+        ) : null}
+
+        {addState.canShowContext ? (
+          <Pressable
+            onPress={() => setContextOpen((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={contextExpanded ? 'Hide optional context' : 'Add optional context'}
+            style={({ pressed }) => [
+              styles.contextToggle,
+              {
+                backgroundColor: theme.semantic.cardAlt,
+                borderColor: theme.semantic.border,
+                opacity: pressed ? 0.72 : 1,
+              },
+            ]}
+          >
+            <View style={styles.contextToggleIcon}>
+              <Ionicons name="pricetag-outline" size={17} color={theme.semantic.primary} />
+            </View>
+            <View style={styles.contextToggleCopy}>
+              <Body style={styles.contextToggleTitle}>
+                {addState.hasContext ? 'Edit context' : 'Add context'}
+              </Body>
+              <Caption>Optional title, place, and tags for the book.</Caption>
+            </View>
+            <Ionicons
+              name={contextExpanded ? 'chevron-up' : 'chevron-down'}
+              size={17}
+              color={theme.semantic.textMuted}
+            />
+          </Pressable>
+        ) : null}
+
+        {contextExpanded ? (
+          <View style={styles.fields}>
+            <Field
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Title (optional)"
+              caption="The moment can stay untitled."
+            />
+            <Field
+              value={place}
+              onChangeText={setPlace}
+              placeholder="Place (optional)"
+              caption="Helps the book group memories by where they happened."
+            />
+            <Field
+              value={tagText}
+              onChangeText={setTagText}
+              placeholder="Tags (optional, comma separated)"
+              caption={tags.length
+                ? tags.map((tag) => `#${tag}`).join(' ')
+                : 'Separate with commas; we clean up duplicates and #tags.'}
+              autoCapitalize="none"
+            />
+          </View>
+        ) : null}
+
+        <Button onPress={saveMoment} loading={saving} disabled={!addState.canSave || saving}>
           Save moment
         </Button>
 
@@ -353,6 +488,19 @@ export default function AddSheetScreen() {
       </View>
     </Screen>
   );
+}
+
+function capturedAtFromDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+  return `${value}T12:00:00.000Z`;
+}
+
+function todayIsoDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 async function buildPostSaveNudge({ family, user, moment, assets, note, voice }) {
@@ -507,8 +655,42 @@ const styles = StyleSheet.create({
     width: 3,
     borderRadius: 2,
   },
+  contextToggle: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  contextToggleIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contextToggleCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  contextToggleTitle: {
+    fontWeight: '800',
+  },
   fields: {
     gap: space.md,
+  },
+  contextDraftRow: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  contextDraftText: {
+    flex: 1,
+    minWidth: 0,
   },
   secondaryGrid: {
     flexDirection: 'row',
@@ -529,6 +711,5 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 17,
-    color: undefined,
   },
 });

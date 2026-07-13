@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { exportPolicyCopy } from "@/content/exportPolicy";
+
 export const metadata: Metadata = {
   title: "Cancellation and Refund Policy",
   description:
@@ -62,6 +64,13 @@ export default function RefundsPage() {
               Canceling a Stripe subscription stops future renewal charges. Access normally
               continues until the end of the paid billing period unless a refund, chargeback,
               or revocation applies.
+            </p>
+          </PolicyItem>
+
+          <PolicyItem title="Lapsed Access and Exports">
+            <p>{exportPolicyCopy.lapsedVault}</p>
+            <p>
+              {exportPolicyCopy.exportScope} {exportPolicyCopy.previewLimits}
             </p>
           </PolicyItem>
 

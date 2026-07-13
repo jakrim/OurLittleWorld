@@ -1,0 +1,14 @@
+# Birthday-first discovery must visibly report work and always offer a manual path.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://timeline"
+- openLink: "ourlittleworld://reference?progressPreview=1"
+- assertVisible: "Setting up photo discovery."
+- assertVisible:
+    id: "birthday-discovery-progress"
+- scrollUntilVisible:
+    element:
+      text: "Choose one photo instead"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Choose one photo instead"

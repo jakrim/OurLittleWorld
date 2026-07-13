@@ -23,6 +23,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
+import { GIFT_REDEMPTION_COPY } from './giftOfferCopy';
 import {
   SUBSCRIPTION_PRODUCT_IDS,
   SUPPORT_EMAIL,
@@ -73,7 +74,7 @@ const DEFAULT_REFERENCE_SUMMARY = {
   trusted: 0,
   seeded: 0,
   latestAgeLabel: 'No local reference yet',
-  latestSourceLabel: 'Pick one clear photo before automatic discovery.',
+  latestSourceLabel: 'Automatic discovery will try the birthday-first setup before asking for a photo.',
   updatedAt: null,
 };
 
@@ -246,6 +247,9 @@ export default function SettingsMenuSheetScreen() {
     Haptics.selectionAsync();
     router.replace(route);
   };
+  const discoveryRoute = referenceSummary.total || !family?.babyBirthday
+    ? '/reference'
+    : { pathname: '/reference', params: { autoSeed: '1' } };
 
   const resetReferenceProfile = () => {
     if (!family?.id || !user?.id || clearingReferences) return;
@@ -332,7 +336,7 @@ export default function SettingsMenuSheetScreen() {
     try {
       await redeemCode(trimmed);
       setPurchaseCode('');
-      Alert.alert('Code redeemed', 'Your family plan is active.');
+      Alert.alert('Code redeemed', GIFT_REDEMPTION_COPY.successStatus);
     } catch (err) {
       Alert.alert('Code could not be redeemed', err?.message || String(err));
     } finally {
@@ -448,18 +452,6 @@ export default function SettingsMenuSheetScreen() {
               );
             })}
           </View>
-            <Pressable
-              onPress={() => go('/brand')}
-              accessibilityRole="button"
-              accessibilityLabel="Open brand sheet"
-              style={[styles.brandSheetLink, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
-            >
-            <View style={styles.brandSheetCopy}>
-              <Caption>Brand sheet</Caption>
-              <Body style={styles.brandSheetLabel}>Marks, lockups, palettes, type</Body>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
-          </Pressable>
         </View>
 
         <View>
@@ -482,7 +474,7 @@ export default function SettingsMenuSheetScreen() {
               label="Reference profile"
               detail={referenceSummary.total
                 ? `${referenceSummary.total} local ${plural(referenceSummary.total, 'reference', 'references')} · ${referenceSummary.trusted} trusted`
-                : 'Pick one clear photo before automatic discovery'}
+                : 'Start birthday-first discovery'}
               tint={theme.semantic.primary}
               active={activeEditor === 'reference'}
               onPress={() => setActiveEditor(activeEditor === 'reference' ? null : 'reference')}
@@ -490,15 +482,15 @@ export default function SettingsMenuSheetScreen() {
             <MenuItem
               icon="images-outline"
               label="Automatic discovery"
-              detail="Reference photo and scan settings"
-              onPress={() => go('/reference')}
+              detail="Birthday-first matching and review settings"
+              onPress={() => go(discoveryRoute)}
             />
           </View>
           {activeEditor === 'reference' ? (
             <ReferenceProfilePanel
               summary={referenceSummary}
               clearing={clearingReferences}
-              onUpdate={() => go('/reference')}
+              onUpdate={() => go(discoveryRoute)}
               onScan={() => go('/scan')}
               onReset={resetReferenceProfile}
             />
@@ -515,6 +507,19 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'billing'}
               onPress={() => setActiveEditor(activeEditor === 'billing' ? null : 'billing')}
             />
+            {activeEditor === 'billing' ? (
+              <BillingPanel
+                entitlement={entitlement}
+                usage={storageUsage}
+                code={purchaseCode}
+                busy={billingBusy}
+                embedded
+                onCodeChange={setPurchaseCode}
+                onRedeem={redeemBillingCode}
+                onManage={manageSubscription}
+                onSupport={contactSupport}
+              />
+            ) : null}
             <MenuItem
               icon="refresh-outline"
               label="Restore purchases"
@@ -552,18 +557,6 @@ export default function SettingsMenuSheetScreen() {
               onPress={contactSupport}
             />
           </View>
-          {activeEditor === 'billing' ? (
-            <BillingPanel
-              entitlement={entitlement}
-              usage={storageUsage}
-              code={purchaseCode}
-              busy={billingBusy}
-              onCodeChange={setPurchaseCode}
-              onRedeem={redeemBillingCode}
-              onManage={manageSubscription}
-              onSupport={contactSupport}
-            />
-          ) : null}
         </View>
 
         <View
@@ -688,7 +681,7 @@ function FamilyHero({ family }) {
   );
 }
 
-function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, onManage, onSupport }) {
+function BillingPanel({ entitlement, usage, code, busy, embedded = false, onCodeChange, onRedeem, onManage, onSupport }) {
   const theme = useTheme();
   const active = entitlement?.isActive;
   const ownerCopy = entitlement?.isBillingOwner
@@ -698,7 +691,13 @@ function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, 
   const showUsage = active && usage;
 
   return (
-    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+    <View
+      style={[
+        styles.editorPanel,
+        embedded && styles.embeddedEditorPanel,
+        { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border },
+      ]}
+    >
       <View style={styles.billingHeader}>
         <View>
           <Caption>Family access</Caption>
@@ -740,10 +739,10 @@ function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, 
       ) : null}
 
       <Field
-        label="Gift, website, or partner code"
+        label={GIFT_REDEMPTION_COPY.fieldLabel}
         value={code}
         onChangeText={onCodeChange}
-        caption="Enter the code from a gift, website purchase, or partner access email."
+        caption={GIFT_REDEMPTION_COPY.caption}
         autoCapitalize="characters"
         inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         containerStyle={styles.billingCodeField}
@@ -1015,7 +1014,7 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
         <Pressable
           onPress={onUpdate}
           accessibilityRole="button"
-          accessibilityLabel={ready ? 'Update reference photo' : 'Pick reference photo'}
+          accessibilityLabel={ready ? 'Update reference photo' : 'Set up automatic discovery'}
           style={[
             styles.panelButton,
             styles.panelButtonInline,
@@ -1023,7 +1022,7 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
           ]}
         >
           <Caption style={[styles.panelButtonText, { color: theme.colors.onPrimary }]}>
-            {ready ? 'Update photo' : 'Pick photo'}
+            {ready ? 'Update photo' : 'Set up discovery'}
           </Caption>
         </Pressable>
         <Pressable
@@ -1095,7 +1094,9 @@ function MenuItem({ icon, label, detail, onPress, tint, active = false }) {
         <Body style={styles.menuItemLabel}>{label}</Body>
         <Caption>{detail}</Caption>
       </View>
-      <Ionicons name={active ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.semantic.textMuted} />
+      <View style={styles.menuItemChevron}>
+        <Ionicons name={active ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.semantic.textMuted} />
+      </View>
     </Pressable>
   );
 }
@@ -1133,7 +1134,7 @@ function summarizeReferenceProfile(profile, family) {
   }
   const latestSourceLabel = trusted
     ? `${trusted} trusted ${plural(trusted, 'save', 'saves')} now refresh future scans on this device.`
-    : 'Only picked reference photos are stored locally so far.';
+    : 'Only local reference photos are stored on this device so far.';
   return {
     total: references.length,
     trusted,
@@ -1281,24 +1282,6 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
   },
-  brandSheetLink: {
-    minHeight: 54,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    paddingHorizontal: space.md,
-    marginTop: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-  },
-  brandSheetCopy: {
-    flex: 1,
-  },
-  brandSheetLabel: {
-    color: undefined,
-    fontSize: 14,
-    lineHeight: 19,
-  },
   menuList: {
     marginTop: space.sm,
     borderRadius: radius.lg,
@@ -1309,6 +1292,7 @@ const styles = StyleSheet.create({
     minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: space.md,
     paddingVertical: space.md,
     gap: space.md,
   },
@@ -1321,11 +1305,17 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     flex: 1,
+    minWidth: 0,
   },
   menuItemLabel: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
+  },
+  menuItemChevron: {
+    width: 28,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   editorPanel: {
     borderRadius: radius.lg,
@@ -1333,6 +1323,13 @@ const styles = StyleSheet.create({
     padding: space.md,
     gap: space.sm,
     marginTop: space.sm,
+  },
+  embeddedEditorPanel: {
+    borderRadius: 0,
+    borderWidth: 0,
+    borderTopWidth: 1,
+    marginTop: 0,
+    paddingTop: space.md,
   },
   editorControl: {
     marginTop: 2,
@@ -1431,7 +1428,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   referenceStatValue: {
-    color: undefined,
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '800',

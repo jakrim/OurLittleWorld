@@ -5,6 +5,7 @@ import {
   CATCHUP_DISMISS_DAYS,
   ageInDaysOn,
   buildFirstsModel,
+  firstSourceAffordance,
   goalTimingCaption,
   goalWindowState,
   selectCatchupGoal,
@@ -76,7 +77,7 @@ test('goal window states and captions for an 11-month-old', () => {
   assert.equal(goalTimingCaption(smile, ageDays), 'From around 6-8 weeks — add it whenever you remember it');
   assert.equal(goalTimingCaption(word, ageDays), 'Happening around now');
   assert.equal(goalTimingCaption(word, 100), 'Suggested around 9-14 months');
-  assert.equal(goalTimingCaption({ target_age_label: null }, null), 'Suggested around someday');
+  assert.equal(goalTimingCaption({ target_age_label: null }, null), 'Add whenever it fits');
   // no "someday · <window label>" framing anywhere for a past-window goal
   assert.ok(!goalTimingCaption(smile, ageDays).includes('someday'));
 });
@@ -103,4 +104,30 @@ test('completion matches by title when goal_key missing', () => {
   const { goalProgress, displayRows } = buildFirstsModel(rows, GOALS, 343);
   assert.equal(goalProgress.next.key, 'steps');
   assert.ok(!displayRows.some((row) => row.id === 'goal:word'));
+});
+
+test('source affordance links saved firsts back to their moment when available', () => {
+  const source = firstSourceAffordance({ id: 'first-1', done: true, moment_id: 'moment-1' });
+  assert.equal(source.kind, 'moment');
+  assert.equal(source.label, 'Source moment');
+  assert.equal(source.detail, 'Open the saved moment');
+  assert.equal(source.opensMoment, true);
+  assert.equal(source.momentId, 'moment-1');
+});
+
+test('source affordance distinguishes source photos from text-only firsts', () => {
+  const photoSource = firstSourceAffordance(
+    { id: 'first-2', done: true, asset_id: 'asset-2', asset_owner_user_id: 'user-1' },
+    { asset_id: 'asset-2', moment_id: 'moment-2' },
+  );
+  assert.equal(photoSource.kind, 'photo-moment');
+  assert.equal(photoSource.label, 'Source photo');
+  assert.equal(photoSource.detail, 'Open the saved moment');
+  assert.equal(photoSource.momentId, 'moment-2');
+
+  const textOnly = firstSourceAffordance({ id: 'first-3', done: true });
+  assert.equal(textOnly.kind, 'text');
+  assert.equal(textOnly.label, 'Text-only first');
+  assert.equal(textOnly.detail, 'Add a source photo anytime');
+  assert.equal(textOnly.opensMoment, false);
 });

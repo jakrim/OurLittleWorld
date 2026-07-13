@@ -8,10 +8,8 @@ import { radius, shadow, space, useTheme } from './theme';
 
 const TABS = [
   { key: 'today', label: 'Today', icon: 'home-outline', route: '/timeline' },
-  { key: 'firsts', label: 'Firsts', icon: 'flag-outline', route: '/firsts' },
   { key: 'add', label: 'Add', icon: 'add', route: null },
-  { key: 'letters', label: 'Letters', icon: 'mail-outline', route: '/letters' },
-  { key: 'library', label: 'Library', icon: 'book-outline', route: '/library' },
+  { key: 'book', label: 'Book', icon: 'book-outline', route: '/library' },
 ];
 
 export default function BottomTabs({ active, onAddPress }) {

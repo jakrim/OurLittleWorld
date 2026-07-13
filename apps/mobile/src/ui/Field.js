@@ -27,6 +27,7 @@ export default function Field({
   rightAdornment,
   inputProps,
   inputRef,
+  inputStyle,
   containerStyle,
   ...rest
 }) {
@@ -90,7 +91,7 @@ export default function Field({
           textAlignVertical={as === 'textarea' ? 'top' : 'center'}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          style={[baseInputStyle, dynamic.input]}
+          style={[baseInputStyle, dynamic.input, inputStyle]}
           {...inputProps}
           {...rest}
         />

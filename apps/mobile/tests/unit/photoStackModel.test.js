@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   PHOTO_STACK_SESSION_GAP_MS,
+  assetIdsForReviewAction,
   buildReviewStacks,
   defaultKeepCount,
   expandReviewItems,
@@ -47,6 +48,7 @@ test('stack cover and default keeps are ranked by capture quality', () => {
   const [stack] = buildReviewStacks(matches);
   assert.equal(stack.cover.assetId, 'asset-2');
   assert.deepEqual(stack.keep.map((item) => item.assetId), ['asset-2']);
+  assert.equal(stack.curationSummary, 'Kept best 1 of 3');
 });
 
 test('parent-pinned photos are never demoted by sharper siblings', () => {
@@ -102,6 +104,30 @@ test('expanded stack includes every frame and folded promotion selects that asse
   assert.equal(
     selectedAssetIdsForReview({ matches, reviewItems, promotedFoldedIds: new Set([foldedAsset]) }).has(foldedAsset),
     true,
+  );
+});
+
+test('stack keep and skip actions are reversible before save', () => {
+  const matches = [
+    match(1, { captureQuality: 0.95 }),
+    match(2, { captureQuality: 0.6 }),
+    match(3, { captureQuality: 0.4 }),
+  ];
+  const reviewItems = buildReviewStacks(matches);
+  const [stack] = reviewItems;
+  const keepIds = assetIdsForReviewAction(stack, 'accept');
+  const skipIds = assetIdsForReviewAction(stack, 'reject');
+
+  assert.deepEqual(keepIds, ['asset-1']);
+  assert.deepEqual(skipIds, ['asset-1', 'asset-2', 'asset-3']);
+  assert.equal(selectedAssetIdsForReview({ matches, reviewItems, rejectedIds: new Set(skipIds) }).size, 0);
+  assert.deepEqual(
+    [...selectedAssetIdsForReview({
+      matches,
+      reviewItems,
+      rejectedIds: new Set(skipIds.filter((id) => !keepIds.includes(id))),
+    })],
+    keepIds,
   );
 });
 

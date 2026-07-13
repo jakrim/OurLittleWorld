@@ -27,22 +27,30 @@ import {
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { dismissCatchupGoal } from './catchupDismissals';
-import { selectDayCardNudge } from './dayCardNudge';
+import { buildBlockingAssistantIssue, selectDayCardNudge } from './dayCardNudge';
 import { selectTodaySuggestion } from './firstSuggestionModel';
 import { readFirstSuggestionState, snoozeFirstSuggestion } from './firstSuggestionStore';
 import { ageAt, formatAge, localCalendarDayDiff, localDateFromISODate } from './ageModel.js';
-import { deleteForTag } from './photoSync';
+import { removeAutoSavedMemory } from './autoSaveCorrection';
+import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
+import { deleteForTag, getUploadQueueStatus } from './photoSync';
+import { buildPhotoIngestionTrustModel } from './photoIngestionTrustModel';
 import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
 import { digestHasContent } from './digestModel.js';
+import { buildDigestViewStatusLabel, buildPromptAnswerStatusLabel } from './secondParentStateModel';
+import { buildTonightModel } from './tonightModel';
 import { countLabel } from './plural';
-import { scanReviewCaption, scanReviewTitle } from './scanBannerCopyModel.js';
+import { getImportCalibration, getRecentAutoSaves } from './recognitionTrust';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPlaceClusters } from './visionSceneLabeler';
-import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
+import { useMediaLibraryChangeObserver } from './mediaLibraryChanges';
 import { useICloudRetryCount } from './iCloudRetryQueue';
 import { formatMilestoneDisplayTitle } from './milestoneTitleModel';
 import * as Scan from './scanController';
+
+const EMPTY_UPLOAD_QUEUE = { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null };
+const EMPTY_PHOTO_TRUST_INPUTS = { calibration: null, recentAutoSaves: [] };
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -51,22 +59,32 @@ export default function TodayScreen() {
   const { user } = useAuth();
   const [segment, setSegment] = useState('timeline');
   const [actionPhoto, setActionPhoto] = useState(null);
+  const [uploadQueue, setUploadQueue] = useState(EMPTY_UPLOAD_QUEUE);
+  const [photoTrustInputs, setPhotoTrustInputs] = useState(EMPTY_PHOTO_TRUST_INPUTS);
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
     enabled: !!family?.id && !!user?.id,
+  });
+  const scanState = Scan.useScanState();
+  const iCloudRetry = useICloudRetryCount({
+    familyId: family?.id,
+    userId: user?.id,
+    refreshKey: `${scanState.phase}:${scanState.autoSaveErrors}:${scanState.autoSavedCount}:${pendingChange?.changedAt || ''}:${uploadQueue.total}`,
   });
   const {
     status,
     promptState,
     digest,
     catchupGoal,
+    missedPrompt,
     goalRows,
     digestUnread,
     sharedPhotos,
     recentPhotos,
     todayMatches,
     firstsSummary,
+    bookReadinessNudge,
     membersById,
     refresh,
     snoozePrompt: snoozePromptCached,
@@ -115,11 +133,20 @@ export default function TodayScreen() {
     const photo = actionPhoto;
     setActionPhoto(null);
     try {
-      await deleteForTag({
-        familyId: family.id,
-        assetOwnerUserId: photo.asset_owner_user_id,
-        assetId: photo.asset_id,
-      });
+      if (isAutoSavedMemory(photo) && user?.id) {
+        await removeAutoSavedMemory({
+          familyId: family.id,
+          userId: user.id,
+          target: photo,
+        });
+        Alert.alert(AUTO_SAVE_CORRECTION_COPY.successTitle, AUTO_SAVE_CORRECTION_COPY.successBody);
+      } else {
+        await deleteForTag({
+          familyId: family.id,
+          assetOwnerUserId: photo.asset_owner_user_id,
+          assetId: photo.asset_id,
+        });
+      }
       refresh({ force: true });
     } catch (err) {
       Alert.alert('Could not remove', err?.message || String(err));
@@ -131,14 +158,40 @@ export default function TodayScreen() {
   const mine = promptState?.mine;
   const mineAnswered = !!(mine?.response_text || mine?.moment_id);
   const promptAnswerLabel = useMemo(
-    () => promptAnswerStatusLabel({ promptState, membersById, userId: user?.id }),
+    () => buildPromptAnswerStatusLabel({ promptState, membersById, userId: user?.id }),
     [membersById, promptState, user?.id],
   );
   const snoozed = promptState?.snoozed;
   const loadingCold = status === 'idle' || status === 'refreshing';
   const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
-  const scanState = Scan.useScanState();
   const waitingReviewCount = scanState.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
+  const blockingIssue = useMemo(
+    () => buildBlockingAssistantIssue({
+      uploadQueue,
+      iCloudWaitingCount: iCloudRetry.count,
+      scanFailed: scanState.phase === 'failed',
+    }),
+    [iCloudRetry.count, scanState.phase, uploadQueue],
+  );
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    if (!family?.id) {
+      setUploadQueue(EMPTY_UPLOAD_QUEUE);
+      return () => {
+        alive = false;
+      };
+    }
+    getUploadQueueStatus({ familyId: family.id })
+      .then((status) => {
+        if (alive) setUploadQueue(status || EMPTY_UPLOAD_QUEUE);
+      })
+      .catch(() => {
+        if (alive) setUploadQueue(EMPTY_UPLOAD_QUEUE);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [family?.id]));
   // Device-local suggestion state (not part of the shared cached payload).
   const [suggestionState, setSuggestionState] = useState(null);
   useFocusEffect(useCallback(() => {
@@ -149,18 +202,55 @@ export default function TodayScreen() {
     }
     return () => { alive = false; };
   }, [family?.id, user?.id]));
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    if (!family?.id || !user?.id) {
+      setPhotoTrustInputs(EMPTY_PHOTO_TRUST_INPUTS);
+      return () => { alive = false; };
+    }
+    Promise.all([
+      getImportCalibration({ familyId: family.id, userId: user.id }).catch(() => null),
+      getRecentAutoSaves({ familyId: family.id, userId: user.id }).catch(() => []),
+    ]).then(([calibration, recentAutoSaves]) => {
+      if (alive) setPhotoTrustInputs({ calibration, recentAutoSaves });
+    });
+    return () => { alive = false; };
+  }, [family?.id, user?.id]));
   const firstSuggestion = useMemo(
     () => (suggestionState ? selectTodaySuggestion(suggestionState, { goalRows }) : null),
     [goalRows, suggestionState],
   );
+  const photoTrustModel = useMemo(
+    () => buildPhotoIngestionTrustModel({
+      calibration: photoTrustInputs.calibration,
+      recentAutoSaves: photoTrustInputs.recentAutoSaves,
+      pendingReviewCount: waitingReviewCount,
+      autoSaveErrors: scanState.autoSaveErrors,
+      babyName: family?.babyName,
+      hasDeviceReference: true,
+    }),
+    [
+      family?.babyName,
+      photoTrustInputs.calibration,
+      photoTrustInputs.recentAutoSaves,
+      scanState.autoSaveErrors,
+      waitingReviewCount,
+    ],
+  );
   const nudge = selectDayCardNudge({
+    blockingIssue,
+    photoTrustNudge: photoTrustModel.todayNudge,
     waitingReviewCount,
     firstSuggestion,
     catchupGoal,
     promptState,
+    missedPrompt,
+    bookReadinessNudge,
     digestUnread,
     babyName: family?.babyName,
   });
+  const promptIsActionable = !!(prompt && !mineAnswered && !snoozed);
+  const showPromptCard = !!(prompt && !snoozed && (!promptIsActionable || nudge.kind === 'fallback'));
   const onDismissCatchup = async () => {
     if (!family?.id || !nudge.goalKey) return;
     await dismissCatchupGoal(family.id, nudge.goalKey);
@@ -187,7 +277,30 @@ export default function TodayScreen() {
     }),
     [digest.coverPhoto, firstsSummary?.latest, sharedPhotos],
   );
-  const showDigestCard = useMemo(() => digestHasContent(digest), [digest]);
+  const hasDigestContent = useMemo(() => digestHasContent(digest), [digest]);
+  const showDigestCard = hasDigestContent && (!digestUnread || nudge.kind === 'fallback');
+  const digestViewLabel = useMemo(
+    () => buildDigestViewStatusLabel({ digestUnread }),
+    [digestUnread],
+  );
+  const tonightSuppressedKinds = useMemo(() => {
+    const kinds = [nudge.kind];
+    if (showPromptCard && promptIsActionable) kinds.push('prompt');
+    if (showDigestCard) kinds.push('digest');
+    return kinds;
+  }, [nudge.kind, promptIsActionable, showDigestCard, showPromptCard]);
+  const tonightModel = useMemo(
+    () => buildTonightModel({
+      promptState,
+      pendingReviewCount: waitingReviewCount,
+      recentPhotos,
+      firstSuggestion,
+      digest,
+      digestUnread,
+      suppressedKinds: tonightSuppressedKinds,
+    }),
+    [digest, digestUnread, firstSuggestion, promptState, recentPhotos, tonightSuppressedKinds, waitingReviewCount],
+  );
   // Only media that can actually render — stale rows fall through to the cover chain (B2).
   const digestStripMedia = useMemo(
     () => (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
@@ -206,7 +319,7 @@ export default function TodayScreen() {
     },
     {
       icon: 'trash-outline',
-      label: 'Remove from timeline',
+      label: isAutoSavedMemory(actionPhoto) ? AUTO_SAVE_CORRECTION_COPY.actionLabel : 'Remove from timeline',
       destructive: true,
       onPress: removePhoto,
     },
@@ -220,15 +333,6 @@ export default function TodayScreen() {
       showActivityButton
       right={<SearchPill onPress={() => router.push({ pathname: '/library', params: { segment: 'search' } })} />}
     >
-      <ScanBanner
-        babyName={family?.babyName}
-        familyId={family?.id}
-        userId={user?.id}
-        pendingChange={pendingChange}
-        onPress={() => router.push('/review')}
-        onScanPress={() => router.push('/scan')}
-      />
-
       <EntranceView index={0}>
         <AnimatedPressable
           onPress={nudge.route ? () => router.push(nudge.route) : undefined}
@@ -277,7 +381,7 @@ export default function TodayScreen() {
         </AnimatedPressable>
       </EntranceView>
 
-      {prompt && !snoozed ? (
+      {showPromptCard ? (
         mineAnswered ? (
           <EntranceView index={1}>
             <AnimatedPressable
@@ -329,7 +433,7 @@ export default function TodayScreen() {
             </Card>
           </EntranceView>
         )
-      ) : loadingCold ? (
+      ) : loadingCold && nudge.kind === 'fallback' ? (
         <EntranceView index={1}>
           <Card variant="muted">
             <Eyebrow>Daily prompt</Eyebrow>
@@ -346,13 +450,14 @@ export default function TodayScreen() {
             accessibilityLabel="Open this week's digest"
           >
             <Card>
-              <View style={styles.sectionHeader}>
-                <View>
+              <View style={styles.digestHeader}>
+                <View style={styles.digestHeaderCopy}>
                   <Eyebrow>This week's digest</Eyebrow>
-                  <Title style={styles.digestTitle}>{digest.headline}</Title>
+                  <Title style={styles.digestTitle} numberOfLines={3}>{digest.headline}</Title>
+                  <Caption>{digestViewLabel}</Caption>
                 </View>
                 <View style={styles.cardCue}>
-                  <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
+                  <Caption style={styles.digestDate} numberOfLines={2}>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
                   <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} />
                 </View>
               </View>
@@ -403,7 +508,17 @@ export default function TodayScreen() {
         </EntranceView>
       ) : null}
 
-      <EntranceView index={3}>
+      {tonightModel.visible ? (
+        <EntranceView index={3}>
+          <TonightSection
+            model={tonightModel}
+            onOpen={(route) => router.push(route)}
+            theme={theme}
+          />
+        </EntranceView>
+      ) : null}
+
+      <EntranceView index={tonightModel.visible ? 4 : 3}>
         <MilestoneTeaser
           summary={firstsSummary}
           babyName={family?.babyName}
@@ -413,7 +528,7 @@ export default function TodayScreen() {
       </EntranceView>
 
       {/* The control sits directly above the content it switches (H1). */}
-      <EntranceView index={4}>
+      <EntranceView index={tonightModel.visible ? 5 : 4}>
         <SegmentedControl
           value={activeSegment}
           onChange={setSegment}
@@ -426,7 +541,7 @@ export default function TodayScreen() {
         />
       </EntranceView>
 
-      <EntranceView index={5}>
+      <EntranceView index={tonightModel.visible ? 6 : 5}>
         <SegmentedContent segmentKey={activeSegment}>
           {activeSegment === 'timeline' ? (
             <>
@@ -469,35 +584,14 @@ export default function TodayScreen() {
         visible={!!actionPhoto}
         onClose={() => setActionPhoto(null)}
         actions={photoSheetActions}
-        subtitle={actionPhoto ? 'What should happen with this moment?' : undefined}
+        subtitle={actionPhoto
+          ? isAutoSavedMemory(actionPhoto)
+            ? 'Added by the assistant. Remove it if it does not belong; the original stays in Photos.'
+            : 'What should happen with this moment?'
+          : undefined}
       />
     </AppShell>
   );
-}
-
-function promptAnswerStatusLabel({ promptState, membersById = {}, userId } = {}) {
-  const answered = (promptState?.responses || []).filter((row) => row?.response_text || row?.moment_id);
-  if (!answered.length) return null;
-  const mineAnswered = promptState?.mineAnswered
-    ?? answered.some((row) => row.author_user_id === userId);
-  const partnerResponse = answered.find((row) => row.author_user_id !== userId);
-  const partnerId = partnerResponse?.author_user_id
-    || Object.keys(membersById || {}).find((id) => id && id !== userId);
-  const partnerName = promptMemberName(membersById?.[partnerId], 'your co-parent');
-  const partnerNameAtStart = partnerName === 'your co-parent' ? 'Your co-parent' : partnerName;
-
-  if (mineAnswered) {
-    if (promptState?.partnerAnswered || partnerResponse) return `${partnerNameAtStart} answered too`;
-    return `You answered · ${partnerName} hasn't yet`;
-  }
-  if (partnerResponse) return `${partnerNameAtStart} answered · you haven't yet`;
-  return 'Someone answered';
-}
-
-function promptMemberName(value, fallback) {
-  const name = String(value || '').trim();
-  if (!name) return fallback;
-  return name.split(/\s+/)[0] || fallback;
 }
 
 function SearchPill({ onPress }) {
@@ -513,6 +607,57 @@ function SearchPill({ onPress }) {
       <Caption style={styles.searchPillText}>Search</Caption>
     </Pressable>
   );
+}
+
+function TonightSection({ model, onOpen, theme }) {
+  if (!model?.visible) return null;
+  return (
+    <Card style={styles.tonightCard}>
+      <View style={styles.sectionHeader}>
+        <View style={styles.teaserCopy}>
+          <Eyebrow>{model.title}</Eyebrow>
+          <Title style={styles.tonightTitle}>A short reset before tomorrow.</Title>
+          <Caption>{model.subtitle}</Caption>
+        </View>
+        <View style={[styles.tonightIcon, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name="moon-outline" size={20} color={theme.semantic.primary} />
+        </View>
+      </View>
+      <View style={styles.tonightList}>
+        {model.items.map((item) => (
+          <Pressable
+            key={item.kind}
+            onPress={() => onOpen(item.route)}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.actionLabel}: ${item.title}`}
+            style={[styles.tonightItem, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <View style={[styles.tonightItemIcon, { backgroundColor: theme.colors.primarySoft }]}>
+              <Ionicons name={tonightItemIcon(item.kind)} size={16} color={theme.semantic.primary} />
+            </View>
+            <View style={styles.tonightCopy}>
+              <Caption style={styles.tonightEyebrow}>{item.eyebrow}</Caption>
+              <Body style={styles.tonightItemTitle} numberOfLines={2}>{item.title}</Body>
+              <Caption numberOfLines={2}>{item.body}</Caption>
+            </View>
+            <View style={styles.tonightAction}>
+              <Caption style={{ color: theme.semantic.primary, fontWeight: '800' }}>{item.actionLabel}</Caption>
+              <Ionicons name="chevron-forward" size={14} color={theme.semantic.primary} />
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+function tonightItemIcon(kind) {
+  if (kind === 'prompt') return 'chatbubble-ellipses-outline';
+  if (kind === 'review') return 'images-outline';
+  if (kind === 'suggested-first') return 'sparkles-outline';
+  if (kind === 'recent-stack') return 'albums-outline';
+  if (kind === 'digest') return 'calendar-outline';
+  return 'moon-outline';
 }
 
 function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
@@ -650,45 +795,68 @@ function PhotoRail({
 }
 
 function MonthTimeline({ sections, onPress, onLongPress, youUserId }) {
+  const theme = useTheme();
   if (!sections.length) return null;
   return (
     <View style={styles.monthList}>
-      {sections.map((section, sectionIndex) => (
-        <EntranceView key={section.key} index={sectionIndex} delayMs={ENTRANCE_STAGGER_MS * 3}>
-          <Card padding="md" style={styles.monthCard}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Eyebrow>{section.monthLabel}</Eyebrow>
-                {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
+      {sections.map((section, sectionIndex) => {
+        const renderableItems = (section.items || []).filter(hasRenderableMedia);
+        const visibleItems = renderableItems.slice(0, 4);
+        const hiddenCount = Math.max(0, (section.items || []).length - visibleItems.length);
+        return (
+          <EntranceView key={section.key} index={sectionIndex} delayMs={ENTRANCE_STAGGER_MS * 3}>
+            <Card padding="md" style={styles.monthCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.monthHeaderCopy}>
+                  <Eyebrow>{section.monthLabel}</Eyebrow>
+                  {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
+                </View>
+                <Caption>{section.items.length} moments</Caption>
               </View>
-              <Caption>{section.items.length} moments</Caption>
-            </View>
-            <View style={styles.monthGrid}>
-              {section.items.slice(0, 9).map((photo, index) => (
-                <Pressable
-                  key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                  onPress={() => onPress(photo)}
-                  onLongPress={() => onLongPress(photo)}
-                  delayLongPress={220}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
-                  accessibilityHint="Long press for more actions."
-                  style={[styles.monthTile, index === 0 && styles.monthHeroTile]}
-                >
-                  {photo.thumbUrl || photo.fullUrl ? (
-                    <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                  ) : (
-                    <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                  )}
-                  {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
-                </Pressable>
-              ))}
-            </View>
-          </Card>
-        </EntranceView>
-      ))}
+              {visibleItems.length ? (
+                <View style={styles.monthGrid}>
+                  {visibleItems.map((photo, index) => (
+                    <Pressable
+                      key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
+                      onPress={() => onPress(photo)}
+                      onLongPress={() => onLongPress(photo)}
+                      delayLongPress={220}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
+                      accessibilityHint="Long press for more actions."
+                      style={[styles.monthTile, { backgroundColor: theme.semantic.cardAlt }]}
+                    >
+                      <PhotoPlaceholder
+                        source={{ uri: photo.thumbUrl || photo.fullUrl }}
+                        seed={`${photo.asset_owner_user_id}:${photo.asset_id}`}
+                        radius={radius.sm}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      {index === visibleItems.length - 1 && hiddenCount > 0 ? (
+                        <View style={[styles.monthMoreBadge, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
+                          <Caption style={[styles.monthMoreText, { color: theme.colors.onPrimary }]}>+{hiddenCount}</Caption>
+                        </View>
+                      ) : null}
+                      {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.monthSyncNote}>
+                  <Ionicons name="cloud-outline" size={16} color={theme.semantic.textMuted} />
+                  <Caption>Photo previews are still syncing for this month.</Caption>
+                </View>
+              )}
+            </Card>
+          </EntranceView>
+        );
+      })}
     </View>
   );
+}
+
+function hasRenderableMedia(photo) {
+  return !!(photo?.thumbUrl || photo?.fullUrl);
 }
 
 function PlacesPreview({ places, onPress, onLongPress }) {
@@ -735,82 +903,6 @@ function PlacesPreview({ places, onPress, onLongPress }) {
         </EntranceView>
       ))}
     </View>
-  );
-}
-
-function ScanBanner({ babyName, familyId, userId, pendingChange, onPress, onScanPress }) {
-  const scan = Scan.useScanState();
-  const waiting = scan.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
-  const queued = scan.autoSaveQueueLength || 0;
-  const iCloudRetry = useICloudRetryCount({
-    familyId,
-    userId,
-    refreshKey: `${scan.phase}:${scan.autoSaveErrors}:${scan.autoSavedCount}:${pendingChange?.changedAt || ''}`,
-  });
-  const iCloudWaiting = iCloudRetry.count || 0;
-  const iCloudLabel = `${iCloudWaiting.toLocaleString()} ${iCloudWaiting === 1 ? 'photo is' : 'photos are'} waiting for iCloud`;
-  if (scan.phase === 'idle') {
-    if (iCloudWaiting > 0) {
-      return (
-        <Pressable
-          onPress={onScanPress}
-          accessibilityRole="button"
-          accessibilityLabel="Retry iCloud photos"
-          style={styles.scanBanner}
-        >
-          <Ionicons name="cloud-download-outline" size={17} />
-          <View style={{ flex: 1 }}>
-            <Body style={styles.scanTitle}>{iCloudLabel}</Body>
-            <Caption>Open Photos or try again when the originals finish downloading.</Caption>
-          </View>
-          <Ionicons name="chevron-forward" size={17} />
-        </Pressable>
-      );
-    }
-    if (!pendingChange) return null;
-    return (
-      <Pressable
-        onPress={onScanPress}
-        accessibilityRole="button"
-        accessibilityLabel="Scan photo library updates"
-        style={styles.scanBanner}
-      >
-        <Ionicons name="sync-outline" size={17} />
-        <View style={{ flex: 1 }}>
-          <Body style={styles.scanTitle}>Photo library changed</Body>
-          <Caption>{describeMediaLibraryChange(pendingChange)} · tap to scan updates.</Caption>
-        </View>
-        <Ionicons name="chevron-forward" size={17} />
-      </Pressable>
-    );
-  }
-  if ((scan.phase === 'done' || scan.phase === 'aborted') && queued === 0 && waiting === 0 && iCloudWaiting === 0) return null;
-  const pct = scan.total ? Math.min(100, Math.round((scan.seen / scan.total) * 100)) : null;
-  const title = scan.phase === 'scanning'
-    ? `Scanning${pct != null ? ` · ${pct}%` : ''}`
-    : queued > 0
-      ? `Auto-saving ${queued.toLocaleString()}`
-      : iCloudWaiting > 0
-        ? iCloudLabel
-        : scanReviewTitle({ waiting, babyName });
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Review scan matches"
-      style={styles.scanBanner}
-    >
-      <Ionicons name="sparkles-outline" size={17} />
-      <View style={{ flex: 1 }}>
-        <Body style={styles.scanTitle}>{title}</Body>
-        <Caption>
-          {iCloudWaiting > 0
-            ? `${iCloudLabel}; they will retry on the next scan.`
-            : scanReviewCaption({ waiting, babyName })}
-        </Caption>
-      </View>
-      <Ionicons name="chevron-forward" size={17} />
-    </Pressable>
   );
 }
 
@@ -870,9 +962,14 @@ function railChipLabel({ photo, babyBirthday, title }) {
 }
 
 function formatWeek(start, end) {
+  if (!start || !end) return 'This week';
   const a = new Date(`${start}T00:00:00`);
   const b = new Date(`${end}T00:00:00`);
-  return `${a.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${b.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 'This week';
+  const sameMonth = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  const startLabel = a.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const endLabel = b.toLocaleDateString(undefined, sameMonth ? { day: 'numeric' } : { month: 'short', day: 'numeric' });
+  return `${startLabel}-${endLabel}`;
 }
 
 function formatShortDate(value) {
@@ -894,6 +991,63 @@ const styles = StyleSheet.create({
   searchPillText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  tonightCard: {
+    borderRadius: 14,
+    gap: space.md,
+  },
+  tonightTitle: {
+    fontSize: 23,
+    lineHeight: 29,
+    marginTop: space.xs,
+  },
+  tonightIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tonightList: {
+    gap: space.xs,
+  },
+  tonightItem: {
+    minHeight: 82,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  tonightItemIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  tonightCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tonightEyebrow: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  tonightItemTitle: {
+    marginTop: 2,
+    marginBottom: 2,
+    lineHeight: 20,
+  },
+  tonightAction: {
+    minWidth: 58,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 3,
   },
   dayCard: {
     borderRadius: 14,
@@ -955,14 +1109,30 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: space.md,
   },
+  digestHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: space.md,
+  },
+  digestHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   inlineHeaderAction: {
     minHeight: 44,
     justifyContent: 'center',
   },
   cardCue: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 4,
+    flexShrink: 0,
+    maxWidth: 94,
+  },
+  digestDate: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
   digestTitle: {
     fontSize: 22,
@@ -1079,21 +1249,46 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     marginTop: 2,
   },
+  monthHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   monthGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: space.xs,
     marginTop: space.md,
   },
   monthTile: {
-    width: '31.8%',
+    width: '23.5%',
+    flexGrow: 0,
+    flexShrink: 0,
     aspectRatio: 1,
     borderRadius: radius.sm,
     overflow: 'hidden',
+    position: 'relative',
   },
-  monthHeroTile: {
-    width: '65.5%',
-    aspectRatio: 1.35,
+  monthSyncNote: {
+    marginTop: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  monthMoreBadge: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    minHeight: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthMoreText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+    letterSpacing: 0,
   },
   partnerDot: {
     position: 'absolute',
@@ -1127,18 +1322,5 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: radius.sm,
     overflow: 'hidden',
-  },
-  scanBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    padding: space.md,
-    borderRadius: radius.md,
-    backgroundColor: glass.softWhitePanel,
-  },
-  scanTitle: {
-    color: undefined,
-    fontSize: 14,
-    lineHeight: 18,
   },
 });

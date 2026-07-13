@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  applyGeneratedSuggestionsToState,
   applySuggestionFeedback,
   applySuggestionSnooze,
   normalizeFirstSuggestionState,
@@ -17,16 +18,22 @@ export async function readFirstSuggestionState({ familyId, userId } = {}) {
   }
 }
 
-export async function saveGeneratedSuggestions({ familyId, userId, suggestions = [], generatedGoalKeys = [], now = new Date() } = {}) {
+export async function saveGeneratedSuggestions({
+  familyId,
+  userId,
+  suggestions = [],
+  generatedGoalKeys = [],
+  resetGoalKeys = [],
+  now = new Date(),
+} = {}) {
   if (!familyId) return normalizeFirstSuggestionState();
-  const state = await readFirstSuggestionState({ familyId, userId });
-  const nowMs = new Date(now).getTime();
-  for (const goalKey of generatedGoalKeys) {
-    state.lastGeneratedAt[goalKey] = nowMs;
-  }
-  for (const suggestion of suggestions) {
-    if (suggestion?.goalKey) state.suggestionsByGoal[suggestion.goalKey] = suggestion;
-  }
+  const current = await readFirstSuggestionState({ familyId, userId });
+  const state = applyGeneratedSuggestionsToState(current, {
+    suggestions,
+    generatedGoalKeys,
+    resetGoalKeys,
+    now,
+  });
   await writeFirstSuggestionState({ familyId, userId, state });
   return state;
 }

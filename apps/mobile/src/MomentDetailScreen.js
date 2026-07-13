@@ -1,25 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, LayoutAnimation, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
+import BirthDatePicker from './ui/BirthDatePicker';
 import { Body, Button, Caption, Card, Field, HomeIndicator, PhotoPlaceholder, Screen, Title, V, glass, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { Family } from './families';
-import { Firsts } from './rituals';
+import { Firsts, Letters, WeeklyDigests } from './rituals';
 import { ageAt, formatAge } from './photos';
+import { CONTEXT_DRAFT_LABEL, CONTEXT_DRAFT_USE_LABEL, factsOnlyContextDraft } from './captionTemplateModel.js';
+import { firstHappenedDateCaption } from './firstComposeSeedModel.js';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { deleteMoment, deleteVoiceNote, getMomentDetail, setMomentSharedWith, toggleMomentReaction, updateMoment } from './moments';
 import { uploadForTag } from './photoSync';
+import { removeAutoSavedMemory } from './autoSaveCorrection';
+import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
 import { shareMemoryMoment } from './shareMoment';
 import PhotoActionSheet from './PhotoActionSheet';
 import { isLocalAssetDeleted } from './localAssetDeletion';
-import { formatTagLabel } from './tagModel';
+import { formatTagLabel, normalizeMomentTags } from './tagModel';
+import { buildMomentConnectionChips } from './momentConnectionChips';
+import { buildMomentMilestoneRoute } from './momentMilestoneModel';
+import { buildLibraryManualQaMomentDetail } from './libraryManualQaFixtures';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -48,6 +57,8 @@ const REACTION_LABELS = {
 export default function MomentDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const window = useWindowDimensions();
+  const mediaOverlayTextColor = theme.isDark ? theme.colors.ink : theme.colors.bg;
   const params = useLocalSearchParams();
   const momentId = Array.isArray(params.momentId) ? params.momentId[0] : params.momentId;
   const { family } = useFamily();
@@ -63,9 +74,11 @@ export default function MomentDetailScreen() {
   const [editNote, setEditNote] = useState('');
   const [editPlace, setEditPlace] = useState('');
   const [editTags, setEditTags] = useState('');
+  const [editDate, setEditDate] = useState('');
   const [sharingCircle, setSharingCircle] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [promotingVideo, setPromotingVideo] = useState(false);
+  const [photoFocused, setPhotoFocused] = useState(false);
 
   const voice = moment?.voiceNotes?.find((item) => item.audioUrl) || null;
   const player = useAudioPlayer(voice?.audioUrl ? { uri: voice.audioUrl } : null, { updateInterval: 250 });
@@ -75,8 +88,32 @@ export default function MomentDetailScreen() {
     if (!family?.id || !momentId) return;
     setLoading(true);
     try {
+      const manualQaMoment = __DEV__
+        ? buildLibraryManualQaMomentDetail(params.qa, momentId, { userId: user?.id })
+        : null;
+      if (manualQaMoment) {
+        setMoment(manualQaMoment);
+        return;
+      }
       const next = await getMomentDetail({ familyId: family.id, momentId });
-      setMoment(next);
+      if (!next) {
+        setMoment(null);
+        return;
+      }
+      const linkedFirsts = await Firsts.listForMoment(family.id, momentId);
+      const [linkedLetters, linkedDigest] = await Promise.all([
+        Letters.listConnectedToMoment(family.id, {
+          momentId,
+          firstIds: linkedFirsts.map((first) => first.id).filter(Boolean),
+        }),
+        WeeklyDigests.getForMomentDate(family.id, next.captured_at),
+      ]);
+      setMoment({
+        ...next,
+        connectedFirsts: linkedFirsts,
+        connectedLetters: linkedLetters,
+        connectedDigest: linkedDigest,
+      });
     } finally {
       setLoading(false);
     }
@@ -116,6 +153,10 @@ export default function MomentDetailScreen() {
   useEffect(() => {
     load();
   }, [family?.id, momentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setPhotoFocused(false);
+  }, [momentId]);
 
   useEffect(() => {
     let alive = true;
@@ -161,11 +202,63 @@ export default function MomentDetailScreen() {
     [moment?.reactions, user?.id],
   );
   const firstMedia = moment?.media?.[0] || null;
+  const firstMediaAutoSaved = isAutoSavedMemory(firstMedia);
   const circleMembers = useMemo(() => members.filter((member) => member.role === 'circle'), [members]);
   const sharedWith = useMemo(() => normalizeSharedWith(moment?.shared_with), [moment?.shared_with]);
   const sharedWithCircle = sharedWith.includes('circle');
   const canWrite = ['creator', 'partner'].includes(family?.me?.role);
   const isOwner = !!moment?.author_user_id && moment.author_user_id === user?.id;
+  const connectionChips = useMemo(() => buildMomentConnectionChips({
+    moment,
+    firsts: moment?.connectedFirsts || [],
+    letters: moment?.connectedLetters || [],
+    digest: moment?.connectedDigest || null,
+    canWrite,
+  }), [canWrite, moment]);
+  const storyActions = useMemo(
+    () => connectionChips.filter((chip) => chip.group === 'action'),
+    [connectionChips],
+  );
+  const storyConnections = useMemo(
+    () => connectionChips.filter((chip) => chip.group !== 'action'),
+    [connectionChips],
+  );
+  const setPhotoFocus = useCallback((focused) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setPhotoFocused(focused);
+  }, []);
+  const sheetHandleGesture = useMemo(() => Gesture.Pan()
+    .enabled(!photoFocused)
+    .activeOffsetY([-8, 8])
+    .onEnd((gesture) => {
+      if (gesture.translationY > 36 || gesture.velocityY > 500) setPhotoFocus(true);
+    })
+    .runOnJS(true), [photoFocused, setPhotoFocus]);
+  const editDateCaption = useMemo(
+    () => firstHappenedDateCaption({
+      babyBirthday: family?.babyBirthday,
+      babyName: family?.babyName,
+      happenedDate: editDate,
+    }),
+    [editDate, family?.babyBirthday, family?.babyName],
+  );
+  const editContextDraft = useMemo(
+    () => factsOnlyContextDraft({
+      babyBirthday: family?.babyBirthday,
+      happenedDate: editDate || dateOnlyFromIso(moment?.captured_at),
+      placeLabel: editPlace,
+      firstTitle: moment?.connectedFirsts?.[0]?.title,
+      tags: normalizeMomentTags(String(editTags || '').split(',')),
+    }),
+    [
+      editDate,
+      editPlace,
+      editTags,
+      family?.babyBirthday,
+      moment?.captured_at,
+      moment?.connectedFirsts,
+    ],
+  );
 
   const onReaction = async (key) => {
     if (!family?.id || !moment?.id || reacting) return;
@@ -192,8 +285,21 @@ export default function MomentDetailScreen() {
     setEditNote(moment?.caption_note || '');
     setEditPlace(moment?.place_name || '');
     setEditTags((moment?.tags || []).map(formatTagLabel).join(', '));
+    setEditDate(dateOnlyFromIso(moment?.captured_at));
     setEditOpen(true);
     setMenuVisible(false);
+  };
+
+  const openConnectionChip = (chip) => {
+    if (chip.key === 'possible-first') {
+      setAsMilestone();
+      return;
+    }
+    if (chip.action === 'edit') {
+      openEdit();
+      return;
+    }
+    if (chip.route) router.push(chip.route);
   };
 
   const saveEdit = async () => {
@@ -207,6 +313,7 @@ export default function MomentDetailScreen() {
           title: editTitle,
           captionNote: editNote,
           placeName: editPlace,
+          capturedAt: capturedAtFromDate(editDate),
         },
         tags: editTags.split(',').map((tag) => tag.trim()).filter(Boolean),
       });
@@ -274,20 +381,38 @@ export default function MomentDetailScreen() {
     }
   };
 
+  const confirmRemoveAutoSaved = () => {
+    if (!family?.id || !user?.id || !firstMedia) return;
+    setMenuVisible(false);
+    Alert.alert(AUTO_SAVE_CORRECTION_COPY.confirmTitle, AUTO_SAVE_CORRECTION_COPY.confirmBody, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: AUTO_SAVE_CORRECTION_COPY.actionLabel,
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeAutoSavedMemory({
+              familyId: family.id,
+              userId: user.id,
+              target: firstMedia,
+            });
+            Alert.alert(AUTO_SAVE_CORRECTION_COPY.successTitle, AUTO_SAVE_CORRECTION_COPY.successBody);
+            router.back();
+          } catch (err) {
+            Alert.alert('Could not remove auto-save', err?.message || String(err));
+          }
+        },
+      },
+    ]);
+  };
+
   const setAsMilestone = async () => {
     if (!family?.id || !moment?.id) return;
     setMenuVisible(false);
     try {
       const existing = (await Firsts.list(family.id)).find((row) => row.moment_id === moment.id);
-      const row = existing || await Firsts.create({
-        familyId: family.id,
-        title: moment.title || 'A little first',
-        note: moment.caption_note || null,
-        happenedAt: moment.captured_at || null,
-        momentId: moment.id,
-        done: true,
-      });
-      router.push({ pathname: '/first-compose', params: { id: row.id, momentId: moment.id } });
+      const route = buildMomentMilestoneRoute({ moment, existingFirst: existing, media: firstMedia });
+      if (route) router.push(route);
     } catch (err) {
       Alert.alert('Could not set milestone', err?.message || String(err));
     }
@@ -295,7 +420,7 @@ export default function MomentDetailScreen() {
 
   const confirmDelete = () => {
     setMenuVisible(false);
-    Alert.alert('Delete this moment?', 'This removes the saved Moment, linked media rows, voice notes, reactions, and archive compatibility rows.', [
+    Alert.alert('Delete this moment?', 'This removes the saved Moment from the book, including copied media, voice notes, and reactions. Any originals in Photos stay where they are.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -342,6 +467,9 @@ export default function MomentDetailScreen() {
     { icon: 'create-outline', label: 'Edit title and note', onPress: openEdit, disabled: !isOwner },
     { icon: 'mic-off-outline', label: 'Remove voice note', onPress: confirmDeleteVoice, destructive: true, disabled: !isOwner || !voice?.id },
     { icon: 'flag-outline', label: 'Set as milestone', onPress: setAsMilestone, disabled: !canWrite },
+    firstMediaAutoSaved
+      ? { icon: 'sparkles-outline', label: AUTO_SAVE_CORRECTION_COPY.actionLabel, onPress: confirmRemoveAutoSaved, destructive: true, disabled: !isOwner }
+      : null,
     {
       icon: sharedWithCircle ? 'eye-off-outline' : 'people-outline',
       label: sharedWithCircle ? 'Keep between co-parents' : 'Share to family circle',
@@ -349,7 +477,7 @@ export default function MomentDetailScreen() {
       disabled: !isOwner,
     },
     { icon: 'trash-outline', label: 'Delete moment', onPress: confirmDelete, destructive: true, disabled: !isOwner },
-  ];
+  ].filter(Boolean);
 
   if (loading) {
     return (
@@ -373,9 +501,25 @@ export default function MomentDetailScreen() {
   }
 
   return (
-    <Screen variant="dark" scroll bare edges={{ top: true, bottom: false }} contentStyle={styles.detailContent}>
-      <View style={styles.detailHero}>
-        <MediaMosaic media={moment.media || []} theme={theme} onPromoteVideo={promoteVideo} promotingVideo={promotingVideo} />
+    <Screen
+      variant="dark"
+      scroll
+      bare
+      edges={{ top: true, bottom: false }}
+      contentStyle={styles.detailContent}
+      onScroll={(event) => {
+        if (photoFocused && event.nativeEvent.contentOffset.y > 8) setPhotoFocus(false);
+      }}
+    >
+      <View style={[styles.detailHero, photoFocused && { height: Math.max(520, window.height - 128) }]}>
+        <MediaMosaic
+          media={moment.media || []}
+          theme={theme}
+          onPromoteVideo={promoteVideo}
+          promotingVideo={promotingVideo}
+          photoFocused={photoFocused}
+          onPhotoPress={() => setPhotoFocus(true)}
+        />
         <LinearGradient
           pointerEvents="none"
           colors={[glass.mediaScrim, glass.mediaScrimClear, glass.mediaScrim]}
@@ -389,33 +533,46 @@ export default function MomentDetailScreen() {
             accessibilityLabel="Go back"
             style={[styles.iconButton, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}
           >
-            <Ionicons name="chevron-back" size={19} color={theme.colors.bg} />
+            <Ionicons name="chevron-back" size={19} color={mediaOverlayTextColor} />
           </Pressable>
-          <Caption style={{ color: theme.colors.bg }}>{capturedLabel}</Caption>
+          <Caption style={{ color: mediaOverlayTextColor }}>{capturedLabel}</Caption>
           <Pressable
             onPress={() => setMenuVisible(true)}
             accessibilityRole="button"
             accessibilityLabel="Open moment actions"
             style={[styles.iconButton, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}
           >
-            <Ionicons name="ellipsis-horizontal" size={19} color={theme.colors.bg} />
+            <Ionicons name="ellipsis-horizontal" size={19} color={mediaOverlayTextColor} />
           </Pressable>
         </View>
-        <View style={styles.heroCaption}>
+        {!photoFocused ? <View style={styles.heroCaption}>
           {capturedAgeLabel ? (
-            <Caption style={[styles.heroAge, { color: theme.colors.bg }]}>{capturedAgeLabel}</Caption>
+            <Caption style={[styles.heroAge, { color: mediaOverlayTextColor }]}>{capturedAgeLabel}</Caption>
           ) : null}
-          <Title style={[styles.heroTitle, { color: theme.colors.bg }]}>
+          <Title style={[styles.heroTitle, { color: mediaOverlayTextColor }]}>
             {moment.title || 'A little moment'}
           </Title>
           <Caption style={[styles.heroMeta, { color: glass.inverseTextBody }]}>
-            {[moment.place_name, capturedLabel].filter(Boolean).join(' · ') || 'Saved moment'}
+            {[firstMediaAutoSaved ? 'Added by the assistant' : null, moment.place_name, capturedLabel].filter(Boolean).join(' · ') || 'Saved moment'}
           </Caption>
-        </View>
+        </View> : null}
       </View>
 
       <View style={[styles.detailSheet, { backgroundColor: theme.semantic.card }]}>
-        <View style={[styles.sheetHandle, { backgroundColor: theme.semantic.border }]} />
+        <GestureDetector gesture={sheetHandleGesture}>
+        <View collapsable={false}>
+        <Pressable
+          onPress={() => setPhotoFocus(!photoFocused)}
+          accessibilityRole="button"
+          accessibilityLabel={photoFocused ? 'Show moment details' : 'Show full photo'}
+          style={styles.sheetHandleTouch}
+        >
+          <View style={[styles.sheetHandle, { backgroundColor: theme.semantic.border }]} />
+          {photoFocused ? <Caption>Swipe up for details</Caption> : null}
+        </Pressable>
+        </View>
+        </GestureDetector>
+        {photoFocused ? null : <>
         {editOpen ? (
           <Card variant="muted">
             <Caption>Edit moment</Caption>
@@ -434,6 +591,14 @@ export default function MomentDetailScreen() {
                 caption="Optional. Helps group this memory by location."
                 autoCapitalize="words"
               />
+              <BirthDatePicker
+                value={editDate}
+                onChange={setEditDate}
+                placeholder="When did it happen?"
+                accessibilityLabel="Moment happened date"
+                caption={editDateCaption}
+                defaultDate={dateOnlyFromIso(moment?.captured_at) || todayIsoDate()}
+              />
               <Field
                 as="textarea"
                 value={editNote}
@@ -441,6 +606,20 @@ export default function MomentDetailScreen() {
                 placeholder="Note"
                 caption="Private to this family archive."
               />
+              {editContextDraft && !editNote.trim() ? (
+                <Pressable
+                  onPress={() => setEditNote(editContextDraft)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use suggested line: ${editContextDraft}`}
+                  style={[styles.contextDraftRow, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+                >
+                  <View style={styles.contextDraftText}>
+                    <Caption>{CONTEXT_DRAFT_LABEL}</Caption>
+                    <Body>{editContextDraft}</Body>
+                  </View>
+                  <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{CONTEXT_DRAFT_USE_LABEL}</Caption>
+                </Pressable>
+              ) : null}
               <Field
                 value={editTags}
                 onChangeText={setEditTags}
@@ -454,6 +633,23 @@ export default function MomentDetailScreen() {
               <Button size="sm" fullWidth={false} onPress={saveEdit} loading={savingEdit}>Save</Button>
             </View>
           </Card>
+        ) : null}
+
+        {storyActions.length ? (
+          <StoryLinkSection
+            title="Add to the story"
+            chips={storyActions}
+            theme={theme}
+            onOpen={openConnectionChip}
+          />
+        ) : null}
+        {storyConnections.length ? (
+          <StoryLinkSection
+            title="Connected to this moment"
+            chips={storyConnections}
+            theme={theme}
+            onOpen={openConnectionChip}
+          />
         ) : null}
 
         {voice ? (
@@ -482,30 +678,6 @@ export default function MomentDetailScreen() {
             <Body style={[styles.handwrittenNote, { color: theme.colors.ink }]}>{moment.caption_note}</Body>
           </Card>
         ) : null}
-
-        <Card variant="muted">
-          <View style={styles.sharedHeader}>
-            <View style={styles.sharedCopy}>
-              <Caption>Shared with</Caption>
-              <Title style={styles.sharedTitle}>{sharedWithLabel({ sharedWithCircle, circleCount: circleMembers.length })}</Title>
-              <Body>{sharedWithCircle ? 'View-only family can see this saved moment.' : 'Kept between co-parents unless you share it to the family circle.'}</Body>
-            </View>
-            <View style={[styles.sharedIcon, { backgroundColor: theme.colors.primarySoft }]}>
-              <Ionicons name={sharedWithCircle ? 'people-outline' : 'lock-closed-outline'} size={19} color={theme.semantic.primary} />
-            </View>
-          </View>
-          <Button
-            size="sm"
-            fullWidth={false}
-            variant="quiet"
-            style={styles.sharedButton}
-            onPress={toggleCircleShare}
-            loading={sharingCircle}
-            disabled={!isOwner}
-          >
-            {circleMembers.length ? (sharedWithCircle ? 'Keep between co-parents' : 'Share to circle') : 'Invite family circle'}
-          </Button>
-        </Card>
 
         <Card variant="muted">
           <Caption>Family reactions</Caption>
@@ -587,8 +759,9 @@ export default function MomentDetailScreen() {
             </View>
           ) : null}
         </Card>
+        </>}
       </View>
-      <HomeIndicator color={theme.colors.bg} />
+      <HomeIndicator color={mediaOverlayTextColor} />
       <PhotoActionSheet
         photo={actionSheetPhoto}
         visible={menuVisible}
@@ -604,18 +777,85 @@ function reactionLabel(reaction) {
   return REACTION_LABELS[reaction.key] || reaction.key;
 }
 
-function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo }) {
+function StoryLinkSection({ title, chips, theme, onOpen }) {
+  return (
+    <View style={styles.connectionSection}>
+      <Caption>{title}</Caption>
+      <View style={styles.connectionChips}>
+        {chips.map((chip) => (
+          <ConnectionChip
+            key={chip.key}
+            chip={chip}
+            theme={theme}
+            onPress={() => onOpen(chip)}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ConnectionChip({ chip, theme, onPress }) {
+  const interactive = Boolean(chip.route || chip.action);
+  const content = (
+    <>
+      <View style={[styles.connectionIcon, { backgroundColor: theme.colors.primarySoft }]}>
+        <Ionicons name={chip.icon || 'ellipse-outline'} size={15} color={theme.semantic.primary} />
+      </View>
+      <View style={styles.connectionText}>
+        <Body style={styles.connectionLabel}>{chip.label}</Body>
+        <Caption numberOfLines={2}>{chip.detail}</Caption>
+      </View>
+      {interactive ? (
+        <Ionicons name="chevron-forward" size={15} color={theme.semantic.textMuted} />
+      ) : null}
+    </>
+  );
+
+  if (!interactive) {
+    return (
+      <View style={[styles.connectionChip, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${chip.label}: ${chip.detail}`}
+      style={({ pressed }) => [
+        styles.connectionChip,
+        {
+          backgroundColor: theme.semantic.cardAlt,
+          borderColor: theme.semantic.border,
+          opacity: pressed ? 0.72 : 1,
+        },
+      ]}
+    >
+      {content}
+    </Pressable>
+  );
+}
+
+function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo, photoFocused = false, onPhotoPress }) {
   if (!media.length) {
     return (
-      <View style={[styles.heroMedia, { backgroundColor: theme.semantic.cardAlt }]}>
+      <Pressable
+        onPress={onPhotoPress}
+        accessibilityRole="button"
+        accessibilityLabel="Show full photo"
+        style={[styles.heroMedia, { backgroundColor: theme.semantic.cardAlt }]}
+      >
         <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-      </View>
+      </Pressable>
     );
   }
   const first = media[0];
   return (
     <View style={styles.mediaWrap}>
-      <View style={[styles.heroMedia, { backgroundColor: theme.semantic.cardAlt }]}>
+      <View style={[styles.heroMedia, { backgroundColor: photoFocused ? glass.photoBackdrop : theme.semantic.cardAlt }]}>
         {first.media_type === 'video' ? (
           first.fullUrl
             ? <VideoPlayerTile media={first} theme={theme} />
@@ -629,9 +869,27 @@ function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo }) {
               />
             )
         ) : first.fullUrl || first.thumbUrl ? (
-          <Image source={{ uri: first.fullUrl || first.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <Pressable
+            onPress={onPhotoPress}
+            accessibilityRole="button"
+            accessibilityLabel="Show full photo"
+            style={StyleSheet.absoluteFill}
+          >
+            <Image
+              source={{ uri: first.fullUrl || first.thumbUrl }}
+              style={StyleSheet.absoluteFill}
+              contentFit={photoFocused ? 'contain' : 'cover'}
+            />
+          </Pressable>
         ) : (
-          <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+          <Pressable
+            onPress={onPhotoPress}
+            accessibilityRole="button"
+            accessibilityLabel="Show full photo"
+            style={StyleSheet.absoluteFill}
+          >
+            <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+          </Pressable>
         )}
       </View>
       {media.length > 1 ? (
@@ -775,10 +1033,23 @@ function normalizeSharedWith(value) {
   return value.map((item) => String(item || '').trim()).filter(Boolean);
 }
 
-function sharedWithLabel({ sharedWithCircle, circleCount }) {
-  if (sharedWithCircle && circleCount > 0) return `Co-parents + ${circleCount} circle ${circleCount === 1 ? 'member' : 'members'}`;
-  if (sharedWithCircle) return 'Co-parents + family circle';
-  return 'Co-parents';
+function dateOnlyFromIso(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function capturedAtFromDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+  return `${value}T12:00:00.000Z`;
+}
+
+function todayIsoDate() {
+  return dateOnlyFromIso(new Date());
 }
 
 const styles = StyleSheet.create({
@@ -883,7 +1154,45 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     alignSelf: 'center',
+  },
+  sheetHandleTouch: {
+    minHeight: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.xs,
     marginBottom: space.sm,
+  },
+  connectionSection: {
+    gap: space.sm,
+  },
+  connectionChips: {
+    gap: space.sm,
+  },
+  connectionChip: {
+    width: '100%',
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  connectionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectionText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  connectionLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   videoPlaceholder: {
     flex: 1,
@@ -938,34 +1247,23 @@ const styles = StyleSheet.create({
   editFields: {
     marginTop: space.md,
   },
+  contextDraftRow: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  contextDraftText: {
+    flex: 1,
+    minWidth: 0,
+  },
   editActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: space.sm,
     marginTop: space.md,
-  },
-  sharedHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: space.md,
-  },
-  sharedCopy: {
-    flex: 1,
-  },
-  sharedTitle: {
-    fontSize: 22,
-    lineHeight: 27,
-    marginVertical: space.xs,
-  },
-  sharedIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sharedButton: {
-    marginTop: space.lg,
   },
   voiceHeader: {
     flexDirection: 'row',

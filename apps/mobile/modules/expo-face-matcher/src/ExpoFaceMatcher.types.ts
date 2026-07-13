@@ -9,6 +9,12 @@ export type FaceEmbedding = {
   embedding: number[];
   faceCount: number;
   primaryBox: FaceBox | null;
+  captureQuality: number | null;
+  faceSizeRatio: number;
+  sharpness: number;
+  yaw: number | null;
+  roll: number | null;
+  brightness: number | null;
 };
 
 export type CandidateInput = {
@@ -21,6 +27,12 @@ export type MatchResult = {
   /** Cosine similarity to the reference embedding, ~[0..1]. */
   score: number;
   faceCount: number;
+  captureQuality: number | null;
+  faceSizeRatio: number;
+  sharpness: number;
+  yaw: number | null;
+  roll: number | null;
+  brightness: number | null;
 };
 
 export type ExpoFaceMatcherModuleEvents = Record<string, never>;

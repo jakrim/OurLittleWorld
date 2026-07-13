@@ -141,7 +141,7 @@ async function createVideoPoster({ info, match }) {
  * point of view: the tag row exists immediately (status='pending'), then
  * upload + status='ready' happen async.
  */
-export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false }) {
+export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false, source = null }) {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
   if (!userId) throw new Error('Not signed in');
@@ -183,10 +183,10 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
     let result;
     if (info.mediaType === 'video') {
       result = videoPosterOnly
-        ? await savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match })
-        : await uploadVideoForTag({ familyId, assetId, userId, info, match });
+        ? await savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match, source })
+        : await uploadVideoForTag({ familyId, assetId, userId, info, match, source });
     } else {
-      result = await uploadImageForTag({ familyId, assetId, userId, info, match });
+      result = await uploadImageForTag({ familyId, assetId, userId, info, match, source });
     }
     safeCache(() => mediaDb.markUploadJob(jobId, 'done'));
     return result;
@@ -197,7 +197,7 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   }
 }
 
-async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
+async function uploadImageForTag({ familyId, assetId, userId, info, match, source }) {
   const localUri = info.localUri || info.uri;
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
@@ -245,7 +245,7 @@ async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
       width: info.width || null,
       height: info.height || null,
       metadata: mediaUploadMetadata({
-        source: 'library-review',
+        source: source || 'library-review',
         localAssetId: assetId,
         fullPath,
         thumbPath,
@@ -356,7 +356,7 @@ async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
   }
 }
 
-async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
+async function uploadVideoForTag({ familyId, assetId, userId, info, match, source }) {
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
   const sourceBytes = fileSizeOf(info.localUri || info.uri);
   await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
@@ -385,7 +385,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
   const metadata = mediaUploadMetadata({
-    source: 'library-review',
+    source: source || 'library-review',
     localAssetId: assetId,
     ...(fullPath ? { fullPath } : {}),
     posterPath,
@@ -555,7 +555,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
  * now, no source upload. The user can promote it to a playable video later
  * (uploadForTag without videoPosterOnly reuses the same moment/media ids).
  */
-async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match }) {
+async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match, source }) {
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
@@ -592,7 +592,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
   const posterBytes = fileSizeOf(poster.uri);
 
   const metadata = mediaUploadMetadata({
-    source: 'scan-auto-save',
+    source: source || 'scan-auto-save',
     localAssetId: assetId,
     posterPath,
     posterTimeMs: poster.timeMs,

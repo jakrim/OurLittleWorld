@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -23,6 +23,8 @@ import { markDigestRead } from './digestReadState';
 import { countLabel } from './plural';
 import { maybePromptForPushNotifications } from './pushNotifications';
 import { useRitualHomeData } from './useRitualHomeData';
+import { buildPrivateDigestSharePayload } from './privateRecapShareModel';
+import { buildDigestViewStatusLabel } from './secondParentStateModel';
 
 export default function DigestDetailSheetScreen() {
   const router = useRouter();
@@ -53,7 +55,33 @@ export default function DigestDetailSheetScreen() {
     if (!momentId) return;
     router.push({ pathname: '/moment/[momentId]', params: { momentId } });
   };
+  const summaryText = digestSummary(digest, family?.babyName);
+  const sharePrivateDigest = async () => {
+    try {
+      const payload = buildPrivateDigestSharePayload({
+        family,
+        digest,
+        summary: summaryText,
+      });
+      await Share.share({
+        title: payload.title,
+        message: payload.message,
+      });
+    } catch (err) {
+      Alert.alert('Could not share recap', err?.message || String(err));
+    }
+  };
+  const writeLetterFromDigest = () => {
+    const seed = letterSeedFromDigest(digest, family?.babyName);
+    const params = {
+      title: seed.title,
+      body: seed.body,
+    };
+    if (digest?.weekStart) params.sourceDigestWeekStart = digest.weekStart;
+    router.push({ pathname: '/letter-compose', params });
+  };
   const representativeMedia = (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl);
+  const digestViewLabel = buildDigestViewStatusLabel({ openedHere: true });
 
   return (
     <Screen bare>
@@ -79,7 +107,8 @@ export default function DigestDetailSheetScreen() {
         <Card variant="muted">
           <Eyebrow>{formatWeek(digest.weekStart, digest.weekEnd)}</Eyebrow>
           <Title style={styles.heroTitle}>{digest.headline}</Title>
-          <Body>{digestSummary(digest, family?.babyName)}</Body>
+          <Body>{summaryText}</Body>
+          <Caption style={styles.digestViewStatus}>{digestViewLabel}</Caption>
         </Card>
 
         <View style={styles.metricGrid}>
@@ -143,9 +172,39 @@ export default function DigestDetailSheetScreen() {
         </Card>
 
         <Card variant="ghost">
+          <Eyebrow>Private share</Eyebrow>
+          <Body>
+            Share only this weekly recap. It is a private family share, not a feed.
+          </Body>
+          <Button
+            size="sm"
+            fullWidth={false}
+            onPress={sharePrivateDigest}
+            icon={<Ionicons name="share-outline" size={16} color={theme.colors.onPrimary} />}
+          >
+            Share recap
+          </Button>
+        </Card>
+
+        <Card variant="ghost">
+          <Eyebrow>Letters</Eyebrow>
+          <Body>
+            Save a note from this week with the rest of the baby book.
+          </Body>
+          <Button
+            size="sm"
+            fullWidth={false}
+            onPress={writeLetterFromDigest}
+            icon={<Ionicons name="mail-outline" size={16} color={theme.colors.onPrimary} />}
+          >
+            Write letter from this week
+          </Button>
+        </Card>
+
+        <Card variant="ghost">
           <Eyebrow>Read-only</Eyebrow>
           <Body>
-            This digest is assembled from saved moments, firsts, voice notes, and sealed letters. Edit the original Moment or ritual item to change what appears here.
+            This digest is assembled from saved moments, firsts, voice notes, and letters. Edit the original Moment or ritual item to change what appears here.
           </Body>
         </Card>
       </ScrollView>
@@ -172,9 +231,16 @@ function digestSummary(digest, babyName) {
   if (moments) parts.push(`${moments} saved ${moments === 1 ? 'moment' : 'moments'}`);
   if (milestones) parts.push(`${milestones} ${milestones === 1 ? 'first' : 'firsts'}`);
   if (voice) parts.push(`${voice} voice ${voice === 1 ? 'note' : 'notes'}`);
-  if (letters) parts.push(`${letters} sealed ${letters === 1 ? 'letter' : 'letters'}`);
+  if (letters) parts.push(`${letters} ${letters === 1 ? 'letter' : 'letters'}`);
   if (!parts.length) return `A quiet week for ${name}, still kept in one place.`;
   return `For ${name}, this week gathered ${joinParts(parts)}.`;
+}
+
+function letterSeedFromDigest(digest, babyName) {
+  return {
+    title: 'A note from this week',
+    body: `${digestSummary(digest || {}, babyName)}\n\n`,
+  };
 }
 
 function joinParts(parts) {
@@ -230,6 +296,9 @@ const styles = StyleSheet.create({
     fontSize: 27,
     lineHeight: 33,
     marginVertical: space.sm,
+  },
+  digestViewStatus: {
+    marginTop: space.sm,
   },
   metricGrid: {
     flexDirection: 'row',

@@ -316,8 +316,8 @@ function copyForEvent(event: ReturnType<typeof normalizeEvent>, actorName: strin
   if (event.kind === 'first_saved') {
     return { title: `${actorName} saved a First`, body: event.body };
   }
-  if (event.kind === 'letter_sealed') {
-    return { title: `${actorName} sealed a letter`, body: 'Open Letters.' };
+  if (event.kind === 'letter_saved' || event.kind === 'letter_sealed') {
+    return { title: `${actorName} saved a letter`, body: 'Open Letters.' };
   }
   return { title: event.title, body: event.body };
 }

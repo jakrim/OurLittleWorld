@@ -21,6 +21,7 @@
       "**/*"
     ],
     "ios": {
+      "icon": "./assets/brand/our-little-world.icon",
       "bundleIdentifier": "com.jessekrim.ourlittleworld",
       "buildNumber": "1.1.3",
       "supportsTablet": true,
@@ -28,7 +29,8 @@
         "NSPhotoLibraryUsageDescription": "Our Little World uses photo access for optional on-device discovery. Photos and videos you save are uploaded to your private family archive.",
         "NSPhotoLibraryAddUsageDescription": "Allow saving photos when you export memories.",
         "NSCameraUsageDescription": "Allow capturing new memories directly from Our Little World.",
-        "NSMicrophoneUsageDescription": "Allow recording short voice notes that play back beside the photo.",
+        "NSMicrophoneUsageDescription": "Allow recording private voice notes for moments and letters.",
+        "NSSpeechRecognitionUsageDescription": "Allow private on-device transcription of a letter recording into editable text.",
         "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationQueriesSchemes": [
           "message",
@@ -69,13 +71,13 @@
           "image": "./assets/brand/splash.png",
           "resizeMode": "contain",
           "backgroundColor": "#FAF4EE",
-          "imageWidth": 280,
+          "imageWidth": 240,
           "dark": {
             "image": "./assets/brand/splash-dark.png",
             "backgroundColor": "#1A130E"
           },
           "android": {
-            "imageWidth": 280,
+            "imageWidth": 240,
             "dark": {
               "image": "./assets/brand/splash-dark.png",
               "backgroundColor": "#1A130E"
@@ -105,7 +107,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow recording short voice notes attached to your baby's photos."
+          "microphonePermission": "Allow recording private voice notes for moments and letters."
         }
       ],
       "expo-secure-store",

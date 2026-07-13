@@ -16,6 +16,7 @@ import {
   streamPlaybackUrl,
   uploadToStream,
 } from './mediaSession';
+import { attachmentTarget } from './mediaAttachmentTarget';
 import { supabase } from './supabase';
 import { normalizeMomentTags } from './tagModel';
 
@@ -132,6 +133,12 @@ function dateFromAsset(asset) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function normalizeCapturedAtOverride(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function locationFromAsset(asset) {
   const exif = asset?.exif || {};
   const latitude = Number(exif.GPSLatitude ?? exif.latitude ?? asset?.latitude);
@@ -140,13 +147,14 @@ function locationFromAsset(asset) {
   return { latitude, longitude };
 }
 
-async function uploadPickedImage({ familyId, momentId, userId, asset, index, capturedAt }) {
+async function uploadPickedImage({ familyId, momentId = null, letterId = null, userId, asset, index, capturedAt }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const fullId = uuid();
   const thumbId = uuid();
-  const fullPath = `${familyId}/moments/${momentId}/image-full/${fullId}.jpg`;
-  const thumbPath = `${familyId}/moments/${momentId}/image-thumb/${thumbId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const fullPath = `${target.basePath}/image-full/${fullId}.jpg`;
+  const thumbPath = `${target.basePath}/image-thumb/${thumbId}.jpg`;
+  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
   const location = locationFromAsset(asset);
   const creationTime = dateFromAsset(asset) || capturedAt;
 
@@ -161,7 +169,7 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'image',
@@ -202,29 +210,31 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
 
-    const { error: tagErr } = await supabase.from('photo_tags').upsert(
-      {
-        family_id: familyId,
-        asset_owner_user_id: userId,
-        asset_id: localIdentifier,
-        tagged_by_user_id: userId,
-        tagged_at: new Date().toISOString(),
-        creation_time: creationTime,
-        original_width: full.width || asset.width || null,
-        original_height: full.height || asset.height || null,
-        latitude: location?.latitude ?? null,
-        longitude: location?.longitude ?? null,
-        location_fetched_at: location ? new Date().toISOString() : null,
-        storage_object: fullId,
-        thumb_object: thumbId,
-        upload_status: 'ready',
-        upload_error: null,
-        moment_id: momentId,
-        moment_media_id: mediaId,
-      },
-      { onConflict: 'family_id,asset_owner_user_id,asset_id' },
-    );
-    if (tagErr) throw tagErr;
+    if (momentId) {
+      const { error: tagErr } = await supabase.from('photo_tags').upsert(
+        {
+          family_id: familyId,
+          asset_owner_user_id: userId,
+          asset_id: localIdentifier,
+          tagged_by_user_id: userId,
+          tagged_at: new Date().toISOString(),
+          creation_time: creationTime,
+          original_width: full.width || asset.width || null,
+          original_height: full.height || asset.height || null,
+          latitude: location?.latitude ?? null,
+          longitude: location?.longitude ?? null,
+          location_fetched_at: location ? new Date().toISOString() : null,
+          storage_object: fullId,
+          thumb_object: thumbId,
+          upload_status: 'ready',
+          upload_error: null,
+          moment_id: momentId,
+          moment_media_id: mediaId,
+        },
+        { onConflict: 'family_id,asset_owner_user_id,asset_id' },
+      );
+      if (tagErr) throw tagErr;
+    }
 
     return { id: mediaId, type: 'image', fullPath, thumbPath };
   } catch (err) {
@@ -237,21 +247,22 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
   }
 }
 
-async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
+async function uploadPickedVideo({ familyId, momentId = null, letterId = null, userId, asset, index }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const fullId = uuid();
   const posterId = uuid();
   const ext = extensionFor({ mimeType: asset.mimeType, fileName: asset.fileName, fallback: 'mp4' });
   const mimeType = asset.mimeType || (ext === 'mov' ? 'video/quicktime' : 'video/mp4');
-  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
+  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
   const sourceBytes = asset.fileSize || fileSizeOf(asset.uri);
 
   // New playable videos go to Cloudflare Stream; sources past the simple
   // upload cap stay on the legacy Supabase byte plane until tus lands.
   const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
-  const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
+  const fullPath = useStream ? null : `${target.basePath}/video/${fullId}.${ext}`;
 
   const metadata = {
     source: 'manual-picker',
@@ -263,7 +274,7 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
@@ -355,11 +366,12 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
  * Saves a picked video as a poster-only memory (no source upload). Used when
  * a video is over the plan's playable limits and the user keeps the poster.
  */
-async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, index }) {
+async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId = null, userId, asset, index }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const posterId = uuid();
-  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
+  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
 
   const poster = await createVideoPoster(asset);
@@ -379,7 +391,7 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, 
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
@@ -418,18 +430,19 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, 
   }
 }
 
-async function uploadVoiceNote({ familyId, momentId, userId, voice }) {
+async function uploadVoiceNote({ familyId, momentId = null, letterId = null, userId, voice }) {
   if (!voice?.uri) return null;
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const noteId = uuid();
   const audioId = uuid();
   const ext = extensionFor({ mimeType: voice.mimeType, fileName: voice.fileName, fallback: 'm4a' });
   const mimeType = voice.mimeType || 'audio/mp4';
-  const audioPath = `${familyId}/moments/${momentId}/voice/${audioId}.${ext}`;
+  const audioPath = `${target.basePath}/voice/${audioId}.${ext}`;
 
   const { error: insertErr } = await supabase.from('voice_notes').insert({
     id: noteId,
     family_id: familyId,
-    moment_id: momentId,
+    ...target.columns,
     author_user_id: userId,
     duration_sec: voice.durationSec || null,
     waveform: voice.waveform || [],
@@ -469,6 +482,7 @@ export async function createMomentWithMedia({
   assets = [],
   voice = null,
   videoPosterOnly = false,
+  capturedAt: capturedAtOverride = null,
 }) {
   if (!familyId) throw new Error('No family selected');
   const cleanTitle = String(title || '').trim();
@@ -496,7 +510,7 @@ export async function createMomentWithMedia({
 
   const userId = await currentUserId();
   const momentId = uuid();
-  const capturedAt = dateFromAsset(pickedAssets[0]) || new Date().toISOString();
+  const capturedAt = normalizeCapturedAtOverride(capturedAtOverride) || dateFromAsset(pickedAssets[0]) || new Date().toISOString();
   const firstLocation = pickedAssets.map(locationFromAsset).find(Boolean);
 
   const { error: momentErr } = await supabase.from('moments').insert({
@@ -545,6 +559,43 @@ export async function createMomentWithMedia({
   };
 }
 
+export async function uploadLetterAttachments({
+  familyId,
+  letterId,
+  assets = [],
+  voice = null,
+  videoPosterOnly = false,
+}) {
+  if (!familyId || !letterId) throw new Error('Missing letter attachment target');
+  const pickedAssets = Array.isArray(assets) ? assets.filter((asset) => asset?.uri) : [];
+
+  if (!videoPosterOnly) {
+    for (const asset of pickedAssets) {
+      if (mediaTypeFor(asset) !== 'video') continue;
+      await assertVideoWithinPlan({
+        familyId,
+        durationSec: asset.duration ? Number(asset.duration) / 1000 : null,
+        sourceBytes: asset.fileSize || fileSizeOf(asset.uri),
+      });
+    }
+  }
+
+  const userId = await currentUserId();
+  const uploadedMedia = [];
+  for (let i = 0; i < pickedAssets.length; i += 1) {
+    const asset = pickedAssets[i];
+    const media = mediaTypeFor(asset) === 'video'
+      ? (videoPosterOnly
+        ? await uploadPickedVideoPosterOnly({ familyId, letterId, userId, asset, index: i })
+        : await uploadPickedVideo({ familyId, letterId, userId, asset, index: i }))
+      : await uploadPickedImage({ familyId, letterId, userId, asset, index: i });
+    uploadedMedia.push(media);
+  }
+
+  const uploadedVoice = await uploadVoiceNote({ familyId, letterId, userId, voice });
+  return { media: uploadedMedia, voice: uploadedVoice };
+}
+
 async function signPaths(paths) {
   const unique = Array.from(new Set(paths.filter(Boolean)));
   if (!unique.length) return new Map();
@@ -561,6 +612,82 @@ async function signPaths(paths) {
     for (const row of data || []) out.set(row.path, row.signedUrl);
   }
   return out;
+}
+
+export async function getLetterAttachments({ familyId, letterId }) {
+  if (!familyId || !letterId) return { media: [], voiceNotes: [] };
+  const [mediaResult, voiceResult] = await Promise.all([
+    supabase
+      .from('moment_media')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('letter_id', letterId)
+      .eq('upload_status', 'ready')
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('voice_notes')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('letter_id', letterId)
+      .eq('upload_status', 'ready')
+      .order('created_at', { ascending: true }),
+  ]);
+  if (mediaResult.error) throw mediaResult.error;
+  if (voiceResult.error) throw voiceResult.error;
+
+  const media = mediaResult.data || [];
+  const voiceNotes = voiceResult.data || [];
+  const paths = [];
+  let hasStreamMedia = false;
+  for (const item of media) {
+    paths.push(item.metadata?.fullPath, item.metadata?.thumbPath, item.metadata?.posterPath);
+    if (item.stream_uid) hasStreamMedia = true;
+  }
+  for (const voice of voiceNotes) {
+    const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+    if (voice.audio_object) paths.push(`${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`);
+  }
+
+  const [signed, mediaSessionToken] = await Promise.all([
+    signPaths(paths),
+    hasStreamMedia ? getMediaSession(familyId).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  return {
+    media: media.map((item) => ({
+      ...item,
+      fullUrl: item.stream_uid
+        ? streamPlaybackUrl(familyId, item.stream_uid, mediaSessionToken)
+        : signed.get(item.metadata?.fullPath) || null,
+      thumbUrl: signed.get(item.metadata?.thumbPath) || null,
+      posterUrl: signed.get(item.metadata?.posterPath) || null,
+    })),
+    voiceNotes: voiceNotes.map((voice) => {
+      const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+      const audioPath = voice.audio_object
+        ? `${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`
+        : null;
+      return { ...voice, audioUrl: signed.get(audioPath) || null };
+    }),
+  };
+}
+
+export async function deleteLetterAttachments({ familyId, letterId }) {
+  if (!familyId || !letterId) return;
+  const attachments = await getLetterAttachments({ familyId, letterId });
+  const paths = [];
+  for (const media of attachments.media) {
+    paths.push(media.metadata?.fullPath, media.metadata?.thumbPath, media.metadata?.posterPath);
+  }
+  for (const voice of attachments.voiceNotes) {
+    const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+    if (voice.audio_object) paths.push(`${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`);
+  }
+  const storagePaths = Array.from(new Set(paths.filter(Boolean)));
+  if (storagePaths.length) {
+    const { error } = await supabase.storage.from(BUCKET).remove(storagePaths);
+    if (error) console.warn('deleteLetterAttachments storage cleanup', error.message);
+  }
 }
 
 export async function listMomentArchive(familyId, { limit = 120 } = {}) {
@@ -708,6 +835,10 @@ export async function updateMoment({ familyId, momentId, patch = {}, tags }) {
   if (patch.title !== undefined) payload.title = String(patch.title || '').trim() || null;
   if (patch.captionNote !== undefined) payload.caption_note = String(patch.captionNote || '').trim() || null;
   if (patch.placeName !== undefined) payload.place_name = String(patch.placeName || '').trim() || null;
+  if (patch.capturedAt !== undefined) {
+    const capturedAt = normalizeCapturedAtOverride(patch.capturedAt);
+    if (capturedAt) payload.captured_at = capturedAt;
+  }
   if (patch.sharedWith !== undefined) payload.shared_with = Array.isArray(patch.sharedWith) ? patch.sharedWith : [];
   if (Object.keys(payload).length) {
     payload.updated_at = new Date().toISOString();

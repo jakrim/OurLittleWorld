@@ -32,8 +32,7 @@ import * as Scan from './scanController';
  *  • Edge-to-edge photo tiles, density adjustable from 1 → 5 columns
  *    via a pinch gesture (Photos.app style).
  *  • Floating date header that updates with the visible row.
- *  • Filter chips use parent-facing labels while internal thresholds stay
- *    score-based.
+ *  • Filter chips use parent-facing labels while internal scoring stays hidden.
  *  • Sticky save bar at the bottom — works at any time, even mid-scan.
  */
 export default function ReviewMatchesScreen() {
@@ -146,7 +145,7 @@ export default function ReviewMatchesScreen() {
     const accepted = matches.filter((m) => selectedAssetIds.has(m.assetId) && !m.saved);
     const rejected = matches.filter((m) => rejectedIds.has(m.assetId) && !m.saved);
     if (!accepted.length) {
-      Alert.alert('Nothing accepted', 'Tap media to accept it first.');
+      Alert.alert('Nothing selected', 'Tap media to keep it first.');
       return;
     }
 
@@ -369,8 +368,8 @@ export default function ReviewMatchesScreen() {
                   <Spacer h={space.sm} />
                   <Body>
                     {scanning
-                      ? 'Pinch to resize · tap any item that isn’t them to skip it. Stacks fold similar shots.'
-                      : `Pinch to resize · tap any item that isn’t ${family?.babyName || 'them'} to skip it. Stacks fold similar shots.`}
+                      ? 'Review starts with likely matches selected. Tap anything that is not them to skip it; tap again to keep it before saving. Clean reviews help clear future matches save automatically.'
+                      : `Review starts with likely matches selected. Tap anything that is not ${family?.babyName || 'them'} to skip it; tap again to keep it before saving. Clean reviews help clear future matches save automatically.`}
                   </Body>
                   <Spacer h={space.md} />
                   <View style={styles.chipRow}>
@@ -378,7 +377,7 @@ export default function ReviewMatchesScreen() {
                       All · {counts.all.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'high'} onPress={() => setFilter('high')}>
-                      Sure it's {family?.babyName || 'them'} · {counts.high.toLocaleString()}
+                      Clear matches · {counts.high.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'borderline'} onPress={() => setFilter('borderline')}>
                       Double-check these · {counts.borderline.toLocaleString()}
@@ -442,20 +441,20 @@ export default function ReviewMatchesScreen() {
                 <View style={{ flexDirection: 'row', gap: space.sm, marginTop: 4 }}>
                   <Pressable onPress={rejectVisible} hitSlop={8}>
                     <Caption style={{ color: colors.plum, fontWeight: '600' }}>
-                      Skip {filter === 'all' ? 'all' : 'these'}
+                      Skip {filter === 'all' ? 'shown' : 'these'}
                     </Caption>
                   </Pressable>
                   <Caption style={{ color: colors.whisper }}>·</Caption>
                   <Pressable onPress={acceptVisible} hitSlop={8}>
                     <Caption style={{ color: colors.coral, fontWeight: '600' }}>
-                      Accept {filter === 'all' ? 'all' : 'these'}
+                      Keep {filter === 'all' ? 'shown' : 'these'}
                     </Caption>
                   </Pressable>
                 </View>
               </View>
               <View style={styles.barRight}>
                 <Button onPress={onSave} disabled={selectedCount === 0}>
-                  Save {selectedCount.toLocaleString()}
+                  Save selected
                 </Button>
               </View>
             </View>

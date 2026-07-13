@@ -1,0 +1,15 @@
+# Dev-only PRD section 15 calibrated auto-save smoke. Uses the real simulator
+# Photos library/native matcher, but the auto-save write function is dry-run.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://native-auto-save-smoke"
+- runFlow:
+    when:
+      visible: "Allow Full Access"
+    commands:
+      - tapOn: "Allow Full Access"
+- assertVisible: "Native calibrated auto-save smoke."
+- extendedWaitUntil:
+    visible: "Dry-run auto-save: passed"
+    timeout: 60000
+- assertVisible: "Native calibrated path passed."

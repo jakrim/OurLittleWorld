@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, space, radius } from './ui';
+import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, shadow, space, radius, useTheme } from './ui';
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
@@ -114,12 +114,7 @@ export default function InviteScreen() {
   return (
     <Screen variant="warm" scroll>
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={20} color={colors.plum} />
-          <Caption style={{ marginLeft: 4 }}>Back</Caption>
-        </Pressable>
-
-        <Brand>{family?.name || 'Our Little World'}</Brand>
+        <InviteHeader onBack={() => router.back()} />
         <Hero>Invite your family circle.</Hero>
         <Body>
           Invite a co-parent who can add moments, or a view-only family circle
@@ -241,6 +236,27 @@ export default function InviteScreen() {
   );
 }
 
+function InviteHeader({ onBack }) {
+  const theme = useTheme();
+  return (
+    <View style={styles.inviteTopRow}>
+      <Pressable
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        hitSlop={8}
+        style={[
+          styles.inviteBackButton,
+          { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+        ]}
+      >
+        <Ionicons name="chevron-back" size={20} color={theme.semantic.textSoft} />
+      </Pressable>
+      <Brand style={styles.inviteBrand}>our little world</Brand>
+    </View>
+  );
+}
+
 function RoleOption({ active, icon, label, detail, disabled, onPress }) {
   return (
     <Pressable
@@ -275,10 +291,25 @@ function formatExpiry(iso) {
 }
 
 const styles = StyleSheet.create({
-  back: {
+  inviteTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: space.md,
+  },
+  inviteBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+    ...shadow.whisper,
+  },
+  inviteBrand: {
+    flex: 1,
+    textAlign: 'right',
   },
   codeBox: {
     flexDirection: 'row',

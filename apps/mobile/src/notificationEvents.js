@@ -26,14 +26,14 @@ export function notifyPartnerFirstSaved({ familyId, actorUserId, firstId, title 
   });
 }
 
-export function notifyPartnerLetterSealed({ familyId, actorUserId, letterId }) {
+export function notifyPartnerLetterSaved({ familyId, actorUserId, letterId }) {
   return notifyPartnerActivity({
     familyId,
     actorUserId,
-    kind: 'letter_sealed',
+    kind: 'letter_saved',
     route: '/letters',
-    title: 'A letter was sealed',
-    body: 'Your co-parent sealed a letter for later.',
+    title: 'A letter was saved',
+    body: 'Your co-parent saved a letter to the family book.',
     eventKey: letterId ? `partner_letter:${letterId}` : null,
     metadata: { letterId },
   });

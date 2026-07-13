@@ -22,19 +22,20 @@ Privacy Policy text: uploaded to App Store Connect app-info localization.
 
 Promotional text:
 
-Private baby book for the small moments, firsts, photos, and letters you want to keep close as your child grows.
+Finds likely baby moments in your camera roll, if you allow photo access. You approve what gets kept, and the private baby book grows.
 
 Description:
 
-Our Little World is a private baby book for the earliest years of family life.
+Our Little World is a private baby book that helps find likely baby moments in your camera roll, if you allow photo access. You approve what gets kept, and the book grows from there.
 
-Save the photos, firsts, daily notes, and little details that are easy to lose when life gets full. Build a quiet timeline from your child's first days, add milestones as they happen, write letters for later, and keep everything organized in one shared family space.
+Save baby photos, firsts, voice notes, daily notes, and little details that are easy to lose when life gets full. Build a quiet timeline from your child's first days, add milestones as they happen, write letters for later, and keep everything organized in one shared family space.
 
 Designed for parents and co-parents, Our Little World helps you:
 
-- Create a private family timeline from baby photos and notes
-- Save first smiles, first steps, favorite routines, and other milestones
-- Write time-capsule letters for your child or partner
+- Create a private baby book and family timeline from baby photos and notes
+- Save baby milestones like first smiles, first steps, favorite routines, and first words
+- Answer gentle prompts, add voice notes, and save daily memories while the details are still close
+- Write letters for your child or partner
 - Invite one other family member into the same private world
 - Revisit ordinary days, places, and weekly memories without a public feed
 
@@ -42,7 +43,7 @@ This is a keepsake for your family, not a social network. No feed, no likes, no 
 
 Keywords:
 
-baby book,milestones,photo journal,family album,parenting,keepsake,firsts,memories,letters
+baby book,baby milestones,baby photos,newborn,photo journal,family album,keepsake,firsts,memories
 
 What's New:
 

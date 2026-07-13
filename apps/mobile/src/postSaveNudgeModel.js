@@ -17,14 +17,17 @@ export function selectPostSaveNudge({
   if (!canShowPostSaveNudge({ state, momentId, now, maxPerDay })) return null;
 
   const hasPhoto = momentHasPhoto(moment);
+  const hasMedia = momentHasMedia(moment);
   const hasVoice = momentHasVoice(moment);
   const hasNoteText = Boolean(String(moment?.note ?? moment?.caption_note ?? '').trim());
-  const linkedFirst = Boolean(moment?.linkedFirst || moment?.firstId || moment?.first_id);
-  const ageDays = ageInDaysOn(birthdayISO, now);
+  const sourceFirstId = sourceFirstIdFromMoment(moment);
+  const linkedFirst = Boolean(moment?.linkedFirst || sourceFirstId);
+  const momentDate = momentNudgeDate(moment, now);
+  const ageDays = ageInDaysOn(birthdayISO, momentDate);
 
   if (hasPhoto) {
     const goal = selectInWindowFirstGoal(goals, firsts, ageDays);
-    if (goal) return firstNudge({ goal, momentId });
+    if (goal) return firstNudge({ goal, momentId, happenedDate: momentDate });
   }
 
   if (hasPhoto && !hasVoice && !hasNoteText) {
@@ -33,24 +36,36 @@ export function selectPostSaveNudge({
       momentId,
       question: "Add a 20-second voice note while it's fresh?",
       actionLabel: 'Open moment',
-      route: { pathname: '/moment/[momentId]', params: { momentId } },
+      route: { pathname: '/moment/[momentId]', params: { momentId, sourceMomentId: momentId } },
     };
   }
 
-  if (linkedFirst || hasVoice) {
-    const context = buildLetterContext({ capturedAt: moment.capturedAt, ageDays, babyName });
+  if (linkedFirst || hasVoice || (hasNoteText && !hasMedia)) {
+    const context = buildLetterContext({ capturedAt: momentDate, ageDays, babyName });
     return {
       kind: 'letter',
       momentId,
-      question: 'Leave one line for the eighteenth-birthday letter?',
+      question: 'Save one line as a letter for later?',
       actionLabel: 'Write letter',
       route: {
         pathname: '/letter-compose',
-        params: {
+        params: compactParams({
           title: context.title,
           body: context.body,
-        },
+          sourceMomentId: momentId,
+          sourceFirstId,
+        }),
       },
+    };
+  }
+
+  if (hasMedia && !hasNoteText) {
+    return {
+      kind: 'book-ready',
+      momentId,
+      question: 'Add one line to help make this book-ready?',
+      actionLabel: 'Add one line',
+      route: { pathname: '/moment/[momentId]', params: { momentId, sourceMomentId: momentId } },
     };
   }
 
@@ -74,14 +89,16 @@ export function firstSavedLetterNudge({ first, birthdayISO = null } = {}) {
   return {
     kind: 'letter',
     momentId: first.id ? `first:${first.id}` : null,
-    question: 'Leave one line for the eighteenth-birthday letter?',
+    question: 'Save one line as a letter for later?',
     actionLabel: 'Write letter',
     route: {
       pathname: '/letter-compose',
-      params: {
+      params: compactParams({
         title: `About your ${lower}`,
         body,
-      },
+        sourceMomentId: first.moment_id || first.momentId || null,
+        sourceFirstId: first.id || null,
+      }),
     },
   };
 }
@@ -153,7 +170,7 @@ function selectInWindowFirstGoal(goals, firsts, ageDays) {
     .sort((a, b) => Number(goalSortOrder(a) || 0) - Number(goalSortOrder(b) || 0))[0] || null;
 }
 
-function firstNudge({ goal, momentId }) {
+function firstNudge({ goal, momentId, happenedDate }) {
   const title = goalTitle(goal);
   const targetAge = goalTargetAgeLabel(goal);
   const goalKeyValue = goalKey(goal);
@@ -165,12 +182,14 @@ function firstNudge({ goal, momentId }) {
     actionLabel: 'Add first',
     route: {
       pathname: '/first-compose',
-      params: {
+      params: compactParams({
         momentId,
+        sourceMomentId: momentId,
         title,
         targetAge,
         goalKey: goalKeyValue,
-      },
+        seedDate: isoDateForNudge(happenedDate),
+      }),
     },
   };
 }
@@ -194,9 +213,55 @@ function momentHasPhoto(moment) {
   });
 }
 
+function momentHasMedia(moment) {
+  if (moment?.hasMedia != null) return Boolean(moment.hasMedia);
+  return [...(moment?.assets || []), ...(moment?.media || [])].some((asset) => {
+    const type = String(asset?.type || asset?.mediaType || asset?.media_type || '').toLowerCase();
+    if (type === 'image' || type === 'photo' || type === 'video') return true;
+    return Boolean(asset?.uri || asset?.localUri || asset?.thumbUrl || asset?.posterUrl || asset?.fullUrl);
+  });
+}
+
 function momentHasVoice(moment) {
   if (moment?.hasVoice != null) return Boolean(moment.hasVoice);
   return Boolean(moment?.voice?.uri || moment?.voice?.id || moment?.voiceNotes?.length);
+}
+
+function sourceFirstIdFromMoment(moment) {
+  const linked = moment?.linkedFirst;
+  if (typeof linked === 'string') return linked;
+  return linked?.id
+    || moment?.sourceFirstId
+    || moment?.source_first_id
+    || moment?.firstId
+    || moment?.first_id
+    || null;
+}
+
+function momentNudgeDate(moment, fallback) {
+  const value = moment?.happenedAt
+    || moment?.happened_at
+    || moment?.capturedAt
+    || moment?.captured_at
+    || moment?.createdAt
+    || moment?.created_at;
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : fallback;
+}
+
+function isoDateForNudge(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function compactParams(input) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== null && value !== undefined && value !== ''),
+  );
 }
 
 function buildLetterContext({ capturedAt, ageDays, babyName }) {
@@ -205,8 +270,8 @@ function buildLetterContext({ capturedAt, ageDays, babyName }) {
   const pieces = [date, age].filter(Boolean);
   const context = pieces.length ? `On ${pieces.join(', ')}` : 'From a saved moment';
   const body = babyName
-    ? `${context}, ${babyName} was becoming more themself.\n\n`
-    : `${context}.\n\n`;
+    ? `${context}, this moment was saved for ${babyName}'s book.\n\n`
+    : `${context}, this moment was saved for the book.\n\n`;
   return {
     title: date ? `A line from ${date}` : 'A line from today',
     body,

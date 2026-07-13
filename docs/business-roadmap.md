@@ -35,10 +35,12 @@ free). The *custody* commitment stays and still drives these decisions:
   deleted for non-payment. Recommended: lapse → read-only vault (no new uploads,
   everything viewable and exportable). This is both the ethical position and the best
   win-back mechanic — the vault keeps growing in emotional value while lapsed.
+  Tracked policy: `docs/export-lapsed-subscription-policy.md`.
 - **Export as a trust feature, not a leak:** "your memories are always yours, export
   everything anytime" *reduces* purchase anxiety and increases conversion. The export
   builder already exists; guarantee its completeness (photos, videos, voice, letters,
-  firsts, prompts) and say so on the purchase screen.
+  firsts, prompts, metadata) and say so on the purchase screen while disclosing
+  current local preview limits.
 - **Continuity:** what happens to the account if something happens to the parents is
   a real question for this product (the letters are FOR the child). A lightweight
   legacy-contact answer eventually belongs on the roadmap; acknowledging the question
@@ -125,14 +127,20 @@ leverage:
   offer → confirm → edge function that deletes auth user + cascades family data when
   sole member, or removes membership when not) — the `families`/`members` cascade
   rules already exist in schema; the flow and function do not.
+  Tracked implementation task: **K7/J3 Delete account flow**, specified in
+  `docs/account-deletion-policy.md` with sole-writer, co-parent, circle-member, gift,
+  billing, auth, storage/media, and legal-retention handling.
 - Data-protection review for a child-data product (GDPR/COPPA posture, retention
   policy, processor list). The privacy-first architecture (on-device matching) is a
   marketing asset — get it documented and audited so it can be claimed loudly.
 - App Store privacy nutrition labels accuracy pass.
 
 ### K8. Metrics & funnel instrumentation · M — before any paid acquisition
-- **Verified absent:** no analytics SDK anywhere in the mobile package (no PostHog/
-  Amplitude/Mixpanel/Segment). Minimum set: activation (reference confirmed + first
+- **Foundation implemented July 11, 2026:** privacy allowlists, a consent-aware
+  dedicated PostHog HTTP transport, initial mobile product events, and website
+  acquisition/checkout events now exist. Production delivery remains gated on a
+  dedicated Our Little World provider project, consent policy, and test-event
+  readback. Minimum set still to complete: activation (reference confirmed + first
   scan + ≥5 saves in week 1), weekly ritual completion (prompt, digest open, review
   clear rate), W4/W12/W52 retention, circle invites sent/accepted, gift conversion,
   paywall view→trial→pay. The backlog's Sprint 1-3 changes all need these to prove

@@ -3,7 +3,7 @@ import { readPendingMediaLibraryChange, clearPendingMediaLibraryChange } from '.
 import { listSavedAssetIds, markLocalAssetsDeleted } from './photoSync';
 import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
 import * as Scan from './scanController';
-import { addTrustedReferenceImage, primaryReference, readReferenceProfile } from './recognitionReferences';
+import { addTrustedReferenceImage, readReferenceProfile, representativeReference } from './recognitionReferences';
 import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
 import { Tags } from './storage';
 import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iCloudRetryQueue';
@@ -36,7 +36,7 @@ export async function startLibraryScan({
   }
 
   const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
-  const ref = primaryReference(profile);
+  const ref = representativeReference(profile);
   if (!allowWithoutReference && !ref?.embedding?.length && !profile.references?.some((item) => item?.embedding?.length)) {
     return { started: false, reason: 'missing-reference' };
   }
@@ -80,6 +80,7 @@ export async function startLibraryScan({
           isBaby: true,
           match,
           videoPosterOnly: match?.mediaType === 'video',
+          source: 'scan-auto-save',
         });
         await recordRecentAutoSave({
           familyId: family.id,

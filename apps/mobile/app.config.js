@@ -16,11 +16,18 @@ function hasPlugin(plugins, name) {
 
 module.exports = ({ config }) => {
   const expo = appJson.expo || {};
-  const plugins = [...(expo.plugins || [])];
+  const disableNotificationsPlugin = process.env.OLW_DISABLE_NOTIFICATIONS_PLUGIN === 'true';
+  let plugins = [...(expo.plugins || [])];
   if (!hasPlugin(plugins, 'expo-background-task')) {
     plugins.push('expo-background-task');
   }
-  if (!hasPlugin(plugins, 'expo-notifications')) {
+  if (disableNotificationsPlugin) {
+    // Dev-only escape hatch for ad hoc profiles that do not have APNs enabled.
+    plugins = plugins.filter((plugin) => {
+      if (typeof plugin === 'string') return plugin !== 'expo-notifications';
+      return !Array.isArray(plugin) || plugin[0] !== 'expo-notifications';
+    });
+  } else if (!hasPlugin(plugins, 'expo-notifications')) {
     plugins.push([
       'expo-notifications',
       {

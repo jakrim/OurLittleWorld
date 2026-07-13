@@ -1,0 +1,12 @@
+# PRD three-tab smoke: top-level navigation is Today, Add, and Book.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos"
+- tapOn: "Today"
+- assertVisible: "Today"
+- tapOn: "Book"
+- assertVisible:
+    text: ".*book\\."
+- tapOn: "Add"
+- assertVisible: "Save a moment"
+- tapOn: "Close add moment"

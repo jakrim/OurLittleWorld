@@ -10,6 +10,7 @@ import { Body, Button, Caption, Field, PhotoPlaceholder, Screen, Title, radius, 
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { SUGGESTED_NOTE_LABEL, SUGGESTED_NOTE_USE_LABEL, suggestedFirstNote } from './captionTemplateModel.js';
+import { milestoneDateSourceCaption, shouldLockMilestoneDate } from './momentMilestoneModel.js';
 import { inferPhotoSceneLabels } from './visionSceneLabeler';
 import {
   defaultFirstHappenedDate,
@@ -58,7 +59,7 @@ export default function FirstComposeSheetScreen() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [saving, setSaving] = useState(false);
   const [postSaveNudge, setPostSaveNudge] = useState(null);
-  const seededFirst = Boolean(seedTitle && !existing);
+  const seededFirst = Boolean(seedGoalKey && seedTitle && !existing);
   const seedPhoto = useMemo(() => seedPhotoFromParams({
     seedAssetId,
     seedAssetOwnerUserId,
@@ -66,11 +67,13 @@ export default function FirstComposeSheetScreen() {
     seedDate: seedDateParam,
     userId: user?.id,
   }), [seedAssetId, seedAssetOwnerUserId, seedAssetUri, seedDateParam, user?.id]);
+  const sourceMomentId = existing?.moment_id || seedMomentId || null;
 
   const close = useCallback(() => {
     if (router.canGoBack?.()) router.back();
+    else if (sourceMomentId) router.replace({ pathname: '/moment/[momentId]', params: { momentId: sourceMomentId } });
     else router.replace('/firsts');
-  }, [router]);
+  }, [router, sourceMomentId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -169,6 +172,12 @@ export default function FirstComposeSheetScreen() {
     [date, family?.babyBirthday, family?.babyName],
   );
   const targetAgeLabel = happenedAgeLabel || existing?.target_age_label || seedTargetAge || '';
+  const dateLockedToMoment = shouldLockMilestoneDate({ sourceMomentId, happenedDate: date });
+  const lockedDateCaption = milestoneDateSourceCaption({
+    ageCaption: happenedAgeLabel
+      ? `${family?.babyName || 'Your child'} was ${happenedAgeLabel}.`
+      : '',
+  });
   // U1: one quiet sentence from real metadata, offered — never auto-inserted.
   // The labeler's generic 'Family outing' fallback is dropped: a note must not
   // claim what the metadata doesn't show.
@@ -335,13 +344,26 @@ export default function FirstComposeSheetScreen() {
             autoFocus={editingTitle}
           />
         )}
-        <BirthDatePicker
-          value={date}
-          onChange={setDate}
-          caption={happenedDateCaption}
-          placeholder="When did it happen?"
-          accessibilityLabel="First happened date"
-        />
+        {dateLockedToMoment ? (
+          <View style={[styles.lockedDateCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+            <View style={styles.lockedDateHeader}>
+              <View>
+                <Caption>Milestone date</Caption>
+                <Body style={styles.lockedDateValue}>{formatLongDate(date)}</Body>
+              </View>
+              <Ionicons name="calendar-outline" size={20} color={theme.semantic.primary} />
+            </View>
+            <Caption>{lockedDateCaption}</Caption>
+          </View>
+        ) : (
+          <BirthDatePicker
+            value={date}
+            onChange={setDate}
+            caption={happenedDateCaption}
+            placeholder="When did it happen?"
+            accessibilityLabel="First happened date"
+          />
+        )}
         <Field
           as="textarea"
           value={note}
@@ -363,7 +385,9 @@ export default function FirstComposeSheetScreen() {
             <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{SUGGESTED_NOTE_USE_LABEL}</Caption>
           </Pressable>
         ) : null}
-        <View>
+        {sourceMomentId ? (
+          <MomentPhotoSummary photo={selectedPhoto} theme={theme} />
+        ) : <View>
           <Caption>Attach a photo, optional</Caption>
           <Caption>{photoRailCaption}</Caption>
           <ScrollView
@@ -408,7 +432,7 @@ export default function FirstComposeSheetScreen() {
               );
             })}
           </ScrollView>
-        </View>
+        </View>}
         <View style={styles.composerRow}>
           {existing ? <Button variant="quiet" size="md" fullWidth={false} onPress={remove}>Delete</Button> : <View />}
           <View style={styles.composerActions}>
@@ -419,6 +443,37 @@ export default function FirstComposeSheetScreen() {
       </View>
     </Screen>
   );
+}
+
+function MomentPhotoSummary({ photo, theme }) {
+  const uri = photo?.thumbUrl || photo?.fullUrl || photo?.uri || photo?.localUri;
+  return (
+    <View style={styles.momentPhotoSummary}>
+      <View style={[styles.momentPhotoThumb, { borderColor: theme.semantic.border }]}>
+        {uri ? (
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+        )}
+      </View>
+      <View style={styles.momentPhotoCopy}>
+        <Caption>Photo</Caption>
+        <Body>Already attached from this moment.</Body>
+      </View>
+    </View>
+  );
+}
+
+function formatLongDate(value) {
+  if (!value) return '';
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 async function buildFirstSavedLetterNudge({ family, user, first }) {
@@ -543,6 +598,39 @@ const styles = StyleSheet.create({
   templateBody: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  lockedDateCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: space.md,
+    gap: space.sm,
+  },
+  lockedDateHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  lockedDateValue: {
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  momentPhotoSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  momentPhotoThumb: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  momentPhotoCopy: {
+    flex: 1,
+    gap: 2,
   },
   editTitleButton: {
     width: 34,

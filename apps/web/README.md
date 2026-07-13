@@ -68,3 +68,24 @@ NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT=https://...
 - `partnerInquiryEndpoint` is required if the partner form should submit without relying on email fallback.
 
 If these values are blank, the forms do not fake success. They show an honest fallback message with an email link.
+
+## Privacy-safe acquisition analytics
+
+The website has a provider transport for landing, CTA, checkout, and gift events.
+It sends only allowlisted campaign, product, path, and anonymous attribution data.
+It never reads form names, email addresses, recipient details, gift notes, claim
+codes, or redemption codes.
+
+Use a dedicated Our Little World PostHog project and configure:
+
+```sh
+NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_API_KEY=phc_...
+NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_HOST=https://us.i.posthog.com
+NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_ENVIRONMENT=production
+NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT=unknown
+```
+
+`unknown` is the safe default and prevents delivery. Change the default to
+`granted` only when the product's consent policy permits it, or store
+`olw.analytics-consent.v1=granted` after an explicit preference action. Do not use
+a Get Mentors or LiveVault project token.

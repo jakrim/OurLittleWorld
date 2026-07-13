@@ -8,6 +8,7 @@ import { digestHasContent } from './digestModel.js';
 import { Family } from './families';
 import { ageInDaysOn, buildFirstsModel, selectCatchupGoal } from './firstsModel';
 import { buildFirstsSummary } from './firstsSummaryModel';
+import { MISSED_PROMPT_CATCHUP_DAYS, selectMissedPromptCatchup } from './missedPromptModel';
 import { listMomentArchive } from './moments';
 import {
   MONTHVERSARY_MAX_PER_BUCKET,
@@ -19,9 +20,11 @@ import {
 import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './photoSync';
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
+import { buildBookHomeModel } from './bookHomeModel';
+import { selectBookReadinessNudge } from './bookReadinessNudgeModel';
 
-// v5: payload carries goalRows for the Today suggested-first nudge (S5).
-const CACHE_VERSION = 'v5';
+// v7: payload carries one book-readiness nudge candidate (F4).
+const CACHE_VERSION = 'v7';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
@@ -55,18 +58,31 @@ function buildDerivedPayload({ raw, userId }) {
   const firsts = raw.firsts || [];
   const letters = raw.letters || [];
   const moments = raw.moments || [];
+  const promptResponses = raw.promptResponses || [];
   const promptState = annotatePromptState(raw.promptState, userId);
+  const missedPrompts = raw.missedPrompts || [];
   // Real annual matches win; month-versary buckets fill the first two years.
   const annual = annualTodayMatches(shared);
   const todayMatches = annual.length ? annual : (raw.monthversary || []);
   const digest = raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments });
   const { goalProgress } = buildFirstsModel(firsts, FIRST_GOAL_DEFINITIONS, raw.ageDays ?? null);
+  const bookHome = buildBookHomeModel({
+    moments,
+    sharedPhotos: shared,
+    firsts,
+    letters,
+    promptResponses,
+    childBirthday: raw.babyBirthday,
+    now: raw.now || new Date(),
+  });
 
   return {
     updatedAt: Date.now(),
     promptState,
     digest,
     catchupGoal: selectCatchupGoal(goalProgress.goals, raw.ageDays ?? null, raw.catchupDismissals || {}),
+    missedPrompts,
+    missedPrompt: selectMissedPromptCatchup(missedPrompts),
     goalRows: goalProgress.goals,
     digestUnread: digestHasContent(digest) && digest.weekStart !== raw.digestReadWeek,
     sharedPhotos: shared,
@@ -77,6 +93,10 @@ function buildDerivedPayload({ raw, userId }) {
       count: letters.length,
       latest: letters[0] || null,
     },
+    bookReadinessNudge: selectBookReadinessNudge({
+      records: bookHome.records,
+      chapters: bookHome.chapters,
+    }),
     membersById: raw.membersById || {},
   };
 }
@@ -114,12 +134,19 @@ async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
 }
 
 async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName }) {
-  const [shared, memories, firsts, letters, promptState, members, moments, monthversary, catchupDismissals, digestReadWeek] = await Promise.all([
+  const [shared, memories, firsts, letters, promptState, missedPrompts, promptResponses, members, moments, monthversary, catchupDismissals, digestReadWeek] = await Promise.all([
     listSharedTagged(familyId, { limit: 120 }).catch(() => []),
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
     Letters.list(familyId).catch(() => []),
     DailyPrompts.getToday({ familyId, babyBirthday }).catch(() => null),
+    DailyPrompts.listMissed({
+      familyId,
+      babyBirthday,
+      userId,
+      days: MISSED_PROMPT_CATCHUP_DAYS,
+    }).catch(() => []),
+    DailyPrompts.listResponses(familyId).catch(() => []),
     Family.members(familyId).catch(() => []),
     listMomentArchive(familyId, { limit: 160 }).catch(() => []),
     fetchMonthversaryMatches({ familyId, babyBirthday, babyName }).catch(() => []),
@@ -144,11 +171,15 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
       firsts,
       letters,
       moments,
+      promptResponses,
       monthversary,
       catchupDismissals,
       digestReadWeek,
       ageDays: ageInDaysOn(babyBirthday),
+      babyBirthday,
+      babyName,
       promptState,
+      missedPrompts,
       digest,
       membersById: Object.fromEntries(members.map((m) => [m.userId, m.displayName || 'Family'])),
     },
@@ -158,19 +189,28 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
 export async function patchCachedPromptState({ familyId, userId, promptRow }) {
   if (!familyId || !userId || !promptRow) return null;
   const cached = await readCache({ familyId, userId });
-  if (!cached?.promptState) return null;
-  const responses = [...(cached.promptState.responses || [])];
-  const index = responses.findIndex((row) => row.author_user_id === promptRow.author_user_id);
-  if (index >= 0) responses[index] = { ...responses[index], ...promptRow };
-  else responses.push(promptRow);
+  if (!cached) return null;
+  const promptDate = promptRow.prompt_date || promptRow.promptDate || null;
+  const isTodayPrompt = cached.promptState?.promptDate && promptDate === cached.promptState.promptDate;
+  let promptState = cached.promptState || null;
+  if (isTodayPrompt && promptState) {
+    const responses = [...(promptState.responses || [])];
+    const index = responses.findIndex((row) => row.author_user_id === promptRow.author_user_id);
+    if (index >= 0) responses[index] = { ...responses[index], ...promptRow };
+    else responses.push(promptRow);
+    promptState = annotatePromptState({
+      ...promptState,
+      responses,
+      mine: promptRow.author_user_id === userId ? promptRow : promptState.mine,
+    }, userId);
+  }
+  const missedPrompts = (cached.missedPrompts || []).filter((candidate) => candidate.promptDate !== promptDate);
   const next = {
     ...cached,
     updatedAt: Date.now(),
-    promptState: annotatePromptState({
-      ...cached.promptState,
-      responses,
-      mine: promptRow.author_user_id === userId ? promptRow : cached.promptState.mine,
-    }, userId),
+    promptState,
+    missedPrompts,
+    missedPrompt: selectMissedPromptCatchup(missedPrompts),
   };
   await writeCache({ familyId, userId, payload: next });
   return next;
@@ -288,6 +328,8 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     promptState: payload?.promptState || null,
     digest: payload?.digest || WeeklyDigests.build(),
     catchupGoal: payload?.catchupGoal || null,
+    missedPrompt: payload?.missedPrompt || null,
+    missedPrompts: payload?.missedPrompts || [],
     goalRows: payload?.goalRows || [],
     digestUnread: payload?.digestUnread || false,
     sharedPhotos: payload?.sharedPhotos || [],
@@ -295,6 +337,7 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     todayMatches: payload?.todayMatches || [],
     firstsSummary: payload?.firstsSummary || { count: 0, latest: null, latestPhoto: null },
     lettersSummary: payload?.lettersSummary || { count: 0, latest: null },
+    bookReadinessNudge: payload?.bookReadinessNudge || null,
     membersById: payload?.membersById || {},
     refresh,
     savePromptResponse,

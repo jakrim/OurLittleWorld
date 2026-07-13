@@ -35,6 +35,59 @@ export function buildFirstsModel(rows, goals, ageDays = null) {
   };
 }
 
+export function firstSourceAffordance(first = {}, photo = null) {
+  if (!first?.done) {
+    return {
+      kind: 'starter',
+      label: 'Starter idea',
+      detail: goalTimingCaption(first, null),
+      icon: 'ellipse-outline',
+      opensMoment: false,
+    };
+  }
+
+  const linkedMomentId = first.moment_id || photo?.moment_id || null;
+  if (first.moment_id) {
+    return {
+      kind: 'moment',
+      label: 'Source moment',
+      detail: 'Open the saved moment',
+      icon: 'albums-outline',
+      opensMoment: true,
+      momentId: first.moment_id,
+    };
+  }
+
+  if (photo?.moment_id) {
+    return {
+      kind: 'photo-moment',
+      label: 'Source photo',
+      detail: 'Open the saved moment',
+      icon: 'image-outline',
+      opensMoment: true,
+      momentId: linkedMomentId,
+    };
+  }
+
+  if (first.asset_id || photo?.asset_id) {
+    return {
+      kind: 'photo',
+      label: 'Source photo',
+      detail: 'Saved with this first',
+      icon: 'image-outline',
+      opensMoment: false,
+    };
+  }
+
+  return {
+    kind: 'text',
+    label: 'Text-only first',
+    detail: 'Add a source photo anytime',
+    icon: 'create-outline',
+    opensMoment: false,
+  };
+}
+
 function goalIsUpcoming(goal, ageDays) {
   if (ageDays == null || goal.targetAgeMaxDays == null) return true;
   return goal.targetAgeMaxDays >= ageDays;
@@ -55,7 +108,7 @@ export function goalTimingCaption(row, ageDays) {
   const state = goalWindowState(row, ageDays);
   if (state === 'past') return `From around ${label} — add it whenever you remember it`;
   if (state === 'now') return 'Happening around now';
-  return `Suggested around ${label || 'someday'}`;
+  return label ? `Suggested around ${label}` : 'Add whenever it fits';
 }
 
 export const CATCHUP_DISMISS_DAYS = 30; // tunable

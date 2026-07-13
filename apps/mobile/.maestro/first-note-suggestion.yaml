@@ -3,11 +3,14 @@
 # suggestion seeder (long-press the Firsts header "+").
 appId: com.jessekrim.ourlittleworld
 ---
-- launchApp
-- tapOn: "Firsts"
+- openLink: "ourlittleworld://firsts"
 - longPressOn: "Add a first"
-- assertVisible:
-    text: "Possible first.*"
+- scrollUntilVisible:
+    element:
+      text: "Possible first.*"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
 - tapOn: "Keep"
 - assertVisible: "Suggested first"
 - assertVisible:

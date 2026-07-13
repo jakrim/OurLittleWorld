@@ -1,5 +1,8 @@
 import { supabase } from './supabase';
 import { isoDateForLocalDay, promptForDate } from './dailyPrompts';
+import { buildBookWorthinessForMoment, sortBookHighlightCandidates } from './bookWorthinessModel';
+import { MISSED_PROMPT_CATCHUP_DAYS, buildMissedPromptCandidates } from './missedPromptModel';
+import { deleteLetterAttachments, getLetterAttachments } from './moments';
 
 async function currentUserId() {
   const { data, error } = await supabase.auth.getUser();
@@ -13,6 +16,21 @@ function compactPatch(input, map) {
     if (input[from] !== undefined) out[to] = input[from];
   });
   return out;
+}
+
+function normalizedPromptDate(promptDate = null) {
+  if (!promptDate) return isoDateForLocalDay();
+  const value = Array.isArray(promptDate) ? promptDate[0] : promptDate;
+  const raw = String(value || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return isoDateForLocalDay(raw);
+  return isoDateForLocalDay();
+}
+
+function offsetIsoDate(isoDate, days) {
+  const [year, month, day] = isoDateForLocalDay(isoDate).split('-').map(Number);
+  const value = new Date(year, month - 1, day);
+  value.setDate(value.getDate() + days);
+  return isoDateForLocalDay(value);
 }
 
 // Age windows (days) are generous starting points, tunable — mirrored in
@@ -105,41 +123,94 @@ export function weekRangeFor(date = new Date()) {
 }
 
 export const DailyPrompts = {
-  async getToday({ familyId, babyBirthday }) {
-    const userId = await currentUserId();
-    if (!familyId || !userId) return { prompt: promptForDate({ familyId, babyBirthday }), responses: [], mine: null };
-    const promptDate = isoDateForLocalDay();
-    const prompt = promptForDate({ familyId, date: promptDate, babyBirthday });
+  async listResponses(familyId, { limit = 200 } = {}) {
+    if (!familyId) return [];
     const { data, error } = await supabase
       .from('daily_prompt_responses')
-      .select('id, author_user_id, response_text, moment_id, snoozed_until, created_at, updated_at')
+      .select('id, author_user_id, response_text, moment_id, prompt_date, prompt_key, prompt_text, snoozed_until, created_at, updated_at')
       .eq('family_id', familyId)
-      .eq('prompt_date', promptDate)
+      .order('prompt_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.warn('DailyPrompts.listResponses', error.message);
+      return [];
+    }
+    return data || [];
+  },
+
+  async getToday({ familyId, babyBirthday }) {
+    return this.getForDate({ familyId, babyBirthday, promptDate: isoDateForLocalDay() });
+  },
+
+  async getForDate({ familyId, babyBirthday, promptDate }) {
+    const userId = await currentUserId();
+    const date = normalizedPromptDate(promptDate);
+    const prompt = promptForDate({ familyId, date, babyBirthday });
+    if (!familyId || !userId) return { prompt, responses: [], mine: null, promptDate: date };
+    const { data, error } = await supabase
+      .from('daily_prompt_responses')
+      .select('id, author_user_id, response_text, moment_id, prompt_date, prompt_key, prompt_text, snoozed_until, created_at, updated_at')
+      .eq('family_id', familyId)
+      .eq('prompt_date', date)
       .order('created_at', { ascending: true });
     if (error) {
-      console.warn('DailyPrompts.getToday', error.message);
-      return { prompt, responses: [], mine: null, promptDate };
+      console.warn('DailyPrompts.getForDate', error.message);
+      return { prompt, responses: [], mine: null, promptDate: date };
     }
     const responses = data || [];
     return {
       prompt,
-      promptDate,
+      promptDate: date,
       responses,
       mine: responses.find((row) => row.author_user_id === userId) || null,
     };
   },
 
-  async saveResponse({ familyId, responseText, momentId, babyBirthday }) {
+  async listMissed({
+    familyId,
+    babyBirthday,
+    userId: suppliedUserId = null,
+    days = MISSED_PROMPT_CATCHUP_DAYS,
+    now = new Date(),
+  } = {}) {
+    const userId = suppliedUserId || await currentUserId();
+    if (!familyId || !userId) return [];
+    const today = isoDateForLocalDay(now);
+    const startDate = offsetIsoDate(today, -Math.max(0, Math.floor(Number(days) || 0)));
+    const { data, error } = await supabase
+      .from('daily_prompt_responses')
+      .select('id, author_user_id, response_text, moment_id, prompt_date, prompt_key, prompt_text, snoozed_until, created_at, updated_at')
+      .eq('family_id', familyId)
+      .gte('prompt_date', startDate)
+      .lt('prompt_date', today)
+      .order('prompt_date', { ascending: false })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.warn('DailyPrompts.listMissed', error.message);
+      return [];
+    }
+    return buildMissedPromptCandidates({
+      familyId,
+      babyBirthday,
+      responses: data || [],
+      userId,
+      days,
+      now,
+    });
+  },
+
+  async saveResponse({ familyId, responseText, momentId, babyBirthday, promptDate }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
-    const promptDate = isoDateForLocalDay();
-    const prompt = promptForDate({ familyId, date: promptDate, babyBirthday });
+    const date = normalizedPromptDate(promptDate);
+    const prompt = promptForDate({ familyId, date, babyBirthday });
     const { data, error } = await supabase
       .from('daily_prompt_responses')
       .upsert({
         family_id: familyId,
-        prompt_date: promptDate,
+        prompt_date: date,
         prompt_key: prompt.key,
         prompt_text: prompt.text,
         author_user_id: userId,
@@ -233,7 +304,28 @@ export const Firsts = {
       console.warn('Firsts.get', error.message);
       return null;
     }
-    return data || null;
+    if (!data) return null;
+    const attachments = await getLetterAttachments({ familyId, letterId: id }).catch((attachmentError) => {
+      console.warn('Letters.get attachments', attachmentError?.message || attachmentError);
+      return { media: [], voiceNotes: [] };
+    });
+    return { ...data, ...attachments };
+  },
+
+  async listForMoment(familyId, momentId) {
+    if (!familyId || !momentId) return [];
+    const { data, error } = await supabase
+      .from('firsts')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('moment_id', momentId)
+      .order('happened_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Firsts.listForMoment', error.message);
+      return [];
+    }
+    return data || [];
   },
 
   async create({ familyId, title, note, happenedAt, assetOwnerUserId, assetId, targetAgeLabel, momentId, goalKey, done = true }) {
@@ -297,7 +389,7 @@ export const Letters = {
       .from('letters')
       .select('*')
       .eq('family_id', familyId)
-      .order('open_on', { ascending: true })
+      .order('open_on', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: false });
     const { data, error } = await query;
     if (error) {
@@ -322,7 +414,7 @@ export const Letters = {
     return data || null;
   },
 
-  async create({ familyId, title, body, openOn }) {
+  async create({ familyId, title, body, openOn, sourceMomentId, sourceFirstId }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
@@ -330,8 +422,11 @@ export const Letters = {
       family_id: familyId,
       author_user_id: userId,
       title: title?.trim() || null,
-      body: body?.trim(),
-      open_on: openOn,
+      body: body?.trim() || '',
+      open_on: openOn || null,
+      sealed_at: openOn ? new Date().toISOString() : null,
+      source_moment_id: sourceMomentId || null,
+      source_first_id: sourceFirstId || null,
     };
     const { data, error } = await supabase
       .from('letters')
@@ -340,6 +435,38 @@ export const Letters = {
       .single();
     if (error) throw error;
     return data;
+  },
+
+  async listConnectedToMoment(familyId, { momentId, firstIds = [] } = {}) {
+    if (!familyId || (!momentId && !firstIds.length)) return [];
+    const rows = new Map();
+    if (momentId) {
+      const { data, error } = await supabase
+        .from('letters')
+        .select('*')
+        .eq('family_id', familyId)
+        .eq('source_moment_id', momentId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.warn('Letters.listConnectedToMoment source_moment_id', error.message);
+      } else {
+        for (const row of data || []) rows.set(row.id, row);
+      }
+    }
+    if (firstIds.length) {
+      const { data, error } = await supabase
+        .from('letters')
+        .select('*')
+        .eq('family_id', familyId)
+        .in('source_first_id', firstIds)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.warn('Letters.listConnectedToMoment source_first_id', error.message);
+      } else {
+        for (const row of data || []) rows.set(row.id, row);
+      }
+    }
+    return [...rows.values()].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   },
 
   async open(id) {
@@ -353,7 +480,12 @@ export const Letters = {
     return data;
   },
 
-  async deleteOwn(id) {
+  async deleteOwn(id, familyId = null) {
+    if (familyId) {
+      await deleteLetterAttachments({ familyId, letterId: id }).catch((error) => {
+        console.warn('Letters.deleteOwn attachment cleanup', error?.message || error);
+      });
+    }
     const { error } = await supabase.from('letters').delete().eq('id', id);
     if (error) throw error;
   },
@@ -371,6 +503,27 @@ export const WeeklyDigests = {
       .maybeSingle();
     if (error) {
       console.warn('WeeklyDigests.getLatest', error.message);
+      return null;
+    }
+    return data ? normalizeDigestRow(data) : null;
+  },
+
+  async getForMomentDate(familyId, capturedAt) {
+    if (!familyId || !capturedAt) return null;
+    const date = new Date(capturedAt);
+    if (Number.isNaN(date.getTime())) return null;
+    const day = isoDateForLocalDay(date);
+    const { data, error } = await supabase
+      .from('weekly_digests')
+      .select('*')
+      .eq('family_id', familyId)
+      .lte('week_start', day)
+      .gte('week_end', day)
+      .order('week_start', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.warn('WeeklyDigests.getForMomentDate', error.message);
       return null;
     }
     return data ? normalizeDigestRow(data) : null;
@@ -489,8 +642,12 @@ function pickDigestCoverPhoto({ weekPhotos, memories }) {
 
 function pickRepresentativeMedia(weekMoments) {
   const out = [];
-  for (const moment of weekMoments || []) {
+  const ranked = sortBookHighlightCandidates(weekMoments || [], (moment) => buildBookWorthinessForMoment(moment).bookScore);
+  const eligible = ranked.filter((moment) => buildBookWorthinessForMoment(moment).bookEligible);
+  const fallback = ranked.filter((moment) => !eligible.includes(moment));
+  for (const moment of [...eligible, ...fallback]) {
     for (const media of moment.media || []) {
+      const bookWorthiness = buildBookWorthinessForMoment(moment);
       out.push({
         momentId: moment.id,
         mediaId: media.id,
@@ -498,6 +655,8 @@ function pickRepresentativeMedia(weekMoments) {
         thumbUrl: media.thumbUrl || media.posterUrl || media.fullUrl || null,
         fullUrl: media.fullUrl || null,
         capturedAt: moment.captured_at || moment.created_at || null,
+        bookEligible: bookWorthiness.bookEligible,
+        bookScore: bookWorthiness.bookScore,
       });
       if (out.length >= 4) return out;
     }

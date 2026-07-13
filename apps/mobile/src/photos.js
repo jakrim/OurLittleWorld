@@ -275,7 +275,7 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
       try {
         const asset = new Asset(candidateId);
         const mediaType = await asset.getMediaType().catch(() => null);
-        if (mediaType !== MediaType.IMAGE && mediaType !== MediaType.VIDEO) return null;
+        if (mediaType !== MediaType.IMAGE && mediaType !== MediaType.VIDEO) continue;
         if (mediaType === MediaType.VIDEO) {
           const video = await mapAssetToVideo(asset);
           if (minCreationTime != null && video.creationTime && video.creationTime < minCreationTime) {

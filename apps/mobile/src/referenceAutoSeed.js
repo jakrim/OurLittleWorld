@@ -1,11 +1,14 @@
 import { embedFace } from './faceMatcher';
 import { fetchPhotosPage, getAssetDetails } from './photos';
-import { addReferenceImage } from './recognitionReferences';
+import { saveAutoSeedReferences } from './recognitionReferences';
+import { collectAutoSeedCandidates } from './referenceAutoSeedCandidates';
 import {
-  AUTO_SEED_MONTH_SAMPLE_LIMIT,
-  buildAutoSeedWindows,
+  AUTO_SEED_ANALYSIS_CONCURRENCY,
+  AUTO_SEED_MAX_CANDIDATES,
+  buildAutoSeedSamplingPlan,
+  mergeAutoSeedFaceAnalysis,
   selectAutoSeedCluster,
-  selectAutoSeedPreview,
+  selectAutoSeedRepresentative,
   selectAutoSeedReferences,
 } from './referenceAutoSeedModel';
 
@@ -17,101 +20,186 @@ export async function bootstrapBirthdayReference({
   embedFaceFn = embedFace,
   fetchPhotosPageFn = fetchPhotosPage,
   getAssetDetailsFn = getAssetDetails,
+  saveAutoSeedReferencesFn = saveAutoSeedReferences,
+  onProgress,
+  signal,
 } = {}) {
+  const startedAt = Date.now();
   if (!familyId || !userId || !birthdayISO) {
     return { status: 'fallback', reason: 'missing-context' };
   }
 
-  const sampled = await sampleBirthdayWindows({
-    birthdayISO,
-    now,
+  const samplingPlan = buildAutoSeedSamplingPlan(birthdayISO, now);
+  const sampledResult = await collectAutoSeedCandidates({
+    plan: samplingPlan,
     fetchPhotosPageFn,
+    onProgress,
+    signal,
   });
+  const sampled = sampledResult.candidates;
+  if (signal?.aborted) return { status: 'fallback', reason: 'cancelled' };
   if (!sampled.length) {
-    return { status: 'fallback', reason: 'no-photos' };
+    return {
+      status: 'fallback',
+      reason: 'no-photos',
+      diagnostics: buildDiagnostics({
+        startedAt,
+        sampledResult,
+        analyzed: 0,
+        facesFound: 0,
+      }),
+    };
   }
 
-  const faces = [];
-  for (const candidate of sampled) {
-    const details = await getAssetDetailsFn(candidate.assetId, { downloadFromNetwork: true }).catch(() => null);
-    const enriched = {
-      ...candidate,
-      ...(details || {}),
-      assetId: candidate.assetId,
-      bucketKey: candidate.bucketKey,
-      bucketKind: candidate.bucketKind,
-      creationTime: details?.creationTime || candidate.creationTime,
-    };
-    const embedded = await embedFaceFn(enriched.localUri || enriched.uri || candidate.localUri || candidate.uri);
-    if (!embedded?.embedding?.length || embedded.faceCount === 0) continue;
-    faces.push({
-      ...enriched,
-      embedding: embedded.embedding,
-      faceCount: embedded.faceCount || 1,
-      primaryBox: embedded.primaryBox || null,
-    });
-  }
+  let analyzed = 0;
+  let facesFound = 0;
+  emitProgress(onProgress, {
+    phase: 'analyzing',
+    completed: 0,
+    total: sampled.length,
+    facesFound: 0,
+  });
+  const analyzedFaces = await mapWithConcurrency(
+    sampled,
+    AUTO_SEED_ANALYSIS_CONCURRENCY,
+    async (candidate) => {
+      if (signal?.aborted) return null;
+      let embedded = null;
+      try {
+        embedded = await embedFaceFn(candidate.localUri || candidate.uri);
+      } catch {
+        embedded = null;
+      }
+      const face = mergeAutoSeedFaceAnalysis(candidate, embedded);
+      analyzed += 1;
+      if (face) facesFound += 1;
+      emitProgress(onProgress, {
+        phase: 'analyzing',
+        completed: analyzed,
+        total: sampled.length,
+        facesFound,
+      });
+      return face;
+    },
+    signal,
+  );
+  if (signal?.aborted) return { status: 'fallback', reason: 'cancelled' };
+  const faces = analyzedFaces.filter(Boolean);
 
   const selection = selectAutoSeedCluster({ faces });
   if (selection.status !== 'matched') {
-    return selection;
+    return {
+      ...selection,
+      diagnostics: buildDiagnostics({
+        startedAt,
+        sampledResult,
+        analyzed,
+        facesFound,
+      }),
+    };
   }
 
+  const representative = selectAutoSeedRepresentative(selection.cluster.members);
   const seeds = selectAutoSeedReferences(selection.cluster.members);
   if (!seeds.length) {
     return { status: 'fallback', reason: 'no-seed-references' };
   }
 
-  for (const seed of seeds) {
-    await addReferenceImage({
-      familyId,
-      userId,
-      birthdayISO,
-      uri: seed.localUri || seed.uri || null,
-      assetId: seed.assetId,
-      embedding: seed.embedding,
-      faceCount: seed.faceCount || 1,
-      capturedAt: seed.creationTime || Date.now(),
-      source: 'auto-seed',
-    });
-  }
+  emitProgress(onProgress, {
+    phase: 'saving',
+    completed: 0,
+    total: seeds.length,
+    facesFound,
+  });
+  if (signal?.aborted) return { status: 'fallback', reason: 'cancelled' };
+  const profile = await saveAutoSeedReferencesFn({
+    familyId,
+    userId,
+    birthdayISO,
+    references: seeds,
+    representativeAssetId: representative?.assetId,
+  });
+
+  if (signal?.aborted) return { status: 'fallback', reason: 'cancelled' };
+  const storedRepresentative = profile?.references?.find(
+    (reference) => reference.id === profile.representativeReferenceId,
+  );
+  const rawPreview = representative || storedRepresentative || seeds[0];
+  const previewDetails = rawPreview?.assetId
+    ? await getAssetDetailsFn(rawPreview.assetId, { downloadFromNetwork: true }).catch(() => null)
+    : null;
+  const preview = {
+    ...rawPreview,
+    ...(previewDetails || {}),
+    assetId: rawPreview?.assetId || previewDetails?.id || null,
+    embedding: rawPreview?.embedding || null,
+    faceCount: rawPreview?.faceCount || 1,
+  };
+  emitProgress(onProgress, {
+    phase: 'complete',
+    completed: seeds.length,
+    total: seeds.length,
+    facesFound,
+  });
 
   return {
     status: 'seeded',
     referenceCount: seeds.length,
-    preview: selectAutoSeedPreview(selection.cluster.members) || seeds[seeds.length - 1],
+    preview,
     coverage: selection.coverage,
     nonEmptyMonthBucketCount: selection.nonEmptyMonthBucketCount,
+    diagnostics: {
+      ...buildDiagnostics({ startedAt, sampledResult, analyzed, facesFound }),
+      referenceAgeBucketCount: new Set(seeds.map((seed) => seed.bucketKey).filter(Boolean)).size,
+      representativeQualityBand: qualityBand(representative?.qualityScore),
+    },
   };
 }
 
-async function sampleBirthdayWindows({
-  birthdayISO,
-  now,
-  fetchPhotosPageFn,
-}) {
-  const windows = buildAutoSeedWindows(birthdayISO, now);
-  const seen = new Set();
-  const sampled = [];
+function buildDiagnostics({ startedAt, sampledResult, analyzed, facesFound }) {
+  return {
+    candidateCount: sampledResult?.candidates?.length || 0,
+    candidateLimit: AUTO_SEED_MAX_CANDIDATES,
+    facesAnalyzed: analyzed,
+    facesFound,
+    analysisConcurrency: AUTO_SEED_ANALYSIS_CONCURRENCY,
+    queryCount: sampledResult?.queryCount || 0,
+    cacheHits: 0,
+    incrementalReuse: false,
+    durationMs: Math.max(0, Date.now() - startedAt),
+  };
+}
 
-  for (const window of windows) {
-    const page = await fetchPhotosPageFn({
-      pageSize: AUTO_SEED_MONTH_SAMPLE_LIMIT,
-      createdAfterMs: window.startMs,
-      createdBeforeMs: window.endMs,
-    });
-    for (const asset of page.assets || []) {
-      const assetId = asset.assetId || asset.id;
-      if (!assetId || seen.has(assetId)) continue;
-      seen.add(assetId);
-      sampled.push({
-        ...asset,
-        assetId,
-        bucketKey: window.key,
-        bucketKind: window.kind,
-      });
+function qualityBand(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return 'unknown';
+  if (score >= 0.8) return 'strong';
+  if (score >= 0.6) return 'usable';
+  return 'limited';
+}
+
+async function mapWithConcurrency(items, concurrency, worker, signal) {
+  const results = new Array(items.length).fill(null);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (!signal?.aborted) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
     }
   }
 
-  return sampled;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+  return results;
+}
+
+function emitProgress(onProgress, progress) {
+  try {
+    onProgress?.(progress);
+  } catch {
+    // Progress reporting must never interrupt local discovery.
+  }
 }

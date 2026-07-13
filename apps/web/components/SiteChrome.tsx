@@ -22,7 +22,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       <header className="site-nav">
         <div className="wrap nav-inner">
           <Link className="brand-link" href="/" aria-label="Our Little World home">
-            <Image src="/assets/brand/logo-mark.png" alt="" width={44} height={44} priority />
+            <Image src="/assets/brand/logo-mark-circle.png" alt="" width={44} height={44} priority />
             <span>our little world</span>
           </Link>
           <nav className="nav-links" data-nav-links aria-label="Primary navigation">
@@ -56,7 +56,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
           <div className="footer-grid">
             <div className="footer-brand">
               <Link className="brand-link" href="/">
-                <Image src="/assets/brand/logo-mark.png" alt="" width={44} height={44} />
+                <Image src="/assets/brand/logo-mark-circle.png" alt="" width={44} height={44} />
                 <span>our little world</span>
               </Link>
               <p>A private baby book for photos, firsts, notes, and letters.</p>

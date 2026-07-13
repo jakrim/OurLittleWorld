@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import {
   RecordingPresets,
@@ -7,7 +7,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
@@ -22,13 +22,16 @@ import { createMomentWithMedia } from './moments';
 
 export default function PromptSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
+  const routePromptDate = useMemo(() => promptDateParam(params.promptDate), [params.promptDate]);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
   const [value, setValue] = useState('');
   const [promptText, setPromptText] = useState('');
+  const [activePromptDate, setActivePromptDate] = useState(null);
   const [starter, setStarter] = useState('');
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -43,29 +46,40 @@ export default function PromptSheetScreen() {
     useCallback(() => {
       let alive = true;
       if (family?.id) {
-        readCachedPromptState({ familyId: family.id, userId: user?.id })
-          .then((cached) => {
-            if (alive && cached?.mine?.response_text) setValue(cached.mine.response_text);
-          })
-          .catch(() => {});
-        DailyPrompts.getToday({ familyId: family.id, babyBirthday: family.babyBirthday })
+        if (!routePromptDate) {
+          readCachedPromptState({ familyId: family.id, userId: user?.id })
+            .then((cached) => {
+              if (alive && cached?.mine?.response_text) setValue(cached.mine.response_text);
+            })
+            .catch(() => {});
+        }
+        DailyPrompts.getForDate({
+          familyId: family.id,
+          babyBirthday: family.babyBirthday,
+          promptDate: routePromptDate,
+        })
           .then((state) => {
             if (!alive) return;
             setPromptText(state?.prompt?.text || '');
+            setActivePromptDate(state?.promptDate || routePromptDate || null);
             setValue(state?.mine?.response_text || '');
           })
           .catch(() => {});
         // V1: starter from what was actually saved today (cached archive rows).
-        readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
-          .then((photos) => {
-            if (alive) setStarter(promptStarterForToday({ sharedPhotos: photos }));
-          })
-          .catch(() => {});
+        if (!routePromptDate) {
+          readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
+            .then((photos) => {
+              if (alive) setStarter(promptStarterForToday({ sharedPhotos: photos }));
+            })
+            .catch(() => {});
+        } else {
+          setStarter('');
+        }
       }
       return () => {
         alive = false;
       };
-    }, [family?.babyBirthday, family?.id, user?.id]),
+    }, [family?.babyBirthday, family?.id, routePromptDate, user?.id]),
   );
 
   const startRecording = async () => {
@@ -111,11 +125,12 @@ export default function PromptSheetScreen() {
     if (!family?.id || (!value.trim() && !voice?.uri)) return;
     setSaving(true);
     try {
+      const promptDate = activePromptDate || routePromptDate || null;
       let momentId = null;
       if (voice?.uri) {
         const moment = await createMomentWithMedia({
           familyId: family.id,
-          title: "Today's prompt",
+          title: promptMomentTitle(promptDate),
           note: value.trim() || promptText,
           tags: ['prompt'],
           voice,
@@ -127,6 +142,7 @@ export default function PromptSheetScreen() {
         responseText: value,
         momentId,
         babyBirthday: family.babyBirthday,
+        promptDate,
       });
       notifyPartnerPromptAnswered({
         familyId: family.id,
@@ -150,7 +166,8 @@ export default function PromptSheetScreen() {
   return (
     <Screen bare>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
-        <Title>today's note</Title>
+        <Title>{routePromptDate ? 'catch-up note' : "today's note"}</Title>
+        {routePromptDate ? <Caption style={styles.promptDate}>From {formatPromptDateLabel(routePromptDate)}</Caption> : null}
         {promptText ? <Body style={styles.prompt}>{promptText}</Body> : null}
         <Field
           as="textarea"
@@ -218,6 +235,9 @@ const styles = StyleSheet.create({
   prompt: {
     marginTop: -space.sm,
   },
+  promptDate: {
+    marginTop: -space.md,
+  },
   voiceCard: {
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -241,6 +261,31 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 });
+
+function promptDateParam(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const date = String(raw || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+function promptMomentTitle(promptDate) {
+  if (!promptDate || promptDate === localIsoDate()) return "Today's prompt";
+  return `Prompt from ${formatPromptDateLabel(promptDate)}`;
+}
+
+function formatPromptDateLabel(promptDate) {
+  const value = new Date(`${promptDate}T12:00:00`);
+  if (Number.isNaN(value.getTime())) return promptDate;
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(value);
+}
+
+function localIsoDate(date = new Date()) {
+  const value = new Date(date);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function buildWaveform(seedSeconds) {
   const base = Math.max(1, Math.min(30, Number(seedSeconds || 8)));

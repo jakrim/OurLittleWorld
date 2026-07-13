@@ -70,6 +70,15 @@ export function clusterKeyFromLocation({ latitude, longitude }) {
 }
 
 export function formatLocationLabel(location) {
+  const known = knownPlaceName(location);
+  if (known) return known;
+  const lat = toNumber(location?.latitude);
+  const lon = toNumber(location?.longitude);
+  if (lat == null || lon == null) return 'Unknown place';
+  return 'Out and about';
+}
+
+export function formatLocationDebugLabel(location) {
   const lat = toNumber(location?.latitude);
   const lon = toNumber(location?.longitude);
   if (lat == null || lon == null) return 'Unknown place';
@@ -78,13 +87,22 @@ export function formatLocationLabel(location) {
   return `${Math.abs(lat).toFixed(3)}°${latDir} · ${Math.abs(lon).toFixed(3)}°${lonDir}`;
 }
 
+export function displayLabelForPlace({ location, topScenes = [], isHome = false } = {}) {
+  const known = knownPlaceName(location);
+  if (known) return known;
+  if (isHome) return 'At home';
+  const scenePlace = (topScenes || []).find(isPrimaryPlaceScene);
+  if (scenePlace) return scenePlace;
+  return formatLocationLabel(location);
+}
+
 export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
   const buckets = new Map();
 
   for (const photo of shared || []) {
     const key = `${photo.asset_owner_user_id}:${photo.asset_id}`;
     const meta = metadataByKey[key];
-    const location = meta?.location || photo.location;
+    const location = locationForPhoto(photo, meta);
     const clusterKey = clusterKeyFromLocation(location || {});
     if (!clusterKey) continue;
 
@@ -108,13 +126,16 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
     bucket.photos.push(photo);
   }
 
-  const clusters = Array.from(buckets.values()).map((bucket) => ({
-    ...bucket,
-    topScenes: Object.entries(bucket.sceneCounts)
+  const clusters = Array.from(buckets.values()).map((bucket) => {
+    const topScenes = Object.entries(bucket.sceneCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
-      .map(([label]) => label),
-  }));
+      .map(([label]) => label);
+    return {
+      ...bucket,
+      topScenes,
+    };
+  });
 
   if (!clusters.length) return [];
 
@@ -127,6 +148,51 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
       topScenes: cluster.id === homeId
         ? ['At home', ...cluster.topScenes.filter((label) => label !== 'At home')].slice(0, 4)
         : cluster.topScenes,
+      label: displayLabelForPlace({
+        location: cluster.location,
+        topScenes: cluster.topScenes,
+        isHome: cluster.id === homeId,
+      }),
     }))
     .sort((a, b) => b.photos.length - a.photos.length);
+}
+
+function locationForPhoto(photo, meta) {
+  const base = meta?.location || photo?.location || {};
+  return {
+    ...base,
+    latitude: base.latitude ?? photo?.latitude,
+    longitude: base.longitude ?? photo?.longitude,
+    label: base.label ?? meta?.locationLabel ?? photo?.location_label ?? photo?.place_name,
+    name: base.name ?? meta?.placeName,
+    formattedAddress: base.formattedAddress ?? meta?.formattedAddress,
+  };
+}
+
+function knownPlaceName(location) {
+  const candidates = [
+    location?.label,
+    location?.name,
+    location?.placeName,
+    location?.title,
+    location?.formattedAddress,
+    location?.address?.name,
+    location?.address?.formattedAddress,
+  ];
+  return candidates.map((value) => String(value || '').trim()).find((value) => value && !looksLikeCoordinates(value)) || '';
+}
+
+function looksLikeCoordinates(value) {
+  return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(value)
+    || /\d+(\.\d+)?°\s*[NS]\b.*\d+(\.\d+)?°\s*[EW]\b/i.test(value);
+}
+
+function isPrimaryPlaceScene(label) {
+  return ![
+    'Morning routine',
+    'Midday outing',
+    'Evening wind-down',
+    'Weekend together',
+    'Family outing',
+  ].includes(label);
 }

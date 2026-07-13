@@ -109,8 +109,8 @@ export default function ScanProgressScreen() {
         <Spacer h={space.md} />
         <Caption align="center">
           {scan.matches.length > 0
-            ? `${scan.matches.length.toLocaleString()} found · review before anything uploads`
-            : 'Likely matches will wait for your review.'}
+            ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
+            : 'First review builds trust; later clear matches can save automatically.'}
         </Caption>
 
         <Spacer h={space.xxxl} />

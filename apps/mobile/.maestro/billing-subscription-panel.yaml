@@ -1,0 +1,17 @@
+# Billing settings: the Subscription row expands its detail panel immediately
+# under the row, so the tap has an obvious result before the remaining billing
+# links.
+appId: com.jessekrim.ourlittleworld
+---
+- launchApp
+- tapOn: "Open settings"
+- scrollUntilVisible:
+    element:
+      text: "BILLING"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
+- tapOn:
+    point: 36%,43%
+- assertVisible: "Family access"
+- assertVisible: "Gift, website, or partner code"

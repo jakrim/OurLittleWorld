@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  applyGeneratedSuggestionsToState,
   applySuggestionFeedback,
   applySuggestionSnooze,
   aroundDateLabel,
@@ -68,7 +69,10 @@ test('guardrail copy never claims certainty', () => {
   assert.equal(aroundDateLabel(new Date(2025, 9, 1, 10).getTime()), 'Around Oct 1');
   assert.equal(aroundDateLabel('not-a-date'), '');
   assert.equal(FIRST_SUGGESTION_EYEBROW, 'Worth a look');
-  assert.equal(FIRST_SUGGESTION_FOOTER, 'Nothing is saved until you keep it.');
+  assert.equal(
+    FIRST_SUGGESTION_FOOTER,
+    'Nothing is saved until you keep it. "Not this" only quiets First suggestions on this device.',
+  );
 });
 
 test('buildFirstSuggestion picks the best-quality match as primary', () => {
@@ -311,4 +315,27 @@ test('state normalization tolerates junk input', () => {
   assert.deepEqual(state.feedback, { keeps: {}, notThis: {}, chooseAnother: {} });
   assert.deepEqual(state.excludedAssetIds, {});
   assert.deepEqual(normalizeFirstSuggestionState(null).dismissedGoals, {});
+});
+
+test('generated suggestion reset clears stale dismissal and snooze for QA fixtures', () => {
+  const suggestion = buildFirstSuggestion({ goal: SMILE_GOAL, matches: [match()] });
+  const now = new Date(2026, 6, 5);
+  const state = applyGeneratedSuggestionsToState({
+    dismissedGoals: { smile: now.getTime() },
+    snoozedGoals: { smile: now.getTime() + 7 * 24 * 60 * 60 * 1000 },
+    lastGeneratedAt: { smile: now.getTime() },
+  }, {
+    suggestions: [suggestion],
+    generatedGoalKeys: ['smile'],
+    resetGoalKeys: ['smile'],
+    now,
+  });
+
+  assert.equal(state.dismissedGoals.smile, undefined);
+  assert.equal(state.snoozedGoals.smile, undefined);
+  assert.equal(state.lastGeneratedAt.smile, undefined);
+  assert.equal(
+    selectSuggestionForDisplay(state, { goalRows: [{ ...SMILE_GOAL, completed: false }], now }).goalKey,
+    'smile',
+  );
 });

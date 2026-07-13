@@ -226,7 +226,7 @@ export function isBelowFloorStackMatch(match, siblings = []) {
 
 function curationSummary({ keep, ranked, pinnedCount }) {
   if (pinnedCount > 0) return `Kept parent pick · ${keep.length} of ${ranked.length}`;
-  return `Kept sharpest ${keep.length} of ${ranked.length}`;
+  return `Kept best ${keep.length} of ${ranked.length}`;
 }
 
 export function qualityValue(match) {

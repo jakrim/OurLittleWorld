@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { hasEarnedAutoSaveTrust } from './photoIngestionTrustModel';
+import { buildScanAutoSaveGate } from './scanAutoSaveModel';
 import { supabase } from './supabase';
 
 export const REVIEW_THRESHOLD = 0.65;
@@ -141,10 +143,9 @@ export async function recordCalibrationReview({ familyId, userId, accepted = [],
     ? Math.min(0.98, Math.max(DEFAULT_AUTO_SAVE_THRESHOLD, rejectedCeiling + 0.03))
     : Math.min(0.96, Math.max(DEFAULT_AUTO_SAVE_THRESHOLD, acceptedFloor - 0.02));
 
-  const autoSaveEnabled = acceptedHigh.length >= 5 && rejectedHigh.length === 0;
   const next = {
     ...previous,
-    autoSaveEnabled,
+    autoSaveEnabled: previous.autoSaveEnabled && rejectedHigh.length === 0,
     autoSaveThreshold,
     batchReviewMin: REVIEW_THRESHOLD,
     calibratedAt: new Date().toISOString(),
@@ -175,6 +176,31 @@ export async function recordNegativeExample({ familyId, userId, match }) {
       ].slice(-300),
     },
   });
+}
+
+export async function setAutoSavePreference({ familyId, userId, enabled }) {
+  const previous = await getImportCalibration({ familyId, userId });
+  const nextEnabled = !!enabled;
+  if (nextEnabled && !hasEarnedAutoSaveTrust(previous)) {
+    return {
+      changed: false,
+      reason: 'trust-not-earned',
+      calibration: previous,
+    };
+  }
+  const next = await saveImportCalibration({
+    familyId,
+    userId,
+    calibration: {
+      ...previous,
+      autoSaveEnabled: nextEnabled,
+    },
+  });
+  return {
+    changed: previous.autoSaveEnabled !== next.autoSaveEnabled,
+    reason: null,
+    calibration: next,
+  };
 }
 
 export async function getRecentAutoSaves({ familyId, userId }) {
@@ -232,16 +258,18 @@ export async function dismissRecentAutoSave({ familyId, userId, assetId }) {
 export function bucketForScore(score, calibration) {
   const value = Number(score || 0);
   const trust = normalizeCalibration(calibration);
-  if (trust.autoSaveEnabled && value >= trust.autoSaveThreshold) return 'auto-save';
+  const autoSaveGate = buildScanAutoSaveGate({ calibration: trust });
+  if (autoSaveGate.enabled && value >= autoSaveGate.threshold) return 'auto-save';
   if (value >= trust.batchReviewMin) return 'review';
   return 'ignore';
 }
 
 export async function getAutoSaveConfig({ familyId, userId }) {
   const calibration = await getImportCalibration({ familyId, userId });
-  if (!calibration.autoSaveEnabled) return null;
+  const gate = buildScanAutoSaveGate({ calibration });
+  if (!gate.enabled) return null;
   return {
-    threshold: calibration.autoSaveThreshold,
+    threshold: gate.threshold,
     calibration,
   };
 }

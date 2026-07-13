@@ -1,22 +1,23 @@
-# Suggested Firsts (S5): the Today day-card surfaces a pending suggestion and
-# "Not now" snoozes it for 7 days without touching the Firsts card.
+# Suggested Firsts (S5): Today surfaces a pending suggestion and routes it back
+# to Firsts, even when higher-priority blocking repair copy owns the main day
+# card on this fixture.
 appId: com.jessekrim.ourlittleworld
 ---
-- launchApp
-- tapOn: "Firsts"
+- openLink: "ourlittleworld://firsts"
 - longPressOn: "Add a first"
-- assertVisible:
-    text: "Possible first.*"
+- scrollUntilVisible:
+    element:
+      text: "Possible first.*"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
 - tapOn: "Today"
-- assertVisible:
-    text: "Possible first.* — .* to look at"
-# The day card is one accessible element, so the nested "Not now" pressable is
-# flattened out of the XCUITest tree (same as catchup's "Not yet"; N3 tracks
-# unflattening). Point tap is stable here because the flow pins the 16e.
-- tapOn:
-    point: 19%,30%
-- assertNotVisible:
-    text: ".* to look at"
-- tapOn: "Firsts"
-- assertVisible:
-    text: "Possible first.*"
+- assertVisible: "Check: Possible first smile may belong with Firsts"
+- tapOn: "Check: Possible first smile may belong with Firsts"
+- assertVisible: "firsts so far."
+- scrollUntilVisible:
+    element:
+      text: "Possible first.*"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true

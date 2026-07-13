@@ -41,6 +41,8 @@ import {
 } from './ui';
 import * as mediaDb from './mediaDb';
 import { deleteForTag, hydrateMediaUrls, listSharedTaggedPage, resumePendingUploadJobs } from './photoSync';
+import { removeAutoSavedMemory } from './autoSaveCorrection';
+import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
 import PhotoActionSheet from './PhotoActionSheet';
 import { Tags, Memories } from './storage';
 import { useFamily } from './FamilyContext';
@@ -408,14 +410,17 @@ export default function TimelineScreen() {
   }, [onLongPressPhoto]);
 
   const onRemovePhoto = useCallback((photo) => {
-    if (!family?.id || !photo) return;
+    if (!family?.id || !user?.id || !photo) return;
     if (photo.asset_owner_user_id !== user?.id) {
       Alert.alert('Cannot remove', 'Only the person who saved this photo can remove it.');
       return;
     }
+    const autoSaved = isAutoSavedMemory(photo);
     Alert.alert(
-      'Remove from timeline?',
-      `This removes the photo from ${family?.babyName || 'your baby'}'s shared world. The original stays in your Photos library.`,
+      autoSaved ? AUTO_SAVE_CORRECTION_COPY.confirmTitle : 'Remove from timeline?',
+      autoSaved
+        ? AUTO_SAVE_CORRECTION_COPY.confirmBody
+        : `This removes the photo from ${family?.babyName || 'your baby'}'s shared world. The original stays in your Photos library.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -425,16 +430,25 @@ export default function TimelineScreen() {
             setActionPhoto(null);
             setRemovingPhoto(true);
             try {
-              await deleteForTag({
-                familyId: family.id,
-                assetOwnerUserId: photo.asset_owner_user_id,
-                assetId: photo.asset_id,
-              });
+              if (autoSaved) {
+                await removeAutoSavedMemory({
+                  familyId: family.id,
+                  userId: user.id,
+                  target: photo,
+                });
+              } else {
+                await deleteForTag({
+                  familyId: family.id,
+                  assetOwnerUserId: photo.asset_owner_user_id,
+                  assetId: photo.asset_id,
+                });
+              }
               // Optimistic local removal so the user sees instant feedback.
               setShared((prev) => prev.filter(
                 (p) => !(p.asset_id === photo.asset_id && p.asset_owner_user_id === photo.asset_owner_user_id),
               ));
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              if (autoSaved) Alert.alert(AUTO_SAVE_CORRECTION_COPY.successTitle, AUTO_SAVE_CORRECTION_COPY.successBody);
               loadShared();
             } catch (err) {
               Alert.alert('Could not remove', err?.message || String(err));
@@ -472,7 +486,9 @@ export default function TimelineScreen() {
       });
       out.push({
         icon: 'trash-outline',
-        label: removingPhoto ? 'Removing…' : 'Remove from timeline',
+        label: removingPhoto
+          ? 'Removing…'
+          : isAutoSavedMemory(actionPhoto) ? AUTO_SAVE_CORRECTION_COPY.actionLabel : 'Remove from timeline',
         destructive: true,
         disabled: removingPhoto,
         onPress: () => onRemovePhoto(actionPhoto),
@@ -483,6 +499,9 @@ export default function TimelineScreen() {
 
   const photoSheetSubtitle = useMemo(() => {
     if (!actionPhoto) return null;
+    if (isAutoSavedMemory(actionPhoto)) {
+      return 'Added by the assistant. Remove it if it does not belong; the original stays in Photos.';
+    }
     const ageObj = family?.babyBirthday && actionPhoto.creation_time
       ? ageAt(family.babyBirthday, new Date(actionPhoto.creation_time).getTime())
       : null;
@@ -1103,19 +1122,19 @@ function ScanBanner({ onPress, onAutoSavedTick }) {
   let title;
   if (scanning) {
     if (queued > 0) {
-      title = `Auto-saving ${queued.toLocaleString()}`;
+      title = `Saving ${queued.toLocaleString()} clear ${queued === 1 ? 'match' : 'matches'}`;
     } else {
       title = `Scanning${pct != null ? ` · ${pct}%` : ''}`;
     }
   } else if (queued > 0) {
-    title = `Auto-saving ${queued.toLocaleString()}`;
+    title = `Saving ${queued.toLocaleString()} clear ${queued === 1 ? 'match' : 'matches'}`;
   } else {
     title = `${waiting.toLocaleString()} matches waiting`;
   }
 
   const subtitle = scan.autoSavedCount > 0
-    ? `${scan.autoSavedCount.toLocaleString()} saved · tap to review matches`
-    : 'Tap to review';
+    ? `${scan.autoSavedCount.toLocaleString()} clear ${scan.autoSavedCount === 1 ? 'match' : 'matches'} saved · tap to review or remove`
+    : 'Tap to review likely matches';
 
   return (
     <Pressable onPress={onPress} style={scanBannerStyles.wrap}>
@@ -1282,6 +1301,7 @@ const MonthSection = React.memo(function MonthSection({ section, onPress, onLong
 
 function HeroTile({ photo, onPress, onLongPress, youUserId }) {
   const isMine = photo.asset_owner_user_id === youUserId;
+  const autoSaved = isAutoSavedMemory(photo);
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={220} style={styles.hero}>
       {photo.thumbUrl || photo.fullUrl ? (
@@ -1295,11 +1315,14 @@ function HeroTile({ photo, onPress, onLongPress, youUserId }) {
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.tilePlaceholder]} />
       )}
-      {!isMine ? (
+      {!isMine || autoSaved ? (
         <View style={styles.heroBadgeRow}>
-          <View style={styles.partnerBadge}>
-            <Caption style={{ color: colors.onPrimary, fontWeight: '700' }}>From your partner</Caption>
-          </View>
+          {!isMine ? (
+            <View style={styles.partnerBadge}>
+              <Caption style={{ color: colors.onPrimary, fontWeight: '700' }}>From your partner</Caption>
+            </View>
+          ) : null}
+          {autoSaved ? <AssistantAddedBadge compact={false} /> : null}
         </View>
       ) : null}
     </Pressable>
@@ -1308,6 +1331,7 @@ function HeroTile({ photo, onPress, onLongPress, youUserId }) {
 
 function MiniTile({ photo, onPress, onLongPress, youUserId }) {
   const isMine = photo.asset_owner_user_id === youUserId;
+  const autoSaved = isAutoSavedMemory(photo);
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={220} style={styles.miniTile}>
       {photo.thumbUrl || photo.fullUrl ? (
@@ -1326,7 +1350,24 @@ function MiniTile({ photo, onPress, onLongPress, youUserId }) {
           <View style={styles.miniPartnerDotInner} />
         </View>
       ) : null}
+      {autoSaved ? <AssistantAddedBadge compact /> : null}
     </Pressable>
+  );
+}
+
+function AssistantAddedBadge({ compact = false }) {
+  if (compact) {
+    return (
+      <View style={styles.miniAssistantBadge}>
+        <Ionicons name="sparkles" size={10} color={colors.onPrimary} />
+      </View>
+    );
+  }
+  return (
+    <View style={styles.assistantBadge}>
+      <Ionicons name="sparkles" size={12} color={colors.onPrimary} />
+      <Caption style={styles.assistantBadgeText}>Added by the assistant</Caption>
+    </View>
   );
 }
 
@@ -1860,12 +1901,30 @@ const styles = StyleSheet.create({
     top: space.md,
     left: space.md,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   partnerBadge: {
     backgroundColor: 'rgba(45,31,38,0.7)',
     paddingHorizontal: space.md,
     paddingVertical: 6,
     borderRadius: radius.pill,
+  },
+  assistantBadge: {
+    minHeight: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(45,31,38,0.7)',
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  assistantBadgeText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    textTransform: 'none',
+    letterSpacing: 0,
   },
 
   // Edge-to-edge mini grid (Photos.app style — touching tiles)
@@ -1915,6 +1974,17 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: colors.coral,
+  },
+  miniAssistantBadge: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(45,31,38,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Empty state

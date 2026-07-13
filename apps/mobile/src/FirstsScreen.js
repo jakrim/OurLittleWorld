@@ -20,7 +20,7 @@ import {
 } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
-import { ageInDaysOn, buildFirstsModel, goalTimingCaption } from './firstsModel';
+import { ageInDaysOn, buildFirstsModel, firstSourceAffordance, goalTimingCaption } from './firstsModel';
 import {
   buildFirstSuggestion,
   FIRST_SUGGESTION_EYEBROW,
@@ -155,8 +155,7 @@ export default function FirstsScreen() {
   // device photo library or reference profile. Stripped from release builds.
   const seedDevSuggestion = useCallback(async () => {
     if (!__DEV__ || !family?.id || !user?.id) return;
-    const dismissedGoals = suggestionState?.dismissedGoals || {};
-    const goal = goalProgress.goals.find((item) => !item.completed && !dismissedGoals[item.key]);
+    const goal = goalProgress.goals.find((item) => !item.completed);
     const photos = Object.values(photosByKey).filter((photo) => photo.thumbUrl || photo.fullUrl).slice(0, 4);
     if (!goal || !photos.length) return;
     const baseTime = Date.now() - 60 * 24 * 60 * 60 * 1000;
@@ -180,9 +179,10 @@ export default function FirstsScreen() {
       userId: user.id,
       suggestions: [fixture],
       generatedGoalKeys: [goal.key],
+      resetGoalKeys: [goal.key],
     });
     setSuggestionState(state);
-  }, [family?.id, goalProgress.goals, photosByKey, suggestionState?.dismissedGoals, user?.id]);
+  }, [family?.id, goalProgress.goals, photosByKey, user?.id]);
 
   useEffect(() => {
     if (!firstsLoaded) return;
@@ -238,7 +238,7 @@ export default function FirstsScreen() {
   }, [celebrationProgress]);
 
   const subtitle = goalProgress.total
-    ? `${goalProgress.completed} of ${goalProgress.total} goals complete`
+    ? `${goalProgress.completed} of ${goalProgress.total} starter firsts saved`
     : rows.length === 1 ? '1 first saved' : `${rows.length} firsts saved`;
   const openNextGoal = () => {
     if (!goalProgress.next) return;
@@ -251,12 +251,20 @@ export default function FirstsScreen() {
       },
     });
   };
+  const goBackToBook = useCallback(() => {
+    if (router.canGoBack?.()) {
+      router.back();
+      return;
+    }
+    router.push('/library');
+  }, [router]);
 
   return (
     <AppShell
-      active="firsts"
+      active="book"
       title="firsts so far."
       subtitle={subtitle}
+      onBack={goBackToBook}
       right={(
         <Pressable
           onPress={() => router.push('/first-compose')}
@@ -272,7 +280,7 @@ export default function FirstsScreen() {
       <Card>
         <Eyebrow>{completedCount} firsts saved</Eyebrow>
         <Title style={styles.heroTitle}>{heroTitleFor(goalProgress)}</Title>
-        <Body>Each one you finish becomes a saved First, and the path ahead stays visible without pressure.</Body>
+        <Body>Each one you save becomes part of the book. Starter ideas stay visible, but everything is optional.</Body>
         <View style={styles.progressSegments}>
           {goalProgress.goals.map((item) => (
             <GoalProgressSegment
@@ -289,20 +297,20 @@ export default function FirstsScreen() {
           accessible={!!goalProgress.next}
           accessibilityRole="button"
           accessibilityLabel={goalProgress.next ? `Add ${goalProgress.next.title}` : undefined}
-          accessibilityHint={goalProgress.next ? 'Opens the first composer with this goal filled in.' : undefined}
+          accessibilityHint={goalProgress.next ? 'Opens the first composer with this first filled in.' : undefined}
           accessibilityState={{ disabled: !goalProgress.next }}
           style={[styles.goalPreview, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
         >
           <Caption>
             {goalProgress.next
-              ? 'Next family goal'
-              : goalProgress.state === 'complete' ? 'Goal path complete' : 'Catch-up firsts'}
+              ? 'Possible next first'
+              : goalProgress.state === 'complete' ? 'Starter firsts saved' : 'Catch-up memories'}
           </Caption>
           <Body style={styles.goalPreviewTitle}>
             {goalProgress.next
               ? `${goalProgress.next.title}${goalProgress.next.targetAgeLabel ? ` · ${goalProgress.next.targetAgeLabel}` : ''}`
               : goalProgress.state === 'complete'
-                ? 'Every starter goal has a saved story.'
+                ? 'Every starter first has a saved story.'
                 : 'Add them whenever the memory comes back.'}
           </Body>
           {goalProgress.next?.description ? <Caption>{goalProgress.next.description}</Caption> : null}
@@ -325,6 +333,7 @@ export default function FirstsScreen() {
         const photo = first.asset_owner_user_id && first.asset_id
           ? photosByKey[`${first.asset_owner_user_id}:${first.asset_id}`]
           : null;
+        const source = firstSourceAffordance(first, photo);
         const onPress = () => {
           if (!first.done) {
             router.push({
@@ -349,7 +358,7 @@ export default function FirstsScreen() {
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={first.done ? `Open first: ${first.title}` : `Add first: ${first.title}`}
-          accessibilityHint={!first.done ? `${goalTimingCaption(first, ageDays)}.` : undefined}
+          accessibilityHint={first.done ? source.detail : `${goalTimingCaption(first, ageDays)}.`}
         >
           <Card padding="md" style={[styles.firstCard, !first.done && styles.futureCard]}>
             {photo?.thumbUrl || photo?.fullUrl ? (
@@ -373,6 +382,7 @@ export default function FirstsScreen() {
               ) : !first.done ? (
                 <Caption>{goalTimingCaption(first, ageDays)}</Caption>
               ) : null}
+              {first.done ? <FirstSourceRow source={source} theme={theme} /> : null}
             </View>
             <Ionicons
               name={first.done ? 'checkmark-circle' : 'add-circle-outline'}
@@ -384,6 +394,15 @@ export default function FirstsScreen() {
         );
       })}
     </AppShell>
+  );
+}
+
+function FirstSourceRow({ source, theme }) {
+  return (
+    <View style={styles.sourceRow}>
+      <Ionicons name={source.icon} size={13} color={theme.semantic.textSoft} />
+      <Caption numberOfLines={1}>{`${source.label} · ${source.detail}`}</Caption>
+    </View>
   );
 }
 
@@ -512,10 +531,10 @@ function FirstDayGuide({ theme, goals }) {
         </View>
         <View style={styles.guideText}>
           <Eyebrow>First day</Eyebrow>
-          <Title style={styles.guideTitle}>Nothing has to be complete yet.</Title>
+          <Title style={styles.guideTitle}>Start anywhere.</Title>
         </View>
       </View>
-      <Body>Start with the one you remember most clearly. The rest can stay as soft placeholders until the moment arrives.</Body>
+      <Body>Start with one you remember. The rest can wait until the moment arrives or comes back to you.</Body>
       <View style={styles.guideChips}>
         {(goals?.length ? goals : FIRST_GOAL_DEFINITIONS).slice(0, 3).map((goal) => (
           <Caption key={goal.key} style={[styles.guideChip, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
@@ -529,12 +548,12 @@ function FirstDayGuide({ theme, goals }) {
 
 function heroTitleFor(goalProgress) {
   if (goalProgress.state === 'ahead' && goalProgress.upcomingTitles.length) {
-    return `Coming up: ${goalProgress.upcomingTitles.map((title) => title.toLowerCase()).join(' and ')}.`;
+    return `Possible next: ${goalProgress.upcomingTitles.map((title) => title.toLowerCase()).join(' and ')}.`;
   }
   if (goalProgress.state === 'catchup') {
-    return 'A few firsts are still worth writing down.';
+    return 'A few firsts can be added whenever they come back.';
   }
-  return 'Family goals for the year ahead.';
+  return 'Firsts you might want to keep.';
 }
 
 function AgePill({ first, birthday }) {
@@ -599,7 +618,6 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   goalPreviewTitle: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '800',
@@ -639,9 +657,14 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   firstTitle: {
-    color: undefined,
     fontSize: 15,
     lineHeight: 20,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 3,
   },
   agePill: {
     borderRadius: radius.pill,

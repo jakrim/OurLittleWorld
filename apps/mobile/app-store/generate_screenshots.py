@@ -39,32 +39,32 @@ FONT_TINY_BOLD = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bo
 SLIDES = [
     {
         "name": "01-baby-book",
-        "headline": "Your baby's story,\nkept close.",
-        "subhead": "A private baby book for photos, firsts, notes, and family letters.",
+        "headline": "Private baby book\nfor the early years.",
+        "subhead": "Save photos, firsts, notes, voice memories, and family letters in one shared space.",
         "screen": "welcome",
     },
     {
         "name": "02-timeline",
-        "headline": "A timeline from\nthe first days.",
-        "subhead": "Turn ordinary photos and small notes into a family story you can revisit.",
+        "headline": "Photos, notes,\nand voice together.",
+        "subhead": "Keep the tiny context your camera roll cannot explain.",
         "screen": "timeline",
     },
     {
         "name": "03-firsts",
-        "headline": "Save firsts as\nthey happen.",
-        "subhead": "Keep first smiles, steps, trips, words, and tiny routines in one quiet place.",
+        "headline": "Save baby firsts\nas they happen.",
+        "subhead": "First smiles, steps, words, foods, and family milestones stay organized by age.",
         "screen": "firsts",
     },
     {
         "name": "04-letters",
         "headline": "Write letters\nfor later.",
-        "subhead": "Capture the thoughts you want your child or partner to open in the future.",
+        "subhead": "Save notes for your child or partner, kept in your private baby book.",
         "screen": "letters",
     },
     {
         "name": "05-library",
-        "headline": "A quieter\nfamily library.",
-        "subhead": "Organize moments by day, place, and memory without a public feed.",
+        "headline": "Private family archive.\nNo public feed.",
+        "subhead": "Search and revisit moments by day, place, and memory without likes or algorithms.",
         "screen": "library",
     },
 ]
@@ -180,7 +180,7 @@ def draw_app_screen(draw, base, x, y, w, h, kind, tablet=False):
         draw_timeline(draw, x + margin, y + 920 * scale, w - 2 * margin, scale)
     elif kind == "firsts":
         draw.text((x + margin, y + 150 * scale), "firsts so far.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(50 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "The little doors they walk through this year.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
+        draw.text((x + margin, y + 222 * scale), "The little doors they walk through.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
         entries = [("First laugh", "June 10", MOSS), ("First solid food", "May 28", GOLD), ("First stand", "Saved today", TERRACOTTA), ("First trip", "Brooklyn", PLUM)]
         yy = y + 300 * scale
         for title, detail, color in entries:
@@ -188,9 +188,9 @@ def draw_app_screen(draw, base, x, y, w, h, kind, tablet=False):
             yy += 165 * scale
     elif kind == "letters":
         draw.text((x + margin, y + 150 * scale), "letters for later.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(50 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "Small notes, sealed in time.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
+        draw.text((x + margin, y + 222 * scale), "Small notes, kept with the story.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
         yy = y + 315 * scale
-        letters = [("For your 18th birthday", "Open when he is eighteen."), ("For tonight", "A small note for the two of us."), ("The day you crawled", "Saved after bedtime.")]
+        letters = [("About your laugh", "Saved with today's story."), ("For next birthday", "A note for later."), ("The day you crawled", "Saved after bedtime.")]
         for title, detail in letters:
             draw_letter(draw, x + margin, yy, w - 2 * margin, scale, title, detail)
             yy += 210 * scale
@@ -262,7 +262,7 @@ def draw_letter(draw, x, y, w, scale, title, detail):
     draw.text((x + 64 * scale, y + 32 * scale), title, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(26 * scale)), fill=INK)
     draw.text((x + 64 * scale, y + 76 * scale), detail, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(20 * scale)), fill=MUTED)
     draw.rounded_rectangle((x + 64 * scale, y + 114 * scale, x + 226 * scale, y + 148 * scale), radius=int(17 * scale), fill=SAGE)
-    draw.text((x + 86 * scale, y + 121 * scale), "sealed", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(16 * scale)), fill="#49644a")
+    draw.text((x + 88 * scale, y + 121 * scale), "kept", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(16 * scale)), fill="#49644a")
 
 
 def draw_search(draw, x, y, w, scale):

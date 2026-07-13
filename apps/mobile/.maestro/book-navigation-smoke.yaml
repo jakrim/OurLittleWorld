@@ -1,0 +1,20 @@
+# PRD Book navigation smoke: Book is the top-level destination, while Firsts
+# and Letters stay reachable from it and show explicit back buttons.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos"
+- assertVisible:
+    text: ".*book\\."
+- assertVisible: "Open Firsts"
+- assertVisible: "Open Letters"
+- assertVisible: "Open Book preview"
+- tapOn: "Open Firsts"
+- assertVisible: "Go back"
+- tapOn: "Go back"
+- assertVisible:
+    text: ".*book\\."
+- openLink: "ourlittleworld://letters"
+- assertVisible: "Go back"
+- tapOn: "Go back"
+- assertVisible:
+    text: ".*book\\."

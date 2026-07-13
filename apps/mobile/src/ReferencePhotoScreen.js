@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Button, Brand, Hero, Body, Caption, V, H, Spacer, semantic, colors, glass, space, radius, shadow } from './ui';
+import { Screen, Button, Brand, Hero, Body, Caption, V, H, Spacer, glass, space, radius, shadow, useTheme } from './ui';
 import { embedFace, isNative } from './faceMatcher';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
@@ -14,11 +14,13 @@ import {
   addReferenceImage,
   clearAutoSeedReferences,
   clearReferenceProfile,
-  primaryReference,
+  confirmRepresentativeReference,
   readReferenceProfile,
+  representativeReference,
   referenceStorageKey as makeReferenceStorageKey,
 } from './recognitionReferences';
 import { bootstrapBirthdayReference } from './referenceAutoSeed';
+import { autoSeedProgressCopy, autoSeedProgressPercent } from './referenceAutoSeedModel';
 
 /**
  * "Pick a photo of your baby." We embed it via the native face matcher
@@ -34,11 +36,14 @@ import { bootstrapBirthdayReference } from './referenceAutoSeed';
  */
 export default function ReferencePhotoScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const params = useLocalSearchParams();
   const { family } = useFamily();
   const { user } = useAuth();
-  const autoSeedRequested = params.autoSeed === '1';
+  const progressPreviewRequested = __DEV__ && params.progressPreview === '1';
+  const autoSeedRequested = params.autoSeed === '1' || progressPreviewRequested;
   const autoSeedStarted = useRef(false);
+  const autoSeedSignal = useRef(null);
 
   const [picked, setPicked] = useState(null);   // { uri, width, height, assetId }
   const [embedding, setEmbedding] = useState(null);
@@ -56,18 +61,26 @@ export default function ReferencePhotoScreen() {
       try {
         const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
         if (!alive) return;
-        const primary = primaryReference(profile);
+        const representative = representativeReference(profile);
         setReferenceCount(profile.references.length);
-        if (primary?.uri) setPicked({ uri: primary.uri, assetId: primary.assetId });
-        if (primary?.embedding?.length) setEmbedding({ embedding: primary.embedding, faceCount: primary.faceCount || 1 });
-        if (primary?.uri || primary?.embedding) setRestored(true);
+        if (representative?.uri) setPicked({ uri: representative.uri, assetId: representative.assetId });
+        if (representative?.embedding?.length) setEmbedding(representative);
+        if (representative?.uri || representative?.embedding) setRestored(true);
       } catch {}
     })();
     return () => { alive = false; };
   }, [family?.id, user?.id]);
 
   useEffect(() => {
-    if (!autoSeedRequested || autoSeedStarted.current || !family?.id || !user?.id) return;
+    if (!autoSeedRequested || !family?.id || !user?.id) return;
+    if (progressPreviewRequested) {
+      setAutoSeedState({
+        status: 'running',
+        progress: { phase: 'analyzing', completed: 48, total: 180, facesFound: 22 },
+      });
+      return;
+    }
+    if (autoSeedStarted.current) return;
     autoSeedStarted.current = true;
     if (!isNative) {
       setAutoSeedState({ status: 'manual', reason: 'native-unavailable' });
@@ -75,15 +88,32 @@ export default function ReferencePhotoScreen() {
     }
 
     let alive = true;
-    setAutoSeedState({ status: 'running' });
+    const signal = { aborted: false };
+    autoSeedSignal.current = signal;
+    setAutoSeedState({
+      status: 'running',
+      progress: { phase: 'sampling', completed: 0, total: 0, facesFound: 0 },
+    });
     (async () => {
       try {
         const result = await bootstrapBirthdayReference({
           familyId: family.id,
           userId: user.id,
           birthdayISO: family.babyBirthday,
+          signal,
+          onProgress: (progress) => {
+            if (!alive || signal.aborted) return;
+            setAutoSeedState((current) => (
+              current.status === 'running'
+                ? { ...current, progress }
+                : current
+            ));
+          },
         });
-        if (!alive) return;
+        if (!alive || signal.aborted) return;
+        if (__DEV__ && result.diagnostics) {
+          console.info('discovery diagnostics', result.diagnostics);
+        }
         if (result.status === 'seeded') {
           const preview = result.preview;
           setPicked({
@@ -108,8 +138,12 @@ export default function ReferencePhotoScreen() {
         if (alive) setAutoSeedState({ status: 'manual', reason: 'error' });
       }
     })();
-    return () => { alive = false; };
-  }, [autoSeedRequested, family?.babyBirthday, family?.id, user?.id]);
+    return () => {
+      alive = false;
+      signal.aborted = true;
+      if (autoSeedSignal.current === signal) autoSeedSignal.current = null;
+    };
+  }, [autoSeedRequested, family?.babyBirthday, family?.id, progressPreviewRequested, user?.id]);
 
   const pick = async () => {
     setError(null);
@@ -160,15 +194,25 @@ export default function ReferencePhotoScreen() {
     await pick();
   };
 
+  const chooseManualInstead = async () => {
+    if (autoSeedSignal.current) autoSeedSignal.current.aborted = true;
+    setAutoSeedState({ status: 'manual', reason: 'user-chose-manual' });
+    if (family?.id && user?.id) {
+      await clearAutoSeedReferences({ familyId: family.id, userId: user.id });
+    }
+    await pick();
+  };
+
   const onContinue = async () => {
     if (!family || !user) return;
     if (autoSeedState.status === 'ready') {
+      await confirmRepresentativeReference({ familyId: family.id, userId: user.id });
       Scan.reset();
       router.push('/scan');
       return;
     }
     if (isNative && !embedding) {
-      Alert.alert('Pick a photo first', 'We need a clear face to find your baby in your library.');
+      Alert.alert('Pick a photo first', 'When birthday-first discovery cannot find a likely match, one clear face photo helps this device review likely photos.');
       return;
     }
     await addReferenceImage({
@@ -179,8 +223,17 @@ export default function ReferencePhotoScreen() {
       assetId: picked?.assetId || null,
       embedding: embedding?.embedding || null,
       faceCount: embedding?.faceCount || 1,
-      capturedAt: Date.now(),
-      source: restored ? 'existing-reference' : 'seed',
+      capturedAt: embedding?.capturedAt || picked?.creationTime || Date.now(),
+      source: restored ? (embedding?.source || 'existing-reference') : 'seed',
+      parentConfirmed: true,
+      captureQuality: embedding?.captureQuality,
+      sharpness: embedding?.sharpness,
+      faceSizeRatio: embedding?.faceSizeRatio,
+      primaryBox: embedding?.primaryBox,
+      yaw: embedding?.yaw,
+      roll: embedding?.roll,
+      brightness: embedding?.brightness,
+      setRepresentative: true,
     });
     // Picking a new reference always means a fresh scan — clear stale matches.
     Scan.reset();
@@ -195,6 +248,12 @@ export default function ReferencePhotoScreen() {
   const autoSeeding = autoSeedState.status === 'running' || autoSeedState.status === 'idle';
   const autoConfirming = autoSeedState.status === 'ready';
   const hasUsableReference = autoConfirming || (!isNative ? !!picked : !!embedding?.embedding?.length);
+  const progress = autoSeedState.progress || { phase: 'sampling', completed: 0, total: 0, facesFound: 0 };
+  const progressCopy = autoSeedProgressCopy(progress);
+  const progressPercent = autoSeedProgressPercent(progress);
+  const automaticFallback = autoSeedRequested
+    && autoSeedState.status === 'manual'
+    && !['user-chose-manual', 'user-correction'].includes(autoSeedState.reason);
 
   const onClearReference = async () => {
     if (!family || !user) return;
@@ -222,15 +281,24 @@ export default function ReferencePhotoScreen() {
   return (
     <Screen variant="warm" scroll>
       <View style={styles.topRow}>
-        <Pressable onPress={onBack} style={styles.backChip} hitSlop={8}>
-          <Ionicons name="chevron-back" size={20} color={colors.plum} />
+        <Pressable
+          onPress={onBack}
+          style={[
+            styles.backChip,
+            { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+          ]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={20} color={theme.semantic.textSoft} />
         </Pressable>
       </View>
 
       <V gap="lg" style={{ paddingTop: space.sm, paddingBottom: space.xxl }}>
         <Brand>our little world</Brand>
-        <Hero>{heroCopy({ autoSeeding, autoConfirming, babyName: family?.babyName })}</Hero>
-        <Body>{bodyCopy({ autoSeeding, autoConfirming, babyName: family?.babyName })}</Body>
+        <Hero>{heroCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Hero>
+        <Body>{bodyCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Body>
 
         <Spacer h={space.md} />
 
@@ -239,24 +307,45 @@ export default function ReferencePhotoScreen() {
           disabled={autoSeeding || busy}
           accessibilityRole="button"
           accessibilityLabel={autoConfirming ? 'Pick a different reference photo' : 'Pick reference photo'}
-          style={styles.frame}
+          style={[
+            styles.frame,
+            {
+              backgroundColor: theme.semantic.cardAlt,
+              borderColor: theme.semantic.border,
+            },
+            autoSeeding && styles.progressFrame,
+          ]}
         >
           {autoSeeding ? (
-            <View style={styles.placeholder}>
-              <ActivityIndicator color={colors.coral} />
+            <View
+              style={styles.placeholder}
+              testID="birthday-discovery-progress"
+              accessibilityLiveRegion="polite"
+            >
+              <ActivityIndicator color={theme.semantic.primary} />
               <Spacer h={space.md} />
-              <Body align="center" style={{ color: colors.plum }}>Looking through your library</Body>
+              <Body align="center" style={{ color: theme.semantic.textSoft }}>{progressCopy.title}</Body>
+              <View
+                style={[styles.progressTrack, { backgroundColor: theme.semantic.border }]}
+                accessibilityRole="progressbar"
+                accessibilityValue={{ min: 0, max: 100, now: progressPercent }}
+              >
+                <View style={[styles.progressFill, { backgroundColor: theme.semantic.primary, width: `${progressPercent}%` }]} />
+              </View>
               <Caption align="center" style={{ marginTop: 4 }}>
-                We are finding a face that appears across the months.
+                {progressCopy.detail}
+              </Caption>
+              <Caption align="center" style={[styles.progressPercent, { color: theme.semantic.textMuted }]}>
+                {progressPercent}% - stays on this device
               </Caption>
             </View>
           ) : picked ? (
             <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" />
           ) : (
             <View style={styles.placeholder}>
-              <Ionicons name="happy-outline" size={56} color={colors.coral} />
+              <Ionicons name="happy-outline" size={56} color={theme.semantic.primary} />
               <Spacer h={space.md} />
-              <Body align="center" style={{ color: colors.plum }}>Tap to pick a photo</Body>
+              <Body align="center" style={{ color: theme.semantic.textSoft }}>Tap to pick a photo</Body>
               <Caption align="center" style={{ marginTop: 4 }}>
                 A clear, well-lit shot of their face works best.
               </Caption>
@@ -264,24 +353,34 @@ export default function ReferencePhotoScreen() {
           )}
           {picked ? (
             <View style={styles.changeBadge}>
-              <Caption style={{ color: colors.cream, fontWeight: '700' }}>
+              <Caption style={{ color: theme.colors.onPrimary, fontWeight: '700' }}>
                 {autoConfirming ? 'Tap to pick another' : restored ? 'Tap to change' : 'Tap to replace'}
               </Caption>
             </View>
           ) : null}
         </Pressable>
 
+        {autoSeeding ? (
+          <Caption align="center" style={{ color: theme.semantic.textMuted }}>
+            Large libraries can take a few minutes. You can switch to one clear photo at any time.
+          </Caption>
+        ) : automaticFallback ? (
+          <Caption align="center" style={{ color: theme.semantic.textMuted }}>
+            Automatic setup could not find one clear repeated face. Choose a photo to continue.
+          </Caption>
+        ) : null}
+
         {autoConfirming ? (
           <H gap="sm" align="center" justify="center">
-            <Ionicons name="sparkles-outline" size={16} color={colors.plum} />
-            <Caption style={{ color: colors.plum, fontWeight: '700' }}>
+            <Ionicons name="sparkles-outline" size={16} color={theme.semantic.textSoft} />
+            <Caption style={{ color: theme.semantic.textSoft, fontWeight: '700' }}>
               Seeded {referenceCount} local references from the birthday onward
             </Caption>
           </H>
         ) : restored && !error ? (
           <H gap="sm" align="center" justify="center">
-            <Ionicons name="bookmark" size={16} color={colors.plum} />
-            <Caption style={{ color: colors.plum, fontWeight: '700' }}>
+            <Ionicons name="bookmark" size={16} color={theme.semantic.textSoft} />
+            <Caption style={{ color: theme.semantic.textSoft, fontWeight: '700' }}>
               {referenceCount > 1 ? `Using ${referenceCount} local references` : 'Using saved reference'} - tap to change
             </Caption>
           </H>
@@ -291,26 +390,30 @@ export default function ReferencePhotoScreen() {
           <Caption align="center">Reading the photo…</Caption>
         ) : embedding && isNative && !restored ? (
           <H gap="sm" align="center" justify="center">
-            <Ionicons name="checkmark-circle" size={18} color={colors.sage} />
-            <Caption style={{ color: colors.sage, fontWeight: '700' }}>
+            <Ionicons name="checkmark-circle" size={18} color={theme.semantic.secondary} />
+            <Caption style={{ color: theme.semantic.secondary, fontWeight: '700' }}>
               Face found - ready to review
             </Caption>
           </H>
         ) : null}
 
         {error ? (
-          <Caption style={{ color: colors.danger, textAlign: 'center' }}>{error}</Caption>
+          <Caption style={{ color: theme.colors.danger, textAlign: 'center' }}>{error}</Caption>
         ) : null}
 
         <Spacer h={space.md} />
 
-        <Button onPress={onContinue} loading={busy || autoSeeding} disabled={!hasUsableReference || busy || autoSeeding}>
-          {autoSeeding
-            ? `Looking for ${family?.babyName || 'your baby'}...`
-            : autoConfirming
+        {autoSeeding ? (
+          <Button variant="ghost" onPress={chooseManualInstead}>
+            Choose one photo instead
+          </Button>
+        ) : (
+          <Button onPress={onContinue} loading={busy} disabled={!hasUsableReference || busy}>
+            {autoConfirming
               ? 'Yes, start review scan'
               : restored ? 'Continue with this reference' : 'Start review scan'}
-        </Button>
+          </Button>
+        )}
 
         {autoConfirming ? (
           <Button variant="quiet" onPress={pickDifferentFromAutoSeed}>
@@ -334,21 +437,23 @@ export function referenceStorageKey(args) {
   return makeReferenceStorageKey(args);
 }
 
-function heroCopy({ autoSeeding, autoConfirming, babyName }) {
-  if (autoSeeding) return `Finding ${babyName || 'your baby'}.`;
+function heroCopy({ autoSeeding, autoConfirming, restored, babyName }) {
+  if (autoSeeding) return `Setting up photo discovery.`;
   if (autoConfirming) return `Is this ${babyName || 'your baby'}?`;
-  return `One photo of ${babyName || 'your baby'}.`;
+  if (restored) return `Review photo discovery.`;
+  return `Choose one photo to finish discovery.`;
 }
 
-function bodyCopy({ autoSeeding, autoConfirming, babyName }) {
-  const learningCopy = `${babyName || 'Your baby'}'s face model gets sharper every time you keep or remove a photo.`;
+function bodyCopy({ autoSeeding, autoConfirming, restored, babyName }) {
+  const learningCopy = `Matching uses the full local reference set, not this photo alone.`;
   if (autoSeeding) {
-    return `We are using the birthday and photo access you already gave us to build a local reference. ${learningCopy}`;
+    return `Step 1 of 2: starting from ${babyName || 'your baby'}'s birthday, we check a bounded spread of photos on this device for a face that repeats across time. You will confirm a possible match before review starts.`;
   }
   if (autoConfirming) {
-    return `We found a face that repeats across the months. Confirm it before the review scan starts. ${learningCopy}`;
+    return `Step 2 of 2: confirm that this clear representative is ${babyName || 'your baby'}, then review the likely photos before anything reaches the book. ${learningCopy}`;
   }
-  return `We use it as a local reference to find likely matches on this device. ${learningCopy} Scanning stays on your phone; moments you save are uploaded to your private family archive.`;
+  if (restored) return `This is the saved representative for the local reference set. ${learningCopy} The original stays in Photos.`;
+  return `When birthday-first discovery is unavailable or cannot find a likely match, one clear face photo helps this device review likely matches. Scanning stays on your phone; moments you save go to your private family archive.`;
 }
 
 const styles = StyleSheet.create({
@@ -361,9 +466,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: semantic.card,
     borderWidth: 1,
-    borderColor: semantic.border,
     alignItems: 'center',
     justifyContent: 'center',
     ...shadow.whisper,
@@ -373,12 +476,13 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: radius.xl,
     overflow: 'hidden',
-    backgroundColor: semantic.cardAlt,
     borderWidth: 1,
-    borderColor: semantic.border,
     ...shadow.whisper,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  progressFrame: {
+    aspectRatio: 1.3,
   },
   preview: {
     width: '100%',
@@ -387,6 +491,23 @@ const styles = StyleSheet.create({
   placeholder: {
     alignItems: 'center',
     paddingHorizontal: space.lg,
+    width: '100%',
+  },
+  progressTrack: {
+    width: '82%',
+    height: 8,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    marginTop: space.lg,
+    marginBottom: space.sm,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: radius.pill,
+  },
+  progressPercent: {
+    marginTop: space.sm,
+    fontWeight: '700',
   },
   changeBadge: {
     position: 'absolute',

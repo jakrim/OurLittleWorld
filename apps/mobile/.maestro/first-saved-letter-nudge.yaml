@@ -4,8 +4,7 @@
 # post-save-nudge daily count.
 appId: com.jessekrim.ourlittleworld
 ---
-- launchApp
-- tapOn: "Firsts"
+- openLink: "ourlittleworld://firsts"
 - longPressOn: "Add a first"
 - assertVisible:
     text: "Possible first.*"

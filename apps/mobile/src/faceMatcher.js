@@ -8,8 +8,8 @@
  *
  * Public API
  * ----------
- *   embedFace(localUri) → { embedding: number[], faceCount, primaryBox, captureQuality, faceSizeRatio, sharpness } | null
- *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness }]
+ *   embedFace(localUri) → { embedding, faceCount, primaryBox, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness } | null
+ *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness }]
  *
  * Embeddings are L2-normalised so cosine similarity == dot product.
  */
@@ -70,6 +70,9 @@ export async function matchAgainst({ reference, candidates }) {
       captureQuality: null,
       faceSizeRatio: null,
       sharpness: null,
+      yaw: null,
+      roll: null,
+      brightness: null,
     }));
   }
 
@@ -88,6 +91,9 @@ export async function matchAgainst({ reference, candidates }) {
       captureQuality: null,
       faceSizeRatio: null,
       sharpness: null,
+      yaw: null,
+      roll: null,
+      brightness: null,
     }));
   }
 }

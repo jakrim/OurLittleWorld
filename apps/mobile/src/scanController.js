@@ -36,7 +36,7 @@ import {
   fetchVideoFrameCandidatesPage,
 } from './photos';
 import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
-import { shouldAutoSaveMatch } from './scanQualityModel';
+import { selectScanAutoSaveMatches } from './scanAutoSaveModel';
 
 const initialState = () => ({
   phase: 'idle',
@@ -460,15 +460,15 @@ export async function start({
       // borderline ones still get reviewed manually so the user gets
       // final say on questionable shots.
       if (autoSaveFn && newMatches.length) {
-        const autoIds = [];
-        for (const m of newMatches) {
-          if (!shouldAutoSaveMatch(m, { scoreThreshold: autoSaveThreshold })) continue;
-          if (autoSaveSeen.has(m.assetId)) continue;
-          autoSaveSeen.add(m.assetId);
-          autoIds.push(m);
+        const autoMatches = selectScanAutoSaveMatches(newMatches, {
+          scoreThreshold: autoSaveThreshold,
+          seenAssetIds: autoSaveSeen,
+        });
+        for (const match of autoMatches) {
+          autoSaveSeen.add(match.assetId);
         }
-        if (autoIds.length) {
-          autoSaveQueue.push(...autoIds);
+        if (autoMatches.length) {
+          autoSaveQueue.push(...autoMatches);
           setState({ autoSaveQueueLength: autoSaveQueue.length });
           pumpAutoSave();
         }

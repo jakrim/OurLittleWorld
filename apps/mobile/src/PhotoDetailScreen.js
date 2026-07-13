@@ -416,7 +416,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   downloadTitle: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
   },

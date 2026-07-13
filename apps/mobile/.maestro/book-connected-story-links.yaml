@@ -1,0 +1,28 @@
+# PRD section 15 connected-story smoke: Book shows Firsts/Letters as archive
+# context, and Moment detail exposes linked First/Letter chips without seeding
+# synthetic rows into the active family archive.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos&qa=connected-first-letter"
+- assertVisible:
+    text: ".*book\\."
+- assertVisible: "Open Firsts"
+- assertVisible: "Open Letters"
+- scrollUntilVisible:
+    element:
+      text: "First smile"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
+- assertVisible: "Letter"
+- assertVisible: "For your first birthday"
+- openLink: "ourlittleworld://moment/qa-moment-first-smile?qa=connected-first-letter"
+- assertVisible: "Morning smile"
+- scrollUntilVisible:
+    element:
+      text: "Connected to this moment"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
+- assertVisible: "First: First smile"
+- assertVisible: "Letter: For your first birthday"

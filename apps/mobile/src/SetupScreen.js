@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
@@ -31,6 +31,8 @@ import { useAuth } from './AuthContext';
 import { supabase } from './supabase';
 import RelationshipRolePicker from './RelationshipRolePicker';
 import { isNative } from './faceMatcher';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform, childAgeBand } from './analyticsProductContext';
 
 /**
  * Dual-purpose screen at `/setup`:
@@ -43,6 +45,7 @@ export default function SetupScreen() {
   const { family, refresh } = useFamily();
   const { user } = useAuth();
   const isFirstSetup = !family?.babyName || !family?.babyBirthday;
+  const onboardingTracked = useRef(false);
   const childName = family?.babyName || 'your little one';
 
   const [name, setName] = useState(family?.babyName || '');
@@ -59,6 +62,15 @@ export default function SetupScreen() {
     setRelationshipPreset(relationship.preset);
     setCustomRelationshipLabel(relationship.custom);
   }, [family?.babyName, family?.babyBirthday, family?.me?.relationshipLabel]);
+
+  useEffect(() => {
+    if (!isFirstSetup || onboardingTracked.current) return;
+    onboardingTracked.current = true;
+    trackAnalyticsEvent('onboarding_started', {
+      surface: 'setup',
+      entry_type: 'fresh_install',
+    }, analyticsContext(family, Platform.OS));
+  }, [family, isFirstSetup]);
 
   const refreshPermission = useCallback(async () => {
     const { granted, accessPrivileges, canAskAgain } = await getLibraryPermissionStatus();
@@ -82,6 +94,12 @@ export default function SetupScreen() {
       accessPrivileges: result.accessPrivileges,
       canAskAgain: result.canAskAgain !== false,
     });
+    if (result.granted) {
+      trackAnalyticsEvent('photo_permission_granted', {
+        surface: 'setup',
+        permission_scope: result.accessPrivileges === 'limited' ? 'limited' : 'full',
+      }, analyticsContext(family, Platform.OS));
+    }
     if (!result.granted && result.canAskAgain === false) {
       Alert.alert(
         'Photo access blocked',
@@ -120,6 +138,11 @@ export default function SetupScreen() {
       });
       await refresh();
       if (isFirstSetup) {
+        trackAnalyticsEvent('child_profile_created', {
+          surface: 'setup',
+          child_age_band: childAgeBand(birthday.trim()),
+          has_birthday: true,
+        }, analyticsContext(family, Platform.OS));
         router.replace(
           isNative && permission.granted
             ? { pathname: '/reference', params: { autoSeed: '1' } }
@@ -157,10 +180,11 @@ export default function SetupScreen() {
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
 	        {isFirstSetup ? (
 	          <IntroHeader
-	            hero={'Tell us about\nyour little one.'}
+	            hero={'Start the private\nbaby book.'}
 	            body={
-	              "Just three small things and we're in. Their name, their birth date "
-	              + '(required), plus optional photo access if you want automatic discovery.'
+	              'Add their name and birth date. If you allow photo access, we start '
+	              + 'from that day to look for likely moments; you approve what belongs, '
+	              + 'and the private book grows.'
 	            }
 	          />
         ) : (
@@ -259,6 +283,16 @@ export default function SetupScreen() {
   );
 }
 
+function analyticsContext(family, platform) {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'creator',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(platform),
+    environment: analyticsEnvironment(),
+  };
+}
+
 function RelationshipCard({ eyebrow, title, preset, onChangePreset, customValue, onChangeCustomValue }) {
   return (
     <Card>
@@ -301,7 +335,7 @@ function RitualSettingsCard({ onInvite, onLetters, onLibrary }) {
       <SettingsRow
         icon="mail-outline"
         title="Time capsules"
-        detail="Letters sealed for later."
+        detail="Letters saved with the baby book."
         theme={theme}
         onPress={onLetters}
       />
@@ -541,7 +575,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsRowTitle: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
   },

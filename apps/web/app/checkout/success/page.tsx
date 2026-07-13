@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
 
 export const metadata: Metadata = {
   title: "Checkout Complete",
@@ -16,6 +17,7 @@ export default async function CheckoutSuccessPage({ searchParams }: CheckoutSucc
 
   return (
     <main id="main">
+      <ConversionCompleteBeacon kind="purchase" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -41,7 +43,7 @@ export default async function CheckoutSuccessPage({ searchParams }: CheckoutSucc
               <p>Your code is being prepared. If it does not appear, contact support and include your Stripe receipt email.</p>
             )}
             <p>
-              In the app, finish onboarding, open the purchase screen, and choose Redeem website gift or partner access.
+              In the app, finish onboarding, open the purchase screen, and choose Redeem gift, website, or partner access.
             </p>
           </article>
           <article className="policy-item">

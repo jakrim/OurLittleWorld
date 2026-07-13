@@ -35,11 +35,7 @@ export default function BrandMark({
     <View style={[styles.root, !showWordmark && { width: size, height: size }, style]}>
       {normalizedVariant === 'rooted' ? (
         <Image
-          source={
-            fillFrame
-              ? require('../../assets/brand/logo-mark-circle.png')
-              : require('../../assets/brand/logo-mark.png')
-          }
+          source={require('../../assets/brand/logo-mark-circle.png')}
           style={{ width: size, height: size }}
           resizeMode="contain"
           accessibilityLabel="Our Little World rooted logo"

@@ -4,6 +4,7 @@
 // never "We found the first smile".
 
 import { isoDateForLocalDay, localDateFromISODate } from './ageModel.js';
+import { assistantFeedbackTransparency, FEEDBACK_KINDS } from './assistantFeedbackTransparencyModel.js';
 import { featureDistance, PHOTO_STACK_NEAR_DUPLICATE_DISTANCE, qualityValue } from './photoStackModel.js';
 import { AUTO_SAVE_CAPTURE_QUALITY_FLOOR } from './scanQualityModel.js';
 
@@ -24,7 +25,7 @@ export const FIRST_SUGGESTION_TRUST_DISABLE_AFTER = 4; // tunable, not_this coun
 export const FIRST_SUGGESTION_TRUST_DISABLE_DAYS = 60; // tunable
 
 export const FIRST_SUGGESTION_EYEBROW = 'Worth a look';
-export const FIRST_SUGGESTION_FOOTER = 'Nothing is saved until you keep it.';
+export const FIRST_SUGGESTION_FOOTER = assistantFeedbackTransparency(FEEDBACK_KINDS.FIRST_SUGGESTION_NOT_THIS).footer;
 export const FIRST_SUGGESTION_SOURCE_CAPTION = 'from your photo library';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -138,6 +139,32 @@ export function normalizeFirstSuggestionState(input = null) {
     lastGeneratedAt: plainObject(raw.lastGeneratedAt),
     detectorFeedback: plainObject(raw.detectorFeedback),
   };
+}
+
+export function applyGeneratedSuggestionsToState(
+  state,
+  {
+    suggestions = [],
+    generatedGoalKeys = [],
+    resetGoalKeys = [],
+    now = new Date(),
+  } = {},
+) {
+  const next = normalizeFirstSuggestionState(state);
+  const nowMs = new Date(now).getTime();
+  for (const goalKey of generatedGoalKeys || []) {
+    if (goalKey) next.lastGeneratedAt[goalKey] = nowMs;
+  }
+  for (const goalKey of resetGoalKeys || []) {
+    if (!goalKey) continue;
+    delete next.dismissedGoals[goalKey];
+    delete next.snoozedGoals[goalKey];
+    delete next.lastGeneratedAt[goalKey];
+  }
+  for (const suggestion of suggestions || []) {
+    if (suggestion?.goalKey) next.suggestionsByGoal[suggestion.goalKey] = suggestion;
+  }
+  return next;
 }
 
 // { enabled, minScore } for a detector. Base 0.65; after

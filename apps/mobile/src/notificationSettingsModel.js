@@ -20,7 +20,7 @@ export const NOTIFICATION_CATEGORIES = [
   {
     key: 'partner_activity',
     label: 'Partner activity',
-    detail: 'Batched when your co-parent answers, saves a First, or seals a letter.',
+    detail: 'Batched when your co-parent answers, saves a First, or writes a letter.',
     route: '/prompt',
     defaultEnabled: true,
   },
@@ -47,8 +47,8 @@ export const NOTIFICATION_CATEGORIES = [
   },
   {
     key: 'letter_openable',
-    label: 'Letter openable',
-    detail: 'When a sealed letter reaches its open date.',
+    label: 'Letter date reached',
+    detail: 'When an older sealed letter reaches its chosen date.',
     route: '/letters',
     defaultEnabled: true,
   },

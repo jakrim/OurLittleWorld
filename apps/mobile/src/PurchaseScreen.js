@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import {
   finishTransaction,
   getAvailablePurchases as getStorePurchases,
@@ -11,6 +12,8 @@ import {
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
+import { EXPORT_POLICY_COPY } from './exportPolicyCopy';
+import { GIFT_REDEMPTION_COPY } from './giftOfferCopy';
 import {
   FAMILY_MONTHLY_PRODUCT_ID,
   FAMILY_YEARLY_PRODUCT_ID,
@@ -34,6 +37,8 @@ import {
   space,
   useTheme,
 } from './ui';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform, productKeyForTier } from './analyticsProductContext';
 
 const TIERS = [
   {
@@ -78,6 +83,7 @@ const CADENCE_OPTIONS = [
 ];
 
 export default function PurchaseScreen() {
+  const router = useRouter();
   const theme = useTheme();
   const { user } = useAuth();
   const { family } = useFamily();
@@ -90,6 +96,7 @@ export default function PurchaseScreen() {
   const [redeeming, setRedeeming] = useState(false);
   const [status, setStatus] = useState('');
   const verifyingRef = useRef(false);
+  const redeemingRef = useRef(false);
 
   const onPurchaseSuccess = useCallback(async (purchase) => {
     if (!family?.id || verifyingRef.current) return;
@@ -105,6 +112,12 @@ export default function PurchaseScreen() {
       });
       await finishTransaction({ purchase, isConsumable: false });
       await refresh();
+      trackAnalyticsEvent('purchase_completed', {
+        surface: 'purchase',
+        product_key: productKeyFromProductId(purchase.productId),
+        purchase_channel: 'in_app',
+        plan_state_after: 'active',
+      }, purchaseAnalyticsContext(family));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStatus('Your family plan is active.');
     } catch (err) {
@@ -117,7 +130,7 @@ export default function PurchaseScreen() {
       verifyingRef.current = false;
       setBusyProductId(null);
     }
-  }, [family?.id, refresh]);
+  }, [family, refresh]);
 
   const onPurchaseError = useCallback((error) => {
     const message = String(error?.message || '');
@@ -170,6 +183,12 @@ export default function PurchaseScreen() {
     if (!family?.id || !user?.id || !selectedProduct) return;
     setBusyProductId(selectedProduct.productId);
     setStatus('Opening store purchase...');
+    trackAnalyticsEvent('purchase_started', {
+      surface: 'purchase',
+      purchase_source: 'paywall',
+      product_key: productKeyForTier(selectedTierKey, cadence),
+      purchase_channel: 'in_app',
+    }, purchaseAnalyticsContext(family));
     try {
       const offerToken = firstGoogleOfferToken(selectedProduct.native);
       await requestPurchase({
@@ -228,22 +247,36 @@ export default function PurchaseScreen() {
   };
 
   const redeem = async () => {
+    if (redeemingRef.current) return;
     const trimmed = code.trim();
     if (!trimmed) {
-      setStatus('Enter the gift or partner code.');
+      setStatus(GIFT_REDEMPTION_COPY.emptyStatus);
       return;
     }
+    redeemingRef.current = true;
     setRedeeming(true);
     setStatus('Redeeming code...');
+    trackAnalyticsEvent('gift_started', {
+      surface: 'purchase',
+      gift_source: 'settings',
+      gift_product_key: 'unknown',
+    }, purchaseAnalyticsContext(family));
     try {
       await redeemCode(trimmed);
+      trackAnalyticsEvent('gift_redeemed', {
+        surface: 'purchase',
+        redemption_type: 'gift',
+        plan_state_after: 'gift',
+      }, purchaseAnalyticsContext(family));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCode('');
-      setStatus('Code redeemed. Your family plan is active.');
+      setStatus(GIFT_REDEMPTION_COPY.successStatus);
+      router.replace('/');
     } catch (err) {
       Alert.alert('Code could not be redeemed', err?.message || String(err));
       setStatus('Code was not redeemed.');
     } finally {
+      redeemingRef.current = false;
       setRedeeming(false);
     }
   };
@@ -257,7 +290,7 @@ export default function PurchaseScreen() {
   };
 
   return (
-    <Screen scroll variant="dawn" contentStyle={styles.content}>
+    <Screen scroll keyboard variant="dawn" contentStyle={styles.content}>
       <View style={styles.header}>
         <View style={[styles.mark, { backgroundColor: theme.semantic.primary }]}>
           <Ionicons name="lock-closed" size={22} color={theme.colors.onPrimary} />
@@ -284,6 +317,19 @@ export default function PurchaseScreen() {
             onPress={() => setSelectedTierKey(tier.key)}
           />
         ))}
+      </View>
+
+      <View style={[styles.trustPanel, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }, shadow.whisper]}>
+        <View style={styles.trustRow}>
+          <Ionicons name="download-outline" size={19} color={theme.semantic.primary} />
+          <View style={styles.trustCopyColumn}>
+            <Caption style={styles.trustLabel}>Export and lapsed access</Caption>
+            <Body>{EXPORT_POLICY_COPY.alwaysExportable} {EXPORT_POLICY_COPY.lapsedVault}</Body>
+            <Caption style={[styles.trustCopy, { color: theme.semantic.textMuted }]}>
+              {EXPORT_POLICY_COPY.exportScope} {EXPORT_POLICY_COPY.previewLimitations[0]} {EXPORT_POLICY_COPY.previewLimitations[1]}
+            </Caption>
+          </View>
+        </View>
       </View>
 
       <View style={styles.legalNotice}>
@@ -324,15 +370,15 @@ export default function PurchaseScreen() {
         <View style={styles.redeemHeader}>
           <View>
             <Eyebrow>Code</Eyebrow>
-            <Title style={styles.redeemTitle}>Redeem website gift or partner access</Title>
+            <Title style={styles.redeemTitle}>{GIFT_REDEMPTION_COPY.title}</Title>
           </View>
           <Ionicons name="ticket-outline" size={22} color={theme.semantic.primary} />
         </View>
         <Field
-          label="Gift or partner code"
+          label={GIFT_REDEMPTION_COPY.fieldLabel}
           value={code}
           onChangeText={setCode}
-          caption="Enter the code from a gift, website purchase, or partner access email."
+          caption={GIFT_REDEMPTION_COPY.caption}
           autoCapitalize="characters"
           inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         />
@@ -341,7 +387,7 @@ export default function PurchaseScreen() {
           size="md"
           onPress={redeem}
           loading={redeeming}
-          disabled={!!busyProductId || restoring}
+          disabled={redeeming || !!busyProductId || restoring}
         >
           Redeem code
         </Button>
@@ -353,6 +399,24 @@ export default function PurchaseScreen() {
       </Caption>
     </Screen>
   );
+}
+
+function purchaseAnalyticsContext(family) {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'creator',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
+}
+
+function productKeyFromProductId(productId) {
+  if (productId === FAMILY_MONTHLY_PRODUCT_ID) return 'family_month';
+  if (productId === FAMILY_YEARLY_PRODUCT_ID) return 'family_year';
+  if (productId === VAULT_MONTHLY_PRODUCT_ID) return 'vault_month';
+  if (productId === VAULT_YEARLY_PRODUCT_ID) return 'vault_year';
+  return 'unknown';
 }
 
 function TierCard({ tier, active, onPress }) {
@@ -433,6 +497,27 @@ const styles = StyleSheet.create({
   },
   planList: {
     gap: space.md,
+  },
+  trustPanel: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.lg,
+  },
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+  },
+  trustCopyColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: space.xs,
+  },
+  trustLabel: {
+    fontWeight: '800',
+  },
+  trustCopy: {
+    lineHeight: 18,
   },
   planOption: {
     borderWidth: 1.5,

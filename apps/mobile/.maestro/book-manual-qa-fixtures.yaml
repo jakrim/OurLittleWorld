@@ -1,0 +1,22 @@
+# PRD section 15 fixture smoke: Book can render empty and large-library states
+# without writing synthetic memories into the active family archive.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos&qa=empty"
+- assertVisible: "Start the first chapter."
+- assertVisible:
+    text: "The book stays empty until you approve a moment.*"
+- assertVisible: "Open Firsts"
+- assertVisible: "Open Letters"
+- openLink: "ourlittleworld://library?segment=photos&qa=large-no-firsts"
+- assertVisible: "Open Firsts"
+- assertVisible: "Open Letters"
+- assertVisible: "Open Book preview"
+- assertNotVisible: "Some memories did not finish saving"
+- openLink: "ourlittleworld://library?segment=export&qa=large-no-firsts"
+- assertVisible: "Printable book draft."
+- assertVisible:
+    text: "500"
+- openLink: "ourlittleworld://library?segment=places&qa=large-no-firsts"
+- assertVisible: "At home"
+- assertVisible: "At the park"
