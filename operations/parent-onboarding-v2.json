@@ -82,8 +82,11 @@
     "name": "Mailchimp",
     "audience_id": "333fbdbba0",
     "current_flow_id": 7274,
-    "current_flow_status": "draft_not_activated",
-    "migration": "Replace the inactive five-email draft with two behavior-triggered tracks. Retain the old flow as rollback evidence until both tracks pass tests."
+    "current_flow_status": "sending",
+    "entry_trigger": "signup_include_imported_contacts",
+    "active_email_count": 6,
+    "controlled_enrollment": "signup trigger completed; first email sent; next delay queued",
+    "migration": "The six-email flow is active on provider-native subscribed-audience entry. Product account creation remains excluded unless explicit marketing consent is recorded."
   },
   "emails": [
     {
@@ -296,6 +299,6 @@
     "Keep gift purchase, gift delivery, redemption, billing, export, deletion, and security communications transactional and separate.",
     "Render, link-check, accessibility-check, and inspect every HTML and plain-text version.",
     "Send controlled tests to verified internal recipients and inspect receipt in representative clients.",
-    "Activate only after all gates pass; current audience contains zero recipients."
+    "The active audience contains one internal QA subscriber; ordinary product users remain ineligible until explicit consent synchronization is deployed."
   ]
 }
