@@ -95,6 +95,9 @@
     "vercel_deployment_id": "dpl_Civo8tDFwThw1NbsFLyjuGqEnxZy",
     "vercel_deployment_url": "https://our-little-world-a27h4nchh-jessekrim.vercel.app",
     "vercel_ready": true,
+    "vercel_runtime_error_logs_last_30m": 0,
+    "vercel_500_logs_last_30m": 0,
+    "dedicated_error_monitoring": "not_configured",
     "aliases_verified": [
       "https://ourlittleworld.me",
       "https://www.ourlittleworld.me"
