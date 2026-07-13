@@ -113,3 +113,18 @@ interest never enters the separate parent-product onboarding audience.
 - The launch-signup function acknowledges after durable enqueue. Mailchimp
   delivery is asynchronous, leased, idempotent, and retried with a terminal
   quarantine instead of blocking the browser request.
+- Mailchimp audience creation is not complete until **Required email footer
+  content** is checked in the provider UI. For the website launch audience, keep
+  the contact email at `support@ourlittleworld.me`, the Website URL at
+  `https://ourlittleworld.me/`, verify the hosted form uses the
+  `ourlittleworld.us14.list-manage.com` hostname, and inspect the confirmation
+  page's **Continue to website** destination. These response-page fields are
+  separate from the API-visible campaign sender defaults.
+- After audience creation or any footer/form change, run a fresh controlled
+  double-opt-in regression with a disposable owned address: submit through the
+  production website, inspect the delivered confirmation email for the OLW
+  sender and support contact, complete the confirmation and CAPTCHA manually,
+  verify the tokenized confirmation page, and follow **Continue to website** to
+  `https://ourlittleworld.me/`. Provider editor readback and previews are setup
+  checks, not a substitute for this round trip. Quarantine or suppress the
+  controlled contact when the check is complete.

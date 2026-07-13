@@ -65,7 +65,15 @@
       "campaign_count": 0,
       "webhook_id": "154da6e30e",
       "webhook_signature_required": true,
-      "visitor_tag": "olw-interested-visitor-v1"
+      "visitor_tag": "olw-interested-visitor-v1",
+      "required_footer": {
+        "contact_email": "support@ourlittleworld.me",
+        "website_url": "https://ourlittleworld.me/",
+        "hosted_form_url": "https://ourlittleworld.us14.list-manage.com/subscribe?u=0477f4a0be2483e172607c403&id=91d293c5c4",
+        "confirmation_continue_url": "https://ourlittleworld.me/",
+        "verification_status": "provider_saved_and_form_builder_preview_verified",
+        "configuration_verified_at": "2026-07-13T18:32:42Z"
+      }
     },
     "parent_audience": {
       "id": "333fbdbba0",
@@ -82,6 +90,28 @@
       "post_resolution_evidence": "A third controlled production signup synchronized only to the website audience, had zero welcome jobs, was absent from the parent audience, and received no parent-onboarding message during the observation window.",
       "observed_at": "2026-07-13T17:58:00Z",
       "observation_window": "several minutes after provider sync; exact duration was not instrumented"
+    },
+    "hosted_confirmation_incident": {
+      "status": "configuration_fixed_e2e_pending",
+      "reported_at": "2026-07-13T18:13:55Z",
+      "incident": "The Our Little World double-opt-in email showed a Get Mentors contact address, and the confirmation page Continue to website button opened getmentors.ai.",
+      "cause": "The new audience's Required email footer content retained Get Mentors values for contact email and Website URL. These fields are separate from the API-visible campaign sender defaults.",
+      "resolution": "Updated only the Our Little World Website Launch audience footer contact to support@ourlittleworld.me and Website URL to https://ourlittleworld.me/.",
+      "verification": [
+        "Mailchimp confirmed the footer settings save.",
+        "A readback of the audience footer editor returned the OLW support address and OLW website URL.",
+        "The Form Builder confirmation-page preview resolved Continue to website to https://ourlittleworld.me/.",
+        "The audience API now returns an ourlittleworld.us14.list-manage.com hosted signup URL.",
+        "The public hosted signup page returned 200 with Our Little World branding and zero Get Mentors references."
+      ],
+      "post_fix_regression": {
+        "provider_configuration": "verified",
+        "hosted_form": "verified",
+        "fresh_delivered_confirmation_email": "not_repeated_after_fix",
+        "fresh_tokenized_confirmation_page": "not_repeated_after_fix",
+        "required_next_check": "Complete the disposable-address production double-opt-in round trip documented in apps/web/README.md before changing this incident status to fully_resolved."
+      },
+      "configuration_verified_at": "2026-07-13T18:32:42Z"
     }
   },
   "suppression_behavior": {
