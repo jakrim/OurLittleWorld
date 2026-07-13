@@ -1,10 +1,13 @@
 import {
   acquisitionMetadataFromBody,
   appendAcquisitionMetadata,
+  checkoutAttemptId,
+  checkoutCode,
+  checkoutIdempotencyKey,
   codeHint,
   corsHeaders,
+  encryptCode,
   errorResponse,
-  generateCode,
   hashCode,
   json,
   originFromRequest,
@@ -26,18 +29,21 @@ Deno.serve(async (req) => {
     const plan = planFromInput(String(body.plan || 'annual'));
     const priceId = requiredEnv(plan.priceEnv);
     const origin = originFromRequest(req);
-    const claimCode = generateCode('OLW');
+    const attemptId = checkoutAttemptId(body.checkout_attempt_id);
+    const claimCode = await checkoutCode('OLW', 'self', attemptId);
     const claimCodeHash = await hashCode(claimCode);
-    const successUrl = `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&claim_code=${encodeURIComponent(claimCode)}`;
+    const claimCodeCiphertext = await encryptCode(claimCode, `self:${attemptId}`);
+    const successUrl = `${origin}/checkout/success#session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${origin}/pricing/?checkout=cancelled`;
 
     const params = new URLSearchParams();
     params.set('mode', 'subscription');
     params.set('customer_email', email);
-    params.set('client_reference_id', `self-${crypto.randomUUID()}`);
+    params.set('client_reference_id', `self-${attemptId}`);
     params.set('success_url', successUrl);
     params.set('cancel_url', cancelUrl);
     params.set('allow_promotion_codes', 'true');
+    params.set('payment_method_types[0]', 'card');
     params.set('line_items[0][price]', priceId);
     params.set('line_items[0][quantity]', '1');
     params.set('metadata[kind]', 'self_subscription');
@@ -45,18 +51,20 @@ Deno.serve(async (req) => {
     params.set('metadata[stripe_price_id]', priceId);
     params.set('metadata[claim_code_hash]', claimCodeHash);
     params.set('metadata[claim_code_hint]', codeHint(claimCode));
-    params.set('metadata[name]', String(body.name || '').slice(0, 120));
-    params.set('metadata[stage]', String(body.stage || '').slice(0, 80));
+    params.set('metadata[claim_code_ciphertext]', claimCodeCiphertext);
     params.set('subscription_data[metadata][kind]', 'self_subscription');
     params.set('subscription_data[metadata][plan_key]', plan.planKey);
     params.set('subscription_data[metadata][claim_code_hash]', claimCodeHash);
     params.set('subscription_data[metadata][claim_code_hint]', codeHint(claimCode));
+    params.set('subscription_data[metadata][claim_code_ciphertext]', claimCodeCiphertext);
     appendAcquisitionMetadata(params, acquisitionMetadataFromBody(body), [
       'metadata',
       'subscription_data[metadata]',
     ]);
 
-    const session = await stripeFormRequest('/v1/checkout/sessions', params);
+    const session = await stripeFormRequest('/v1/checkout/sessions', params, 'POST', {
+      idempotencyKey: checkoutIdempotencyKey('self', attemptId),
+    });
     return json({ url: session.url });
   } catch (error) {
     return errorResponse(error);

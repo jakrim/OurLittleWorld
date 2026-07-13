@@ -1,33 +1,42 @@
 # Production Readiness Audit
 
-Last reviewed: June 23, 2026
+Last reviewed: July 13, 2026
 
 ## Current Status
 
-The website is now a production-shaped Next.js marketing site with first-pass commerce endpoints.
-
-Users can browse the homepage, story, pricing, gift, partners, privacy, terms, and refunds pages. Pricing and gift forms can create Stripe Checkout Sessions through Supabase Edge Functions once Stripe price IDs and secrets are configured.
+The public website is in an explicit prelaunch state. It accurately says the app
+is coming soon, stores consented launch interest, does not render checkout forms,
+and returns 404 for the hidden Partners route. Stripe test mode is fully
+provisioned and has passed end-to-end payment, webhook, entitlement, gift,
+redemption, cancellation, and refund scenarios. Test mode does not grant
+production access.
 
 ## Critical Launch Blockers
 
-1. Live Stripe credentials and price IDs are not configured in this repo (test mode IS fully provisioned).
-   - Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_FAMILY_MONTHLY`, `STRIPE_PRICE_FAMILY_YEARLY`, `STRIPE_PRICE_VAULT_MONTHLY`, `STRIPE_PRICE_VAULT_YEARLY`, `STRIPE_PRICE_GIFT_YEAR`, and `STRIPE_PRICE_GIFT_VAULT_YEAR` in Supabase.
-   - Set `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL` in Vercel.
+1. Transactional gift email is not connected.
+   - Configure a dedicated transactional provider, authenticated sender, reply handling, and scheduler.
+   - Verify buyer confirmation and scheduled recipient delivery in real email clients.
+   - The outbox fails closed and stops after five attempts; it must not be described as delivered before this gate passes.
 
-2. Gift delivery email is not connected.
-   - Gift checkout creates a single-use redemption code and success page.
-   - Scheduled recipient delivery still needs an email provider/job before relying on delayed delivery dates.
+2. Mailchimp launch-list synchronization is not active.
+   - The website successfully stores explicit consent in `marketing_contacts`.
+   - `ourlittleworld.me` is not authenticated in Mailchimp and the existing flow remains draft/inactive.
+   - Add server-authored consent synchronization only after domain authentication and unsubscribe/suppression behavior are verified.
 
-3. Partner operations need production process.
-   - Partner inquiries are logged through a Supabase function.
-   - Bulk code generation exists behind `OLW_BILLING_ADMIN_SECRET`, but package pricing and fulfillment ops still need owner approval.
+3. Product analytics needs post-deploy event readback.
+   - A dedicated Our Little World PostHog project and public token are configured in Vercel, with a prior privacy-safe checkpoint verified.
+   - The privacy allowlist, consent controls, website funnel schema, and first/last-touch checkout propagation are implemented.
+   - Verify provider readback for the new funnel event names before relying on conversion reporting.
 
 4. Legal pages need review.
    - Privacy, Terms, and Refunds pages exist.
    - Subscription, cancellation, refund, gift, child data, and privacy terms still need legal review before taking real money.
 
-5. End-to-end live payment QA is still required.
-   - Stripe webhooks, App Store sandbox purchases, Google Play test purchases, refunds, restore, and code redemption must pass against real provider credentials.
+5. Live commerce and public apps remain disabled.
+   - Decide whether website checkout should launch before the apps can be publicly downloaded and redeemed.
+   - Configure live Stripe credentials/prices only after that decision and run a separately authorized low-value live test.
+   - Publish and verify official Apple/Google listings before changing store availability to `available`.
+   - App Store sandbox, Google Play test purchases, restore, export/read-only lapse policy, and store refund paths still require their own release QA.
 
 ## Page Flow Audit
 
@@ -47,8 +56,8 @@ Current flow:
 
 Missing before scale:
 - Real testimonials or proof once available.
-- App Store badge once live.
-- Analytics on CTA clicks and section depth.
+- Verified store links once live.
+- Dedicated analytics provider configuration and readback.
 
 ### Pricing
 
@@ -60,8 +69,8 @@ Current flow:
 - Checkout form submits explicit plan keys (`family_monthly`, `family_yearly`, `vault_monthly`, `vault_yearly`; gifts use `gift_year` / `gift_vault_year`).
 
 Missing before paid launch:
-- Live-mode Stripe secrets and price IDs.
-- End-to-end test of the post-checkout claim-code page in live mode.
+- Explicit live-mode credentials and a separately authorized live smoke test.
+- A confirmed launch sequence that makes a website purchase redeemable immediately.
 
 ### Gift
 
@@ -73,23 +82,15 @@ Current flow:
 - Preview makes the gift feel personal.
 
 Missing before paid launch:
-- Recipient email delivery.
-- Gift confirmation email.
-- Refund/cancellation handling.
+- Authenticated transactional sender and scheduler.
+- Real-client rendering and delivery evidence.
 
 ### Partners
 
-Purpose: start B2B2C conversations with photographers, doulas, registries, employers, and family brands.
-
-Current flow:
-- Partner categories are clear.
-- Partner form has the right fields.
-- Copy has been softened so it does not overclaim built systems.
-
-Missing before outreach:
-- Partner package/pricing.
-- Fulfillment operations for issued bulk codes.
-- Examples or sample campaign mockups.
+The future implementation remains in source behind one explicit feature flag.
+The route currently returns 404 and is absent from navigation, internal CTAs,
+the sitemap, and indexing. Do not enable it until a real program, pricing, and
+fulfillment process exist.
 
 ### Story
 
@@ -126,15 +127,25 @@ Missing before launch:
 - Legal review.
 - Final owner/entity name after LLC formation.
 
-## Recommended Pre-Deploy Checklist
+## Live-commerce release checklist
 
-- Configure Stripe and Supabase function secrets.
-- Connect gift delivery email.
+- Resolve the website-before-app availability decision.
+- Configure and test transactional gift email plus scheduling.
+- Authenticate the Our Little World marketing domain and sync consent/suppression safely.
+- Verify the new website funnel events in the dedicated analytics project without PII.
 - Legal-review Privacy, Terms, and Refunds.
-- Add App Store download or waitlist handoff.
-- Add analytics for CTA clicks, form starts, form submits, and checkout redirects.
-- Confirm production domain, SSL, and Open Graph image.
-- Run a full mobile QA pass on homepage, pricing, gift, partners, and privacy.
+- Publish verified store listings or keep the honest coming-soon state.
+- Run separately authorized live Stripe and native-store release tests.
+- Confirm support ownership for refunds, failed delivery, lost codes, and billing transfers.
+
+## Rollback
+
+- Website: promote the previous healthy Vercel production deployment and keep
+  `NEXT_PUBLIC_OLW_COMMERCE_STATE=coming_soon`.
+- Edge Functions: redeploy the previous source version. Current database
+  migrations are additive; do not remove columns/tables during an incident.
+- Payments: leave live commerce disabled. If payment processing becomes unsafe,
+  change commerce to `temporarily_unavailable` before investigating.
 
 ## Vercel Configuration
 

@@ -3,6 +3,7 @@ import { Caveat, Manrope, Newsreader } from "next/font/google";
 import type { ReactNode } from "react";
 
 import SiteChrome from "@/components/SiteChrome";
+import { publicCommercialConfig } from "@/lib/commercialConfig";
 import "./globals.css";
 
 const caveat = Caveat({
@@ -34,7 +35,8 @@ export const metadata: Metadata = {
     template: "%s | Our Little World",
   },
   description:
-    "A private baby book for photos, firsts, voice notes, and letters. Keep the early years in one quiet family space, away from feeds and algorithms.",
+    "A private baby book for photos, firsts, voice notes, and letters. Coming soon to iPhone and Android; join the launch list for verified availability.",
+  referrer: "no-referrer",
   icons: {
     icon: "/assets/brand/logo-mark-circle.png",
   },
@@ -47,7 +49,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} ${newsreader.variable} ${caveat.variable}`}>
+      <body
+        className={`${manrope.variable} ${newsreader.variable} ${caveat.variable}`}
+        data-commerce-state={publicCommercialConfig.commerceState}
+        data-store-availability={publicCommercialConfig.storeAvailability}
+      >
         <SiteChrome>{children}</SiteChrome>
       </body>
     </html>

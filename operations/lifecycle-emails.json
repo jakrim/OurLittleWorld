@@ -37,7 +37,7 @@
           "delay": "immediate after verified payment webhook",
           "subject": "Your Our Little World gift is ready",
           "preview": "Review the delivery date and the private gift instructions.",
-          "body": "Your gift purchase is confirmed. We will deliver the private redemption instructions on the date you chose. The recipient will create their own family space and decide what to save. If the delivery details need to change, contact support before the scheduled date.",
+          "body": "Your gift purchase is confirmed. We will deliver the private redemption instructions on the date you chose. The app is not publicly downloadable yet; the recipient should use the verified availability page and wait for a valid store listing before redeeming. If the delivery details need to change, contact support before the scheduled date.",
           "cta": "Review gift details",
           "destination": "/gift/",
           "provider_data": ["gift_purchase_id", "delivery_state", "plan_key"]
@@ -47,9 +47,9 @@
           "delay": "selected delivery date after paid-state recheck",
           "subject": "A private baby book was gifted to you",
           "preview": "Create your family space, then redeem the private code.",
-          "body": "Someone has given you a year of Our Little World: a private place for the photos, firsts, voice notes, and letters you choose to keep. Create your family space in the app, then use the private redemption code in this message. The app does not post to a public feed and does not save a suggestion until you approve it.",
-          "cta": "Create your family space",
-          "destination": "/?utm_source=transactional_email&utm_medium=email&utm_campaign=gift_recipient_delivery",
+          "body": "Someone has given you a year of Our Little World: a private place for the photos, firsts, voice notes, and letters you choose to keep. The app is coming soon to iPhone and Android. Check the verified availability page; once a public listing is available, create your family space and use the private redemption code in this message.",
+          "cta": "Check app availability",
+          "destination": "/#launch-list",
           "provider_data": ["gift_purchase_id", "delivery_state", "redemption_code"],
           "sensitive_delivery_rule": "The redemption code may appear only in this transactional fulfillment message and must never enter analytics or marketing audience fields."
         }

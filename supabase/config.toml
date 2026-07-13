@@ -389,6 +389,15 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.stripe-checkout-status]
+verify_jwt = false
+
+[functions.launch-signup]
+verify_jwt = false
+
+[functions.send-transactional-email]
+verify_jwt = false
+
 [functions.partner-inquiry]
 verify_jwt = false
 

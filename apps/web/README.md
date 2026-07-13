@@ -32,14 +32,14 @@ pnpm dev
 - `/story/`
 - `/pricing/`
 - `/gift/`
-- `/partners/`
 - `/privacy/`
 - `/terms/`
 - `/refunds/`
 - `/for/unfinished-baby-book/`
 
-`Begin Chapter One` points to `/pricing/#chapter-one`.
-`Gift the first year` points to `/gift/`.
+`/partners/` is retained in source behind `NEXT_PUBLIC_OLW_PARTNERS_ENABLED`, but
+returns 404, is excluded from navigation and the sitemap, and is disallowed in
+robots while the program does not exist.
 
 ## Vercel Deployment
 
@@ -50,25 +50,38 @@ Create a Vercel project with:
 - Build command: `pnpm build`
 - Output: Next.js default
 
-## Production Checkout Configuration
+## Commercial and store availability
 
-Purchases and gifts are honest fallbacks until production checkout is wired. Configure these public env vars in Vercel:
+The public site defaults closed. Configure the explicit state variables in Vercel:
 
 ```sh
 NEXT_PUBLIC_OLW_CONTACT_EMAIL=support@ourlittleworld.me
-NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY=https://...
-NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL=https://...
-NEXT_PUBLIC_OLW_CHECKOUT_GIFT=https://...
-NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT=https://...
-NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT=https://...
+NEXT_PUBLIC_OLW_COMMERCE_STATE=coming_soon
+NEXT_PUBLIC_OLW_STORE_AVAILABILITY=coming_soon
+NEXT_PUBLIC_OLW_APPLE_APP_STORE_URL=
+NEXT_PUBLIC_OLW_GOOGLE_PLAY_URL=
+NEXT_PUBLIC_OLW_APPLE_APP_ID=6781823693
+NEXT_PUBLIC_OLW_ANDROID_PACKAGE=com.jessekrim.ourlittleworld
+NEXT_PUBLIC_OLW_STORE_LAUNCH_DATE=
+NEXT_PUBLIC_OLW_PARTNERS_ENABLED=false
 ```
 
-- `NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY` and `NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL` can be hosted checkout/payment links for the family plans.
-- `NEXT_PUBLIC_OLW_CHECKOUT_GIFT` can be a simple gift payment link.
-- `giftCheckoutEndpoint` is preferred for real gifting because it can store recipient email, gift note, delivery date, redemption code, and payment state.
-- `partnerInquiryEndpoint` is required if the partner form should submit without relying on email fallback.
+- Commerce states are `coming_soon`, `test`, `live`, and `temporarily_unavailable`.
+- Store states are `coming_soon`, `available`, and `temporarily_unavailable`.
+- Store links render only for official `apps.apple.com` or `play.google.com` URLs.
+- Checkout forms render only in explicit `test` or `live` commerce states.
+- The production default is `coming_soon`; it does not accept payment.
 
-If these values are blank, the forms do not fake success. They show an honest fallback message with an email link.
+Stripe Checkout Sessions are created only by Supabase Edge Functions. Price IDs,
+claim-code creation, webhook verification, canonical purchase records, and
+transactional-email outbox state remain server-side. Success-page parameters do
+not grant access; they only ask the server to verify the Stripe session and
+canonical record.
+
+Gift delivery requires `OLW_TRANSACTIONAL_EMAIL_PROVIDER`, provider credentials,
+`OLW_TRANSACTIONAL_FROM`, and an authenticated scheduler calling
+`send-transactional-email`. Do not set commerce to `live` until those gates and
+the legal/store gates in `PRODUCTION-READINESS.md` are complete.
 
 ## Consent-aware measurement
 
@@ -78,7 +91,10 @@ in `.env.example`. The browser stores only allowlisted campaign, angle, creative
 channel, and landing-page dimensions; denying or revoking consent clears that
 local attribution and the anonymous analytics identifier.
 
-The same allowlisted attribution is submitted to the checkout Edge Functions,
-copied into Stripe metadata, retained by the webhook, and attached to the family
-entitlement when a website or gift code is redeemed. Private checkout form fields
-are never placed in analytics payloads.
+The same allowlisted first-touch and last-touch attribution is submitted to the
+checkout Edge Functions, copied into Stripe metadata, retained by the webhook,
+and attached to the family entitlement when a website or gift code is redeemed.
+Private checkout fields are never placed in analytics payloads. The launch list
+is stored in the consent-only `marketing_contacts` ledger; it is not synced to
+Mailchimp until the Our Little World sending domain and server-side consent sync
+are verified.

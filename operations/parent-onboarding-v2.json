@@ -1,6 +1,16 @@
 {
   "schema_version": 2,
   "theme": "our-little-world",
+  "email_brand": {
+    "layout": "lockup",
+    "tagline": "For two, for now, for later",
+    "logo": {
+      "mailchimp_file_id": 3221779,
+      "src": "https://mcusercontent.com/0477f4a0be2483e172607c403/images/54717481-5df1-85bd-c27a-d307d7dd4e47.png",
+      "alt": "Our Little World",
+      "width": 280
+    }
+  },
   "template_prefix": "OLW Parent Welcome V2",
   "sequence_id": "olw-parent-onboarding-v2",
   "name": "Our Little World — Begin Small, Build Together",
@@ -90,15 +100,17 @@
       "subject_alternatives": ["We missed him while he was sleeping", "The hour after bedtime that became Our Little World", "Why I started Our Little World"],
       "preview": "After we put Reuben in his crib, my wife and I would get into bed, open Apple Photos, and scroll all the way back to his birth.",
       "preview_alternatives": ["After we put Reuben in his crib, my wife and I would get into bed, open Apple Photos, and scroll all the way back to his birth.", "The camera roll brought the moments back. It could not hold everything we wanted to remember."],
+      "headline": "We built this because **the photo was never the whole memory.**",
       "paragraphs": [
-        "After my wife and I put our son, Reuben, in his crib, we would get into bed—and almost immediately start missing him.",
-        "We would open Apple Photos, watch the videos from that day, and keep scrolling backward: yesterday, last month, all the way to his birth. Sometimes an hour disappeared like that.",
-        "The photos brought the moments back. But they could not hold the things we were saying to each other while we looked: the details only we knew, what made us laugh, how a season felt, and what we hoped we would never forget.",
-        "I kept thinking there had to be a better way to keep the story around the photos. Then the idea grew: what if we built a baby company that could use the latest technology carefully to create genuinely wonderful experiences for parents—beginning with a private place for these memories? That is where Our Little World was born.",
-        "You do not need to rebuild the past tonight. Choose one photo that still makes you feel something and add the sentence you would tell someone who was not there. That is enough to begin."
+        "After my wife and I put our son, Reuben, in his crib, we would get into bed—and **almost immediately start missing him.**",
+        "We would open Apple Photos, watch the videos from that day, and keep scrolling backward: yesterday, last month, all the way to his birth. **Sometimes an hour disappeared like that.**",
+        "The photos brought the moments back. But they could not hold the things we were saying to each other while we looked: **the details only we knew, what made us laugh, how a season felt**, and what we hoped we would never forget.",
+        "I kept thinking there had to be a better way to keep the story around the photos. Then the idea grew: what if we built a baby company that could use the latest technology carefully to create genuinely wonderful experiences for parents—beginning with **a private place for these memories?** That is where Our Little World was born.",
+        "You do not need to rebuild the past tonight. Choose one photo that still makes you feel something and add the sentence you would tell someone who was not there. **That is enough to begin.**"
       ],
       "hero_image": {"src": "https://mcusercontent.com/0477f4a0be2483e172607c403/images/fbafb312-d2d9-9f58-bf40-e3dfeaf2b693.jpg", "alt": "Reuben smiling at eleven months while holding his milestone sign.", "caption": "Reuben at eleven months—the little world that started all of this.", "display_width": 360, "after_paragraph": 1},
       "module": {"type": "memory_card", "kicker": "Where it started", "title": "We missed him while he was sleeping.", "detail": "Our Little World began in the hour after bedtime, scrolling backward through Reuben's life."},
+      "action_note": {"label": "Tonight, not someday", "text": "Choose **one photo that still makes you feel something.** Add the sentence only you would know."},
       "cta_label": "See how one moment begins",
       "cta_url": "https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=founder-welcome#closer-look",
       "signoff": "— Jesse",
@@ -123,13 +135,15 @@
       "subject_alternatives": ["The photo wasn't the whole memory", "What did the camera miss?", "The picture has the scene. Add the part only you know."],
       "preview": "My wife and I would stop on the same photo and remember different pieces of what happened around it.",
       "preview_alternatives": ["My wife and I would stop on the same photo and remember different pieces of what happened around it.", "One honest sentence can keep the part the camera could not see."],
+      "headline": "The camera kept the scene. **You kept the meaning.**",
       "paragraphs": [
-        "When my wife and I looked through photos of Reuben, we would stop on the same image and start telling each other what had happened around it.",
-        "One of us remembered the routine. The other remembered a look, a sound, or why we had taken the photo in the first place. The image held the scene; our conversation held the memory.",
+        "When my wife and I looked through photos of Reuben, we would stop on the same image and start telling each other **what had happened around it.**",
+        "One of us remembered the routine. The other remembered a look, a sound, or why we had taken the photo in the first place. **The image held the scene; our conversation held the memory.**",
         "Try that with one ordinary photo from the last few days. Add the detail only you would know: what was happening just outside the frame, what had become part of the daily rhythm, or why this small moment stayed with you.",
-        "That sentence is not a caption for an audience. It is a note to your future family."
+        "That sentence is **not a caption for an audience.** It is a note to your future family."
       ],
-      "module": {"type": "memory_card", "kicker": "The camera kept", "title": "what it looked like", "detail": "Your sentence can keep what it meant, what happened around it, and why you still remember."},
+      "module": {"type": "comparison", "title": "A photo can hold one part. You hold the rest.", "rows": [{"label": "The photo", "text": "What the moment **looked like.**"}, {"label": "Your words", "text": "Why it mattered, what happened around it, and **why you still remember.**"}]},
+      "action_note": {"label": "Finish one memory", "text": "Pick an ordinary photo. Write **the detail the camera could not see.**"},
       "cta_label": "See how a moment keeps its story",
       "cta_url": "https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=one-photo-one-line#closer-look",
       "signoff": "— Jesse",
@@ -151,16 +165,18 @@
       "useful_micro_action": "Review the permission choice and manually select one item if broad access is not wanted.",
       "product_behavior": "Manual picking and optional local photo discovery; only selected or approved moments enter the private archive.",
       "subject": "Why Reuben's story stays private",
-      "subject_alternatives": ["Why Reuben's story stays private", "Our first rule: his story is not content", "Technology should help quietly"],
+      "subject_alternatives": ["Why Reuben's story stays private", "Our first rule: his story is not for a feed", "Technology should help quietly"],
       "preview": "If I was going to build around our son's memories, the first promise had to be clear: parents stay in control.",
       "preview_alternatives": ["If I was going to build around our son's memories, the first promise had to be clear: parents stay in control.", "Photo discovery is optional. You choose access, review, and what enters the family archive."],
+      "headline": "Your family story should remain **yours to choose.**",
       "paragraphs": [
-        "If I was going to build a product around our son's photos and memories, the first rule had to be simple: Reuben's story is not content for a public feed.",
-        "Technology should do quiet work for a family—not take the story away from them. In Our Little World, you choose the photo access on your device. You can add a photo manually, or use optional discovery to surface likely moments for review.",
-        "Selected manual imports and calibrated auto-saves can enter the private family archive. Nothing is posted to a public feed. If broader library access does not feel right, keep it limited and choose photos yourself.",
-        "The product should earn trust through clear choices. You should never have to trade control for convenience."
+        "If I was going to build a product around our son's photos and memories, the first rule had to be simple: **Reuben's story is not something for a public feed.**",
+        "Technology should do quiet work for a family—not take the story away from them. In Our Little World, **you choose the photo access** on your device. You can add a photo manually, or use optional discovery to surface likely moments for review.",
+        "Selected manual imports and calibrated auto-saves can enter the private family archive. Nothing is posted to a public feed. If broader library access does not feel right, **keep it limited and choose photos yourself.**",
+        "The product should earn trust through clear choices. **You should never have to trade control for convenience.**"
       ],
       "module": {"type": "checklist", "title": "The choices stay with you", "items": ["Choose limited, full, or no photo-library access in device settings", "Review or manually select what belongs", "Change the permission later if you want"]},
+      "action_note": {"label": "Choose the smallest comfortable step", "text": "If broad access does not feel right, **start with one manually selected photo.**"},
       "cta_label": "Review privacy and control",
       "cta_url": "https://ourlittleworld.me/privacy/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=privacy-control",
       "signoff": "— Jesse",
@@ -185,13 +201,15 @@
       "subject_alternatives": ["My wife remembers what I miss", "Two parents, two versions of the same day", "Invite the person who remembers the other half"],
       "preview": "Looking at Reuben's photos together taught me that one family memory can hold two completely different details.",
       "preview_alternatives": ["Looking at Reuben's photos together taught me that one family memory can hold two completely different details.", "One private family story becomes richer when both people can add what they noticed."],
+      "headline": "One day. **Two memories.**",
       "paragraphs": [
-        "Looking through Reuben's photos with my wife taught me something obvious that I had never really noticed: we lived the same day, but we did not remember the same things.",
-        "She would hold a detail I had missed. I would remember why a moment mattered to me. Neither version was the complete story on its own.",
+        "Looking through Reuben's photos with my wife taught me something obvious that I had never really noticed: **we lived the same day, but we did not remember the same things.**",
+        "She would hold a detail I had missed. I would remember why a moment mattered to me. **Neither version was the complete story on its own.**",
         "That is why Our Little World is built for a small private family space, not one default memory keeper. Invite the person who holds the other perspective.",
-        "The goal is not a larger audience. It is a fuller story of the same little world."
+        "The goal is not a larger audience. It is **a fuller story of the same little world.**"
       ],
-      "module": {"type": "memory_card", "kicker": "What I missed", "title": "she may remember", "detail": "Invite one trusted caregiver. Keep the circle small and let both perspectives live together."},
+      "module": {"type": "comparison", "title": "The same little world, remembered twice.", "rows": [{"label": "What I noticed", "text": "Why the moment mattered **to me.**"}, {"label": "What she noticed", "text": "The detail I had already **forgotten to see.**"}]},
+      "action_note": {"label": "Share the remembering", "text": "Invite **one trusted caregiver**—the person who holds the other half of the ordinary story."},
       "cta_label": "See how two parents share it",
       "cta_url": "https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=invite-caregiver#how-title",
       "signoff": "— Jesse",
@@ -216,13 +234,15 @@
       "subject_alternatives": ["What the eleven-month photo can't tell you", "The milestone is the label. Where is the story?", "Keep the detail beside the first"],
       "preview": "A wooden sign can mark the month. It cannot preserve what changed, how the house felt, or what the family kept saying.",
       "preview_alternatives": ["A wooden sign can mark the month. It cannot preserve what changed, how the house felt, or what the family kept saying.", "A First becomes meaningful when the family detail stays attached."],
+      "headline": "A milestone is the label. **The detail is the story.**",
       "paragraphs": [
-        "The photo I shared earlier says eleven months on a little wooden sign. It marks the age beautifully. But the number is not the whole memory.",
+        "The photo I shared earlier says eleven months on a little wooden sign. It marks the age beautifully. **But the number is not the whole memory.**",
         "A milestone photo cannot automatically keep what changed that month, what the family had started noticing, or the story everyone will tell later.",
-        "That is the idea behind Firsts. Record one change, then add the detail that makes it belong to your family: where you were, what happened around it, or the words you kept using afterward.",
-        "The milestone is the label. The detail is what brings your little world back."
+        "That is the idea behind Firsts. Record one change, then add the detail that makes it belong to your family: **where you were, what happened around it, or the words you kept using afterward.**",
+        "The milestone is the label. **The detail is what brings your little world back.**"
       ],
       "module": {"type": "memory_card", "kicker": "The sign says", "title": "eleven months", "detail": "Your memory can keep everything the number leaves out."},
+      "action_note": {"label": "Keep one first", "text": "Name what changed. Then add **the family detail that makes it yours.**"},
       "cta_label": "See how firsts stay close",
       "cta_url": "https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=firsts-payoff#closer-look",
       "signoff": "— Jesse",
@@ -247,14 +267,15 @@
       "subject_alternatives": ["One sentence I want Reuben to read someday", "A letter does not have to begin like a letter", "Try: “Today I noticed…”"],
       "preview": "I imagine Reuben reading something we wrote while he was small and hearing the people we were then.",
       "preview_alternatives": ["I imagine Reuben reading something we wrote while he was small and hearing the people we were then.", "Begin with one true thing you noticed today. Stop after one sentence if that is enough."],
+      "headline": "A letter can begin with **one true sentence.**",
       "paragraphs": [
-        "When I think about Letters, I imagine Reuben reading something we wrote while he was small and hearing the people we were then—not polished authors, just his parents trying to notice him well.",
-        "That sounds important, which can make it hard to begin. So do not start with a letter. Start with one sentence: “Today I noticed…”",
-        "Write one true detail you would want to send forward in time. Stop after that sentence if it feels complete.",
-        "Our Little World should never turn loving your family into homework. It should help you keep what matters, then get out of the way.",
+        "When I think about Letters, I imagine Reuben reading something we wrote while he was small and hearing the people we were then—**not polished authors, just his parents trying to notice him well.**",
+        "That sounds important, which can make it hard to begin. So do not start with a letter.",
+        "Our Little World should never turn loving your family into homework. It should **help you keep what matters, then get out of the way.**",
         "If it is helping—or still asking too much—reply and tell me. I am building this as Reuben's dad, and I want it to feel worthy of the families who trust it."
       ],
-      "module": {"type": "memory_card", "kicker": "For Reuben, someday", "title": "Today I noticed…", "detail": "One true detail in the voice of the parent you are right now."},
+      "module": {"type": "steps", "title": "Do not start with a letter.", "items": ["Begin: **“Today I noticed…”**", "Write one true detail you would want to send forward.", "Stop after that sentence if it feels complete."]},
+      "action_note": {"label": "One sentence is enough", "text": "Write in **the voice of the parent you are right now.** Polishing can wait."},
       "cta_label": "See letters for later",
       "cta_url": "https://ourlittleworld.me/?utm_source=olw-parent-welcome&utm_medium=email&utm_campaign=begin-small-v2&utm_content=letter-ritual#closer-look",
       "signoff": "— Jesse",

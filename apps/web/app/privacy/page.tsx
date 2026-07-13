@@ -126,7 +126,8 @@ export default function PrivacyPage() {
 
           <PolicyItem title="Payments">
             <p>
-              App Store and Google Play process native subscriptions. Stripe processes website
+              Our Little World is not publicly listed in the App Store or Google Play yet. When
+              enabled, those stores process native subscriptions and Stripe processes website
               subscriptions and gift purchases. Payment providers may collect card, billing, tax,
               fraud-prevention, and transaction information under their own policies. Our Little
               World does not store full payment card numbers.

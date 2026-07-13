@@ -41,9 +41,12 @@
     "production_promoted": false
   },
   "remaining_release_gates": [
-    "Stripe sandbox credentials and end-to-end subscription receipt",
-    "Stripe sandbox gift purchase, delivery, redemption, and entitlement receipt",
-    "verified database migration and function deployment",
+    "Transactional email provider credentials and a scheduled outbox worker",
+    "Our Little World Mailchimp domain authentication and consent/suppression synchronization",
+    "Post-deploy readback for the new website funnel event names",
+    "Live-commerce sequencing decision and separately authorized low-value live Stripe test",
+    "Native App Store and Google Play purchase, restore, refund, and lapse QA",
+    "Legal review",
     "self-service account deletion"
   ]
 }

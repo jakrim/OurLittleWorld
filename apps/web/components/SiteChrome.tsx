@@ -3,18 +3,23 @@ import Image from "next/image";
 import Link from "next/link";
 
 import AnalyticsConsentControls from "./AnalyticsConsentControls";
+import CommercialAvailability from "./CommercialAvailability";
 import SiteEnhancer from "./SiteEnhancer";
+import { publicCommercialConfig } from "@/lib/commercialConfig";
 
 const navItems = [
   { href: "/story/", label: "Story" },
   { href: "/pricing/", label: "Pricing" },
   { href: "/gift/", label: "Gift" },
-  { href: "/partners/", label: "Partners" },
+  { href: "/#launch-list", label: "App status" },
   { href: "/privacy/", label: "Privacy" },
   { href: "/terms/", label: "Terms" },
 ];
 
 export default function SiteChrome({ children }: { children: ReactNode }) {
+  const primaryHref = publicCommercialConfig.checkoutEnabled ? "/pricing/#chapter-one" : "/#launch-list";
+  const primaryLabel = publicCommercialConfig.checkoutEnabled ? "Start your baby book" : "Join the launch list";
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -34,8 +39,8 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="nav-actions">
-            <Link className="button button-dark" href="/pricing/#chapter-one">
-              Start your baby book
+            <Link className="button button-dark" href={primaryHref}>
+              {primaryLabel}
             </Link>
             <button
               className="nav-toggle"
@@ -73,7 +78,6 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
               </div>
               <div>
                 <p className="footer-h">Company</p>
-                <Link href="/partners/">Partners</Link>
                 <Link href="/privacy/">Privacy</Link>
                 <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
@@ -89,6 +93,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             <span>Copyright 2026 Get Mentors, Inc.</span>
             <span>For two, for now, for later.</span>
           </div>
+          <CommercialAvailability compact surface="footer" />
         </div>
       </footer>
 

@@ -8,15 +8,35 @@ export type AcquisitionContext = {
   creative?: string;
   channel?: string;
   landing_page?: string;
+  first_campaign?: string;
+  first_angle?: string;
+  first_creative?: string;
+  first_channel?: string;
+  first_landing_page?: string;
+  last_campaign?: string;
+  last_angle?: string;
+  last_creative?: string;
+  last_channel?: string;
+  last_landing_page?: string;
 };
 
 type MarketingEventName =
   | "landing_view"
+  | "homepage_viewed"
+  | "hero_primary_cta_clicked"
+  | "hero_email_started"
+  | "hero_email_succeeded"
+  | "pricing_viewed"
   | "primary_cta_clicked"
   | "checkout_started"
   | "checkout_completed"
+  | "checkout_failed"
   | "gift_started"
-  | "gift_completed";
+  | "gift_checkout_started"
+  | "gift_completed"
+  | "store_interest_clicked"
+  | "launch_interest_clicked"
+  | "launch_signup_completed";
 
 type MarketingEventProperties = {
   path?: string;
@@ -184,18 +204,36 @@ function mergeAttribution(first: AcquisitionContext, last: AcquisitionContext) {
     creative: last.creative || first.creative,
     channel: last.channel || first.channel,
     landing_page: first.landing_page || last.landing_page,
+    first_campaign: first.campaign,
+    first_angle: first.angle,
+    first_creative: first.creative,
+    first_channel: first.channel,
+    first_landing_page: first.landing_page,
+    last_campaign: last.campaign,
+    last_angle: last.angle,
+    last_creative: last.creative,
+    last_channel: last.channel,
+    last_landing_page: last.landing_page,
   });
 }
 
 function compactAttribution(input: Record<string, unknown>): AcquisitionContext {
   const output: AcquisitionContext = {};
-  const mappings = ["campaign", "angle", "creative", "channel"] as const;
+  const mappings = [
+    "campaign", "angle", "creative", "channel",
+    "first_campaign", "first_angle", "first_creative", "first_channel",
+    "last_campaign", "last_angle", "last_creative", "last_channel",
+  ] as const;
   for (const key of mappings) {
     const value = safeValue(input[key]);
     if (value) output[key] = value;
   }
   const landingPage = safePath(input.landing_page);
   if (landingPage) output.landing_page = landingPage;
+  const firstLandingPage = safePath(input.first_landing_page);
+  if (firstLandingPage) output.first_landing_page = firstLandingPage;
+  const lastLandingPage = safePath(input.last_landing_page);
+  if (lastLandingPage) output.last_landing_page = lastLandingPage;
   return output;
 }
 

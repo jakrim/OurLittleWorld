@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
+import CheckoutCompletionStatus from "@/components/CheckoutCompletionStatus";
+import CommercialAvailability from "@/components/CommercialAvailability";
 
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",
   description: "Your Our Little World gift year purchase is ready to send or redeem.",
+  robots: { index: false, follow: false, nocache: true },
 };
 
 type GiftSuccessProps = {
@@ -14,12 +16,10 @@ type GiftSuccessProps = {
 
 export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps) {
   const params = await searchParams;
-  const giftCode = value(params?.gift_code);
-  const hasProviderReceipt = Boolean(value(params?.session_id));
+  const sessionId = value(params?.session_id) || "";
 
   return (
     <main id="main">
-      <ConversionCompleteBeacon kind="gift" hasProviderReceipt={hasProviderReceipt} />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -28,9 +28,9 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
             <span>Gift</span>
           </div>
           <p className="script">gift ready</p>
-          <h1 className="page-title">The first year is ready to give.</h1>
+          <h1 className="page-title">We’re verifying the gift purchase.</h1>
           <p className="lead">
-            Share this code with the recipient. They can redeem it in the app after creating their family space.
+            A return from Stripe does not create a gift by itself. The code appears only after verified payment and the canonical gift record exist.
           </p>
         </div>
       </section>
@@ -39,11 +39,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
         <div className="narrow policy-list">
           <article className="policy-item">
             <h2>Gift code</h2>
-            {giftCode ? (
-              <div className="code-box" aria-label="Gift code">{giftCode}</div>
-            ) : (
-              <p>Your gift code is being prepared. If it does not appear, contact support with your Stripe receipt email.</p>
-            )}
+            <CheckoutCompletionStatus kind="gift" sessionId={sessionId} />
             <p>
               The recipient should choose Redeem website gift or partner access from the app purchase screen.
             </p>
@@ -58,6 +54,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
           </article>
         </div>
       </section>
+      <CommercialAvailability surface="success" />
     </main>
   );
 }

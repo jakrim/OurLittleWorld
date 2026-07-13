@@ -19,8 +19,23 @@ export default function AnalyticsConsentControls({ compact = false }: { compact?
 
   if (compact && consent !== "unknown") return null;
 
+  if (compact) {
+    return (
+      <section className="analytics-consent analytics-consent--banner" aria-label="Optional analytics choice">
+        <div>
+          <strong>Optional website analytics</strong>
+          <p>With permission, we record coarse site actions—never family content, contact details, payment identifiers, or gift codes.</p>
+        </div>
+        <div className="analytics-consent__actions">
+          <button type="button" className="button button-dark" onClick={() => setAnalyticsConsent("granted")}>Allow</button>
+          <button type="button" className="button button-ghost" onClick={() => setAnalyticsConsent("denied")}>Decline</button>
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <section className={compact ? "analytics-consent analytics-consent--banner" : "analytics-consent"}>
+    <section className="analytics-consent">
       <div>
         <strong>Optional, privacy-safe product analytics</strong>
         <p>
