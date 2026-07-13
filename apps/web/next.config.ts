@@ -3,6 +3,9 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  env: {
+    NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA || "",
+  },
   outputFileTracingRoot: path.join(__dirname, "../.."),
   trailingSlash: true,
   async headers() {

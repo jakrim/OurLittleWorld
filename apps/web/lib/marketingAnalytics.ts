@@ -117,30 +117,34 @@ export async function trackMarketingEvent(
   if (!apiKey?.startsWith("phc_")) return { accepted: false, reason: "token_not_configured" };
   const safeProperties = sanitizeMarketingProperties(properties);
 
-  const host = normalizeHost(
-    process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_HOST || "https://us.i.posthog.com",
-  );
-  const response = await fetch(`${host}/capture/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    keepalive: true,
-    body: JSON.stringify({
-      api_key: apiKey,
-      event: `marketing_${event}`,
-      properties: {
-        distinct_id: getAnonymousId(),
-        project_id: "our-little-world",
-        schema_version: 1,
-        source: "web",
-        environment: process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_ENVIRONMENT || "production",
-        ...safeProperties,
-        ...attribution,
-        $process_person_profile: false,
-        $lib: "our-little-world-web-privacy-wrapper",
-      },
-    }),
-  });
-  return { accepted: response.ok, status: response.status };
+  try {
+    const host = normalizeHost(
+      process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_HOST || "https://us.i.posthog.com",
+    );
+    const response = await fetch(`${host}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        api_key: apiKey,
+        event: `marketing_${event}`,
+        properties: {
+          distinct_id: getAnonymousId(),
+          project_id: "our-little-world",
+          schema_version: 1,
+          source: "web",
+          environment: process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_ENVIRONMENT || "production",
+          ...safeProperties,
+          ...attribution,
+          $process_person_profile: false,
+          $lib: "our-little-world-web-privacy-wrapper",
+        },
+      }),
+    });
+    return { accepted: response.ok, status: response.status };
+  } catch {
+    return { accepted: false, reason: "delivery_failed" };
+  }
 }
 
 function sanitizeMarketingProperties(properties: MarketingEventProperties) {
@@ -170,6 +174,7 @@ export function marketingTarget(href: string | null): MarketingEventProperties["
   if (!href) return "other";
   if (href.includes("/gift")) return "gift";
   if (href.includes("/pricing") || href.includes("#checkout")) return "pricing";
+  if (href.includes("#launch-list")) return "store";
   if (href.includes("apps.apple.com") || href.includes("play.google.com")) return "store";
   if (href.includes("/partners")) return "partner";
   return "other";

@@ -5,7 +5,8 @@ import Link from "next/link";
 import AnalyticsConsentControls from "./AnalyticsConsentControls";
 import CommercialAvailability from "./CommercialAvailability";
 import SiteEnhancer from "./SiteEnhancer";
-import { publicCommercialConfig } from "@/lib/commercialConfig";
+import WebsiteErrorMonitor from "./WebsiteErrorMonitor";
+import { primaryCommercialAction, publicCommercialConfig } from "@/lib/commercialConfig";
 
 const navItems = [
   { href: "/story/", label: "Story" },
@@ -17,8 +18,7 @@ const navItems = [
 ];
 
 export default function SiteChrome({ children }: { children: ReactNode }) {
-  const primaryHref = publicCommercialConfig.checkoutEnabled ? "/pricing/#chapter-one" : "/#launch-list";
-  const primaryLabel = publicCommercialConfig.checkoutEnabled ? "Start your baby book" : "Join the launch list";
+  const primaryAction = primaryCommercialAction(publicCommercialConfig);
 
   return (
     <>
@@ -39,8 +39,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="nav-actions">
-            <Link className="button button-dark" href={primaryHref}>
-              {primaryLabel}
+            <Link
+              className="button button-dark"
+              data-marketing-action={publicCommercialConfig.storeAvailability === "available" && !publicCommercialConfig.checkoutEnabled
+                ? "store-interest"
+                : publicCommercialConfig.checkoutEnabled ? "primary" : "launch-interest"}
+              href={primaryAction.href}
+            >
+              {primaryAction.label}
             </Link>
             <button
               className="nav-toggle"
@@ -73,12 +79,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
                 <Link href="/story/">Story</Link>
                 <Link href="/pricing/">Pricing</Link>
                 <Link href="/gift/">Gift</Link>
+                <Link href="/for/unfinished-baby-book/">Unfinished baby book</Link>
                 <Link href="/terms/">Terms</Link>
                 <Link href="/refunds/">Refunds</Link>
               </div>
               <div>
                 <p className="footer-h">Company</p>
                 <Link href="/privacy/">Privacy</Link>
+                <Link href="/email-preferences/">Email preferences</Link>
                 <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
               <div>
@@ -98,6 +106,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       </footer>
 
       <SiteEnhancer />
+      <WebsiteErrorMonitor />
       <AnalyticsConsentControls compact />
     </>
   );

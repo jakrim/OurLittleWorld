@@ -395,6 +395,15 @@ verify_jwt = false
 [functions.launch-signup]
 verify_jwt = false
 
+[functions.sync-marketing-contacts]
+verify_jwt = false
+
+[functions.mailchimp-webhook]
+verify_jwt = false
+
+[functions.website-health-event]
+verify_jwt = false
+
 [functions.send-transactional-email]
 verify_jwt = false
 

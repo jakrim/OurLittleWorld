@@ -8,6 +8,10 @@ type PublicPageOptions = {
 
 const COPY_REPAIRS: Array<[string, string]> = [
   [
+    '<img src="/assets/screens/welcome.png" alt="Our Little World welcome screen">',
+    '<img src="/assets/screens/welcome.png" alt="Our Little World welcome screen" width="640" height="1386" decoding="async" fetchpriority="high">',
+  ],
+  [
     "The archive is ready for later, including future printed keepsakes.",
     "Selected memories stay together so your family can revisit them later.",
   ],
@@ -44,6 +48,18 @@ export function publicPageContent(
   let html: string = pageContent[key];
   for (const [before, after] of COPY_REPAIRS) html = html.replaceAll(before, after);
 
+  if (key === "home") {
+    html = html
+      .replace(
+        '<a class="button button-dark" href="/pricing/#chapter-one">',
+        '<a class="button button-dark" href="/pricing/#chapter-one" data-marketing-action="hero-primary">',
+      )
+      .replace(
+        '<a class="button button-light" href="/gift/">',
+        '<a class="button button-light" href="/gift/" data-marketing-action="hero-secondary">',
+      );
+  }
+
   if (!partnersEnabled) {
     html = html
       .replace(/<a class="button button-ghost" href="\/partners\/">[\s\S]*?<\/a>/g, "")
@@ -73,6 +89,18 @@ export function publicPageContent(
       .replaceAll(
         "Create a private family space today, or gift the first year to someone you love.",
         "Join the launch list for app availability, website purchasing, and gift-year updates.",
+      )
+      .replaceAll(
+        "Start the baby book that keeps the beginning.",
+        "Join the launch list while the beginning is still close.",
+      )
+      .replaceAll(
+        "Start your private baby book.",
+        "Join us before chapter one begins.",
+      )
+      .replaceAll(
+        "Create your own family space, or gift the first year to a friend.",
+        "Join the launch list for app access and planned gift-year availability.",
       )
       .replaceAll(
         "Send a year of Our Little World to a friend, sibling, client, or new-parent couple. It gives them a quiet place to keep the beginning before the first months blur together.",

@@ -113,10 +113,17 @@ export default function SiteEnhancer() {
       surface: "marketing_site",
     });
 
-    const heroPrimary = currentPath === "/" ? document.querySelector("main a.button-primary") : null;
-    document.querySelectorAll<HTMLAnchorElement>("a.button").forEach((link) => {
+    document.querySelectorAll<HTMLAnchorElement>("a.button, a[data-marketing-action]").forEach((link) => {
       on(link, "click", () => {
-        void trackMarketingEvent(link === heroPrimary ? "hero_primary_cta_clicked" : "primary_cta_clicked", {
+        const action = link.dataset.marketingAction || "";
+        const eventName = action === "hero-primary"
+          ? "hero_primary_cta_clicked"
+          : action === "store-interest"
+            ? "store_interest_clicked"
+            : action === "launch-interest" || link.getAttribute("href")?.includes("#launch-list")
+              ? "launch_interest_clicked"
+              : "primary_cta_clicked";
+        void trackMarketingEvent(eventName, {
           path: currentPath,
           surface: "marketing_site",
           target: marketingTarget(link.getAttribute("href")),

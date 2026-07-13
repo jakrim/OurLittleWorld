@@ -331,7 +331,7 @@ button {
 }
 
 main {
-  overflow: hidden;
+  overflow-x: clip;
 }
 
 .skip-link {
@@ -508,8 +508,7 @@ main {
   min-height: auto;
   display: flex;
   align-items: stretch;
-  padding: 92px 0 92px;
-  overflow: hidden;
+  padding: clamp(56px, 9vh, 92px) 0;
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
@@ -533,7 +532,7 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1.02fr) minmax(320px, 0.78fr);
   gap: 54px;
-  align-items: start;
+  align-items: center;
 }
 
 .eyebrow {
@@ -925,7 +924,13 @@ h3,
 }
 
 .hero-device .iphone-frame {
-  width: min(360px, 31vw);
+  width: min(310px, 29vw);
+}
+
+.hero-device {
+  width: 100%;
+  min-height: 0;
+  align-self: center;
 }
 
 .iphone-frame-sm {
@@ -1594,17 +1599,17 @@ h3,
   }
 
   .hero-grid {
-    grid-template-columns: 1fr;
-    gap: 44px;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.58fr);
+    gap: clamp(28px, 4vw, 44px);
     position: relative;
   }
 
   .hero-device {
-    min-height: 520px;
+    min-height: 0;
   }
 
   .hero-device .iphone-frame {
-    width: min(310px, 74vw);
+    width: min(280px, 29vw);
   }
 
   .closer-row,
@@ -1676,25 +1681,6 @@ h3,
 
   .hero-copy {
     max-width: 100%;
-  }
-
-  .hero-device {
-    position: absolute;
-    right: -154px;
-    bottom: -300px;
-    z-index: 0;
-    min-height: auto;
-    opacity: 0.1;
-    pointer-events: none;
-  }
-
-  .hero-device .device-aura {
-    display: none;
-  }
-
-  .hero-device .iphone-frame {
-    width: 230px;
-    box-shadow: none;
   }
 
   .promise-row {
@@ -1803,6 +1789,32 @@ h3,
   }
 }
 
+@media (max-width: 680px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .hero-device {
+    width: 100%;
+    margin-inline: auto;
+  }
+
+  .hero-device .iphone-frame {
+    width: clamp(180px, 48vw, 230px);
+  }
+}
+
+@media (min-width: 681px) and (max-height: 820px) {
+  .hero-home {
+    padding-block: 44px;
+  }
+
+  .hero-device .iphone-frame {
+    width: clamp(210px, 25vw, 260px);
+  }
+}
+
 @media (max-width: 520px) {
   .brand-link {
     min-width: 0;
@@ -1832,7 +1844,7 @@ h3,
   }
 
   .hero-device .iphone-frame {
-    width: 200px;
+    width: clamp(180px, 52vw, 210px);
   }
 
   .iphone-frame {

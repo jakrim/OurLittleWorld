@@ -3,7 +3,9 @@ import { Caveat, Manrope, Newsreader } from "next/font/google";
 import type { ReactNode } from "react";
 
 import SiteChrome from "@/components/SiteChrome";
+import { SiteStructuredData } from "@/components/StructuredData";
 import { publicCommercialConfig } from "@/lib/commercialConfig";
+import { SITE_ORIGIN } from "@/lib/siteSeo";
 import "./globals.css";
 
 const caveat = Caveat({
@@ -29,17 +31,17 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://ourlittleworld.me"),
-  title: {
-    default: "Our Little World | Private baby book for family",
-    template: "%s | Our Little World",
-  },
-  description:
-    "A private baby book for photos, firsts, voice notes, and letters. Coming soon to iPhone and Android; join the launch list for verified availability.",
+  metadataBase: new URL(SITE_ORIGIN),
   referrer: "no-referrer",
   icons: {
-    icon: "/assets/brand/logo-mark-circle.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "16x16 32x32 48x48", type: "image/x-icon" },
+      { url: "/assets/brand/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
@@ -54,6 +56,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         data-commerce-state={publicCommercialConfig.commerceState}
         data-store-availability={publicCommercialConfig.storeAvailability}
       >
+        <SiteStructuredData />
         <SiteChrome>{children}</SiteChrome>
       </body>
     </html>

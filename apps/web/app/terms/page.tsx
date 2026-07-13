@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Terms of Service",
-  description:
-    "Our Little World terms for accounts, private family spaces, subscriptions, gifts, refunds, cancellation, and support.",
-};
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
+
+export const metadata: Metadata = metadataFor("terms");
 
 export default function TermsPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="terms" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">

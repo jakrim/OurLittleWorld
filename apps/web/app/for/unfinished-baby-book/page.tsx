@@ -2,30 +2,27 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-const canonical = "/for/unfinished-baby-book/";
+import CommercialAvailability from "@/components/CommercialAvailability";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
 
-export const metadata: Metadata = {
-  title: "A baby book that grows from small, approved moments",
-  description:
-    "With your permission, Our Little World helps surface likely moments for you to review and save—one photo, one line, or one first at a time.",
-  alternates: { canonical },
-  openGraph: {
-    title: "Keep the beginning without creating another backlog",
-    description:
-      "Review likely moments, choose what belongs, and let a private baby book grow from the memories you approve.",
-    url: canonical,
-  },
-};
+export const metadata: Metadata = metadataFor("unfinishedBabyBook");
 
 export default function UnfinishedBabyBookPage() {
-  const startHref = "/pricing/?angle=unfinished-baby-book#chapter-one";
+  const launchHref = "#launch-list";
   const giftHref = "/gift/?angle=unfinished-baby-book";
 
   return (
     <main id="main" className="olw-angle-page">
+      <BreadcrumbStructuredData route="unfinishedBabyBook" />
       <section className="olw-angle-hero">
         <div className="wrap olw-angle-hero-grid">
           <div>
+            <div className="breadcrumbs">
+              <Link href="/">Home</Link>
+              <span>/</span>
+              <span>For an unfinished baby book</span>
+            </div>
             <p className="eyebrow">For the baby book you meant to make</p>
             <h1>Keep the beginning without creating another backlog.</h1>
             <p className="olw-angle-lede">
@@ -34,11 +31,11 @@ export default function UnfinishedBabyBookPage() {
               only when you want to.
             </p>
             <div className="olw-angle-actions">
-              <Link className="button button-dark" href={startHref}>
-                Start your baby book
+              <Link className="button button-dark" href={launchHref}>
+                Join the launch list
               </Link>
               <Link className="button button-ghost" href={giftHref}>
-                Gift the first year
+                Explore planned gift years
               </Link>
             </div>
             <p className="olw-angle-trust">
@@ -151,11 +148,12 @@ export default function UnfinishedBabyBookPage() {
           <p className="eyebrow">A small beginning</p>
           <h2>Save one parent-approved moment.</h2>
           <p>Let the baby book grow from there, without asking today to become a project.</p>
-          <Link className="button button-dark" href={startHref}>
-            Start your baby book
+          <Link className="button button-dark" href={launchHref}>
+            Join the launch list
           </Link>
         </div>
       </section>
+      <CommercialAvailability surface="angle" />
     </main>
   );
 }

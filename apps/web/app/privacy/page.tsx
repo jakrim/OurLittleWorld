@@ -3,16 +3,15 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import AnalyticsConsentControls from "@/components/AnalyticsConsentControls";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy",
-  description:
-    "Our Little World privacy policy for private family spaces, baby memories, photo library access, subscriptions, gifts, and support.",
-};
+export const metadata: Metadata = metadataFor("privacy");
 
 export default function PrivacyPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="privacy" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">

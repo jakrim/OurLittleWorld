@@ -1,6 +1,24 @@
 export type CommerceState = "coming_soon" | "test" | "live" | "temporarily_unavailable";
 export type StoreAvailability = "coming_soon" | "available" | "temporarily_unavailable";
 
+export function primaryCommercialAction({
+  checkoutEnabled,
+  storeAvailability,
+}: {
+  checkoutEnabled: boolean;
+  storeAvailability: StoreAvailability;
+}) {
+  if (checkoutEnabled) return { href: "/pricing/#chapter-one", label: "Start your baby book" } as const;
+  if (storeAvailability === "available") return { href: "/#launch-list", label: "View the app" } as const;
+  return { href: "/#launch-list", label: "Join the launch list" } as const;
+}
+
+export function compactAvailabilityAction(storeAvailability: StoreAvailability) {
+  return storeAvailability === "available"
+    ? { href: "/#launch-list", label: "View app store links" } as const
+    : { href: "/#launch-list", label: "Get launch updates" } as const;
+}
+
 type PublicEnvironment = Partial<Record<
   | "NEXT_PUBLIC_OLW_COMMERCE_STATE"
   | "NEXT_PUBLIC_OLW_STORE_AVAILABILITY"
@@ -65,6 +83,7 @@ export function resolveCommercialConfig(source: PublicEnvironment) {
     launchDate: validDate(source.NEXT_PUBLIC_OLW_STORE_LAUNCH_DATE),
     launchSignupEndpoint: cleanUrl(source.NEXT_PUBLIC_OLW_LAUNCH_SIGNUP_ENDPOINT)
       || (functionsBase ? `${functionsBase}/launch-signup` : ""),
+    websiteHealthEndpoint: functionsBase ? `${functionsBase}/website-health-event` : "",
     checkoutStatusEndpoint: functionsBase ? `${functionsBase}/stripe-checkout-status` : "",
   } as const;
 }

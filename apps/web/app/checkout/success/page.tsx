@@ -3,12 +3,9 @@ import Link from "next/link";
 
 import CheckoutCompletionStatus from "@/components/CheckoutCompletionStatus";
 import CommercialAvailability from "@/components/CommercialAvailability";
+import { metadataFor } from "@/lib/siteSeo";
 
-export const metadata: Metadata = {
-  title: "Checkout Complete",
-  description: "Connect your Our Little World website subscription to your family space.",
-  robots: { index: false, follow: false, nocache: true },
-};
+export const metadata: Metadata = metadataFor("checkoutSuccess");
 
 type CheckoutSuccessProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

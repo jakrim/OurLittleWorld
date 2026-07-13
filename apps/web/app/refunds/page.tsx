@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Cancellation and Refund Policy",
-  description:
-    "Our Little World cancellation, refund, duplicate purchase, gift code, partner code, and billing owner policy.",
-};
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
+
+export const metadata: Metadata = metadataFor("refunds");
 
 export default function RefundsPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="refunds" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">

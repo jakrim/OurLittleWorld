@@ -3,12 +3,9 @@ import Link from "next/link";
 
 import CheckoutCompletionStatus from "@/components/CheckoutCompletionStatus";
 import CommercialAvailability from "@/components/CommercialAvailability";
+import { metadataFor } from "@/lib/siteSeo";
 
-export const metadata: Metadata = {
-  title: "Gift Checkout Complete",
-  description: "Your Our Little World gift year purchase is ready to send or redeem.",
-  robots: { index: false, follow: false, nocache: true },
-};
+export const metadata: Metadata = metadataFor("giftCheckoutSuccess");
 
 type GiftSuccessProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

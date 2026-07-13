@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-import { publicCommercialConfig } from "@/lib/commercialConfig";
+import { compactAvailabilityAction, publicCommercialConfig } from "@/lib/commercialConfig";
 import {
   checkoutAttributionPayload,
   trackMarketingEvent,
@@ -12,7 +12,7 @@ import {
 
 type CommercialAvailabilityProps = {
   compact?: boolean;
-  surface: "home" | "pricing" | "gift" | "story" | "footer" | "success";
+  surface: "home" | "pricing" | "gift" | "story" | "angle" | "footer" | "success";
 };
 
 export default function CommercialAvailability({
@@ -25,10 +25,16 @@ export default function CommercialAvailability({
   const config = publicCommercialConfig;
 
   if (compact) {
+    const action = compactAvailabilityAction(config.storeAvailability);
     return (
       <div className="availability-compact" aria-label="App availability">
         <strong>{availabilityHeading(config.storeAvailability)}</strong>
-        <Link href="/#launch-list">Get launch updates</Link>
+        <Link
+          data-marketing-action={config.storeAvailability === "available" ? "store-interest" : "launch-interest"}
+          href={action.href}
+        >
+          {action.label}
+        </Link>
       </div>
     );
   }
@@ -38,9 +44,11 @@ export default function CommercialAvailability({
     if (status === "sending" || status === "saved") return;
     const form = event.currentTarget;
     if (!form.reportValidity()) return;
+    reportLaunchFormOutcome("form_submit");
     if (!config.launchSignupEndpoint) {
       setStatus("error");
       setMessage("Launch signup is temporarily unavailable. Please email support@ourlittleworld.me.");
+      reportLaunchFormOutcome("form_error");
       return;
     }
 
@@ -60,8 +68,14 @@ export default function CommercialAvailability({
         }),
       });
       if (!response.ok) throw new Error("signup failed");
+      const result = (await response.json().catch(() => ({}))) as { delivery?: string };
       setStatus("saved");
-      setMessage("You’re on the launch list. We’ll email when access is genuinely available.");
+      setMessage(
+        result.delivery === "confirmed"
+          ? "You’re subscribed. We’ll email when access is genuinely available."
+          : "Your request is saved. If confirmation is needed, check your inbox. We won’t overwrite an existing unsubscribe or delivery preference, and you don’t need to submit again.",
+      );
+      reportLaunchFormOutcome("form_success");
       form.reset();
       void trackMarketingEvent(surface === "home" ? "hero_email_succeeded" : "launch_signup_completed", {
         path: pathname || "/",
@@ -71,6 +85,7 @@ export default function CommercialAvailability({
     } catch {
       setStatus("error");
       setMessage("We couldn’t save that address. Please try again or email support@ourlittleworld.me.");
+      reportLaunchFormOutcome("form_error");
     }
   }
 
@@ -92,8 +107,8 @@ export default function CommercialAvailability({
               {config.appleUrl ? (
                 <a
                   className="button button-dark"
+                  data-marketing-action="store-interest"
                   href={config.appleUrl}
-                  onClick={() => trackStoreInterest(pathname)}
                   rel="noreferrer"
                 >
                   View on the App Store
@@ -102,8 +117,8 @@ export default function CommercialAvailability({
               {config.googleUrl ? (
                 <a
                   className="button button-dark"
+                  data-marketing-action="store-interest"
                   href={config.googleUrl}
-                  onClick={() => trackStoreInterest(pathname)}
                   rel="noreferrer"
                 >
                   View on Google Play
@@ -145,7 +160,10 @@ export default function CommercialAvailability({
             <button className="button button-primary button-full" type="submit" disabled={status === "sending" || status === "saved"}>
               {status === "sending" ? "Joining…" : status === "saved" ? "Launch updates saved" : "Join the launch list"}
             </button>
-            <p className="small">This is marketing consent. Billing, gift, privacy, and account emails are handled separately.</p>
+            <p className="small">
+              This is marketing consent. Billing, gift, privacy, and account emails are handled separately. Read our{" "}
+              <Link href="/privacy/">Privacy Policy</Link> and <Link href="/email-preferences/">email preferences</Link>.
+            </p>
             <div className={`status-box${message ? " is-visible" : ""}`} role="status" aria-live="polite">
               {message}
             </div>
@@ -154,6 +172,12 @@ export default function CommercialAvailability({
       </div>
     </section>
   );
+}
+
+function reportLaunchFormOutcome(eventType: "form_submit" | "form_success" | "form_error") {
+  window.dispatchEvent(new CustomEvent("olw:operational", {
+    detail: { event_type: eventType, error_name: "LaunchSignup" },
+  }));
 }
 
 function availabilityHeading(state: typeof publicCommercialConfig.storeAvailability) {
@@ -170,12 +194,4 @@ function availabilityCopy(state: typeof publicCommercialConfig.storeAvailability
   return launchDate
     ? `The current approved launch date is ${launchDate}. The app is not publicly downloadable yet.`
     : "The app is not publicly downloadable yet. There is no placeholder badge or fake store link.";
-}
-
-function trackStoreInterest(pathname: string | null) {
-  void trackMarketingEvent("store_interest_clicked", {
-    path: pathname || "/",
-    surface: "marketing_site",
-    target: "store",
-  });
 }
