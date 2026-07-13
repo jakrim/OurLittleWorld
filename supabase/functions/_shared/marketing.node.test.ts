@@ -219,7 +219,7 @@ test('stale completion and failure leases never report a successful sync', async
       target_contact_id: 'successful-contact',
       target_provider_status: 'subscribed',
       target_member_hash: successfulMemberHash,
-      target_welcome_enrolled: true,
+      target_welcome_enrolled: false,
       target_outbox_id: 'successful-outbox',
       target_claim_token: 'successful-token',
     }]);

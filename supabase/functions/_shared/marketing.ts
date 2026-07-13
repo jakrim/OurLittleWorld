@@ -412,7 +412,10 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
   return {
     id: String(member?.id || memberHash),
     status: String(member?.status || 'unknown').toLowerCase(),
-    welcomeEnrolled: subscribed ? true : welcomeEnrolled,
+    // Audience subscription is transport state, not enrollment in a lifecycle
+    // sequence. Website visitors keep the dedicated visitor tag and remain
+    // unenrolled until a separate, explicitly eligible flow records enrollment.
+    welcomeEnrolled,
   };
 }
 
