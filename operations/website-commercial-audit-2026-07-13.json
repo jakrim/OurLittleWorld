@@ -25,6 +25,13 @@
     "production_mobile_viewport": "390x844",
     "production_browser_errors": 0
   },
+  "performance_review": {
+    "production_build": "passed",
+    "route_count": 16,
+    "core_web_vitals_trace": "blocked_chrome_devtools_mcp_not_configured",
+    "network_dependency_analysis": "not_measured",
+    "accessibility_tree_snapshot": "verified_in_browser_but_not_measured_by_chrome_devtools"
+  },
   "stripe_test_mode": {
     "mode_pin_verified": true,
     "successful_subscription": "passed",
@@ -119,6 +126,7 @@
     "Configure and verify a transactional email provider, authenticated sender, reply handling, and scheduler.",
     "Authenticate ourlittleworld.me in Mailchimp and deploy server-authored consent and suppression synchronization.",
     "Verify provider readback for the new website funnel event names in the already configured dedicated Our Little World PostHog project.",
+    "Run the production Core Web Vitals and network trace after the Chrome DevTools MCP service is configured.",
     "Complete legal review and native App Store/Google Play purchase, restore, refund, and lapse QA.",
     "Authorize and execute a separate low-value live Stripe test before enabling live commerce."
   ]
