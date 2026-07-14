@@ -4,13 +4,18 @@ import test from 'node:test';
 
 import {
   mailchimpSubscriberHash,
+  lifecycleMailchimpActions,
+  mailchimpDate,
+  mailchimpProviderErrorCode,
   normalizeMarketingEmail,
   providerContactDisposition,
   providerStatusForMailchimpEvent,
   retryDelaySeconds,
   safeMarketingMergeFields,
+  safeMailchimpDiagnostic,
   sha256Text,
   sourceTag,
+  syncLifecycleClaimToMailchimp,
   syncClaimToMailchimp,
   syncMarketingContacts,
   verifyMailchimpSignature,
@@ -84,13 +89,148 @@ test('Mailchimp merge fields contain only coarse, allowlisted attribution', () =
   });
   assert.deepEqual(fields, {
     CSOURCE: 'web_home',
-    CONSENTAT: '2026-07-13',
-    LSTATE: 'launch_interest',
+    CONSENTAT: '07/13/2026',
     CAMPAIGN: 'launch-2026',
     ANGLE: 'unfinished-baby-book',
     CREATIVE: 'hero-a',
     CHANNEL: 'newsletter',
   });
+});
+
+test('Mailchimp consent dates use the configured US date format', () => {
+  assert.equal(mailchimpDate('2026-07-13T12:00:00Z'), '07/13/2026');
+  assert.equal(mailchimpDate('not-a-date', new Date('2026-07-14T00:00:00Z')), '07/14/2026');
+});
+
+test('Mailchimp rejections collapse to privacy-safe actionable categories', () => {
+  assert.equal(
+    mailchimpProviderErrorCode({ title: 'Forgotten Email Not Subscribed' }),
+    'provider_contact_forgotten',
+  );
+  assert.equal(
+    mailchimpProviderErrorCode({ title: 'Member In Compliance State' }),
+    'provider_contact_compliance_state',
+  );
+  assert.equal(
+    mailchimpProviderErrorCode({
+      title: 'Invalid Resource',
+      errors: [{ field: 'merge_fields.CONSENTAT' }],
+    }),
+    'provider_merge_field_consent_date',
+  );
+  assert.equal(
+    mailchimpProviderErrorCode({
+      title: 'Invalid Resource',
+      errors: [{ field: 'email_address', message: 'This value is already a list member.' }],
+    }),
+    'provider_contact_conflict',
+  );
+  assert.equal(
+    mailchimpProviderErrorCode({
+      title: 'Invalid Resource',
+      detail: 'This address has signed up to a lot of lists very recently.',
+    }),
+    'provider_contact_signup_rate_limited',
+  );
+});
+
+test('Mailchimp terminal diagnostics redact addresses and provider URLs', () => {
+  assert.deepEqual(
+    safeMailchimpDiagnostic({
+      title: 'Invalid Resource',
+      detail: 'owner@example.com was rejected; see https://provider.example/error',
+      errors: [{ field: 'email_address', message: 'owner@example.com cannot be added' }],
+    }),
+    {
+      title: 'Invalid Resource',
+      detail: '[email] was rejected; see [url]',
+      fields: ['email_address'],
+      messages: ['[email] cannot be added'],
+    },
+  );
+});
+
+test('lifecycle actions activate one coarse state and one milestone tag', () => {
+  const actions = lifecycleMailchimpActions({
+    outbox_id: 'outbox-1',
+    event_id: 'olw:first_memory_saved:event-1',
+    claim_token: 'claim-1',
+    contact_id: 'contact-1',
+    email: 'parent@example.com',
+    event_name: 'first_memory_saved',
+    occurred_at: '2026-07-13T12:00:00Z',
+    lifecycle_state: 'activated_user',
+    attempt_count: 1,
+  });
+  assert.deepEqual(actions.mergeFields, { LSTATE: 'activated_user' });
+  assert.equal(
+    actions.tags.find((tag) => tag.name === 'olw-state-activated')?.status,
+    'active',
+  );
+  assert.equal(
+    actions.tags.find((tag) => tag.name === 'olw-state-unactivated')?.status,
+    'inactive',
+  );
+  assert.equal(
+    actions.tags.find((tag) => tag.name === 'olw-activated-first-memory')?.status,
+    'active',
+  );
+});
+
+test('lifecycle provider writes are retry-safe and refuse non-subscribed members', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDeno = (globalThis as { Deno?: unknown }).Deno;
+  const writes: Array<{ method?: string; body?: Record<string, unknown> }> = [];
+  (globalThis as { Deno?: unknown }).Deno = {
+    env: {
+      get(name: string) {
+        const values: Record<string, string> = {
+          OUR_LITTLE_WORLD_MAILCHIMP_AUDIENCE_ID: 'controlled-audience',
+          OUR_LITTLE_WORLD_MAILCHIMP_API_KEY: 'controlled-key',
+          OUR_LITTLE_WORLD_MAILCHIMP_SERVER_PREFIX: 'us1',
+        };
+        return values[name] || '';
+      },
+    },
+  };
+
+  const claim = {
+    outbox_id: 'outbox-1',
+    event_id: 'olw:first_memory_saved:event-1',
+    claim_token: 'claim-1',
+    contact_id: 'contact-1',
+    email: 'parent@example.com',
+    event_name: 'first_memory_saved',
+    occurred_at: '2026-07-13T12:00:00Z',
+    lifecycle_state: 'activated_user',
+    attempt_count: 1,
+  };
+
+  globalThis.fetch = async (_input, init = {}) => {
+    if (init.method === 'GET') return Response.json({ status: 'subscribed' });
+    writes.push({
+      method: init.method,
+      body: JSON.parse(String(init.body || '{}')),
+    });
+    return Response.json({ status: 'subscribed' });
+  };
+
+  try {
+    await syncLifecycleClaimToMailchimp(claim);
+    await syncLifecycleClaimToMailchimp(claim);
+    assert.equal(writes.length, 4);
+    assert.deepEqual(writes.map((write) => write.method), ['POST', 'PATCH', 'POST', 'PATCH']);
+    assert.deepEqual(writes[1].body, { merge_fields: { LSTATE: 'activated_user' } });
+
+    globalThis.fetch = async () => Response.json({ status: 'unsubscribed' });
+    await assert.rejects(
+      () => syncLifecycleClaimToMailchimp(claim),
+      (error: unknown) => error instanceof Error && error.message === 'provider_contact_not_marketable',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    (globalThis as { Deno?: unknown }).Deno = originalDeno;
+  }
 });
 
 test('a prior opt-out is never directly resubscribed by the sync worker', async () => {
@@ -107,7 +247,14 @@ test('a prior opt-out is never directly resubscribed by the sync worker', async 
       },
     },
   };
-  globalThis.fetch = async (_input, init = {}) => {
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (String(input).endsWith('/lists/controlled-audience?fields=id')) {
+      return Response.json({ id: 'controlled-audience' });
+    }
+    if (url.includes('/search-members?')) {
+      return Response.json({ exact_matches: { members: [] }, full_search: { members: [] } });
+    }
     if (init.method === 'GET') return new Response('{}', { status: 404 });
     writes.push(JSON.parse(String(init.body || '{}')));
     return Response.json({ id: '0123456789abcdef0123456789abcdef', status: 'pending' });
@@ -129,6 +276,65 @@ test('a prior opt-out is never directly resubscribed by the sync worker', async 
     assert.equal(writes.length, 1);
     assert.equal(writes[0].status_if_new, 'pending');
     assert.notEqual(writes[0].status_if_new, 'subscribed');
+  } finally {
+    globalThis.fetch = originalFetch;
+    (globalThis as { Deno?: unknown }).Deno = originalDeno;
+  }
+});
+
+test('an exact search match repairs a stale member lookup without a new signup', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDeno = (globalThis as { Deno?: unknown }).Deno;
+  const writes: Array<{ url: string; method?: string }> = [];
+  (globalThis as { Deno?: unknown }).Deno = {
+    env: {
+      get(name: string) {
+        if (name === 'OUR_LITTLE_WORLD_MAILCHIMP_AUDIENCE_ID') return 'controlled-audience';
+        if (name === 'OUR_LITTLE_WORLD_MAILCHIMP_API_KEY') return 'controlled-key';
+        if (name === 'OUR_LITTLE_WORLD_MAILCHIMP_SERVER_PREFIX') return 'us1';
+        return '';
+      },
+    },
+  };
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (url.endsWith('/lists/controlled-audience?fields=id')) {
+      return Response.json({ id: 'controlled-audience' });
+    }
+    if (init.method === 'GET' && url.includes('/members/')) {
+      return new Response('{}', { status: 404 });
+    }
+    if (url.includes('/search-members?')) {
+      return Response.json({
+        exact_matches: {
+          members: [{
+            id: 'provider-member-id',
+            list_id: 'controlled-audience',
+            email_address: 'owner@example.com',
+            status: 'subscribed',
+          }],
+        },
+      });
+    }
+    writes.push({ url, method: init.method });
+    return Response.json({ id: 'provider-member-id', status: 'subscribed' });
+  };
+
+  try {
+    const member = await syncClaimToMailchimp({
+      contact_id: 'contact-1',
+      outbox_id: 'outbox-1',
+      claim_token: 'claim-token-1',
+      email: 'owner@example.com',
+      consent_source: 'web_home',
+      consented_at: '2026-07-13T12:00:00Z',
+      attempt_count: 1,
+      sync_action: 'upsert',
+      welcome_enrolled: false,
+    });
+    assert.equal(member.status, 'subscribed');
+    assert.deepEqual(writes.map((write) => write.method), ['PATCH', 'POST']);
+    assert.ok(writes.every((write) => write.url.includes('provider-member-id')));
   } finally {
     globalThis.fetch = originalFetch;
     (globalThis as { Deno?: unknown }).Deno = originalDeno;
@@ -198,6 +404,9 @@ test('stale completion and failure leases never report a successful sync', async
     if (url.endsWith('/rest/v1/rpc/fail_marketing_contact_sync')) {
       failureBodies.push(JSON.parse(String(init.body || '{}')));
       return Response.json({ failed: false, duplicate: true, outbox_state: 'missing' });
+    }
+    if (url.endsWith('/lists/controlled-audience?fields=id')) {
+      return Response.json({ id: 'controlled-audience' });
     }
     if (init.method === 'GET' && url.includes(successfulMemberHash)) {
       return Response.json({ id: successfulMemberHash, status: 'subscribed' });

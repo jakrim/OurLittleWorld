@@ -30,6 +30,50 @@ export type MarketingSyncResult = {
   state: 'synced' | 'pending' | 'blocked' | 'retry';
 };
 
+export type MarketingLifecycleClaim = {
+  outbox_id: string;
+  event_id: string;
+  claim_token: string;
+  contact_id: string;
+  email: string;
+  event_name: string;
+  occurred_at: string;
+  lifecycle_state: string;
+  attempt_count: number;
+};
+
+export type MarketingLifecycleSyncResult = {
+  contactId: string;
+  eventName: string;
+  lifecycleState: string;
+  state: 'synced' | 'blocked' | 'retry';
+};
+
+const LIFECYCLE_STATE_TAGS: Record<string, string> = Object.freeze({
+  marketing_subscriber: 'olw-state-marketing-subscriber',
+  unactivated_user: 'olw-state-unactivated',
+  activated_user: 'olw-state-activated',
+  trial_user: 'olw-state-trial',
+  paid_customer: 'olw-state-paid',
+  entitled_user: 'olw-state-entitled',
+  lapsed_user: 'olw-state-lapsed',
+});
+
+const LIFECYCLE_EVENT_TAGS: Record<string, string> = Object.freeze({
+  marketing_subscribed: 'olw-lifecycle-subscribed',
+  registered: 'olw-lifecycle-registered',
+  first_memory_saved: 'olw-activated-first-memory',
+  caregiver_invited: 'olw-value-caregiver-invited',
+  first_created: 'olw-value-first-created',
+  letter_created: 'olw-value-letter-created',
+  trial_started: 'olw-conversion-trial',
+  paid_started: 'olw-converted-paid',
+  gift_purchased: 'olw-gift-purchaser',
+  gift_redeemed: 'olw-gift-redeemed',
+  entitlement_granted: 'olw-entitlement-granted',
+  entitlement_lapsed: 'olw-entitlement-lapsed',
+});
+
 export class ProviderError extends Error {
   code: string;
   retryAfterSeconds: number;
@@ -291,6 +335,116 @@ export async function syncMarketingContacts(options: { contactId?: string; batch
   return results;
 }
 
+export function lifecycleMailchimpActions(claim: MarketingLifecycleClaim) {
+  const activeStateTag = LIFECYCLE_STATE_TAGS[claim.lifecycle_state];
+  const eventTag = LIFECYCLE_EVENT_TAGS[claim.event_name];
+  if (!activeStateTag || !eventTag) {
+    throw new ProviderError('invalid_lifecycle_mapping', { terminal: true });
+  }
+  return {
+    tags: [
+      ...Object.values(LIFECYCLE_STATE_TAGS).map((name) => ({
+        name,
+        status: name === activeStateTag ? 'active' : 'inactive',
+      })),
+      { name: eventTag, status: 'active' },
+    ],
+    mergeFields: { LSTATE: claim.lifecycle_state.slice(0, 60) },
+  };
+}
+
+export async function syncLifecycleClaimToMailchimp(claim: MarketingLifecycleClaim) {
+  const audienceId = requiredEnv('OUR_LITTLE_WORLD_MAILCHIMP_AUDIENCE_ID');
+  const memberHash = mailchimpSubscriberHash(claim.email);
+  const member = await mailchimpRequest(
+    `/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`,
+    { method: 'GET' },
+    { allowNotFound: true },
+  );
+  if (!member || providerContactDisposition(member.status) !== 'subscribed') {
+    throw new ProviderError('provider_contact_not_marketable', { terminal: true });
+  }
+
+  const actions = lifecycleMailchimpActions(claim);
+  await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}/tags`, {
+    method: 'POST',
+    body: JSON.stringify({ tags: actions.tags }),
+  });
+  await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ merge_fields: actions.mergeFields }),
+  });
+
+  return { memberHash, eventTag: LIFECYCLE_EVENT_TAGS[claim.event_name] };
+}
+
+export async function syncMarketingLifecycleEvents(options: { batchSize?: number } = {}) {
+  if (env('OUR_LITTLE_WORLD_MAILCHIMP_SYNC_ENABLED') !== 'true') return [];
+  const batchSize = Math.min(50, Math.max(1, options.batchSize || 20));
+  const claimsPayload = await rpc('claim_marketing_lifecycle_events', { batch_size: batchSize });
+  const claims = Array.isArray(claimsPayload) ? claimsPayload as MarketingLifecycleClaim[] : [];
+  const results: MarketingLifecycleSyncResult[] = [];
+
+  for (const claim of claims) {
+    try {
+      await syncLifecycleClaimToMailchimp(claim);
+      const completionPayload = await rpc('complete_marketing_lifecycle_event', {
+        target_outbox_id: claim.outbox_id,
+        target_claim_token: claim.claim_token,
+      });
+      const completion = marketingRpcResult(completionPayload);
+      if (completion.completed !== true) {
+        console.error('marketing_lifecycle_completion_not_applied', {
+          contact_id: claim.contact_id,
+          outbox_id: claim.outbox_id,
+        });
+        results.push({
+          contactId: claim.contact_id,
+          eventName: claim.event_name,
+          lifecycleState: claim.lifecycle_state,
+          state: 'retry',
+        });
+        continue;
+      }
+      results.push({
+        contactId: claim.contact_id,
+        eventName: claim.event_name,
+        lifecycleState: claim.lifecycle_state,
+        state: 'synced',
+      });
+    } catch (error) {
+      const providerError = error instanceof ProviderError
+        ? error
+        : new ProviderError('provider_unavailable', {
+          retryAfterSeconds: retryDelaySeconds(claim.attempt_count),
+        });
+      const terminal = providerError.terminal || claim.attempt_count >= 8;
+      const failurePayload = await rpc('fail_marketing_lifecycle_event', {
+        target_outbox_id: claim.outbox_id,
+        target_claim_token: claim.claim_token,
+        target_error_code: providerError.code,
+        target_retry_after_seconds: providerError.retryAfterSeconds || retryDelaySeconds(claim.attempt_count),
+        target_terminal: terminal,
+      });
+      const failure = marketingRpcResult(failurePayload);
+      if (failure.failed !== true) {
+        console.error('marketing_lifecycle_failure_not_applied', {
+          contact_id: claim.contact_id,
+          outbox_id: claim.outbox_id,
+        });
+      }
+      results.push({
+        contactId: claim.contact_id,
+        eventName: claim.event_name,
+        lifecycleState: claim.lifecycle_state,
+        state: terminal ? 'blocked' : 'retry',
+      });
+    }
+  }
+
+  return results;
+}
+
 function marketingRpcResult(payload: unknown) {
   const value = Array.isArray(payload) ? payload[0] : payload;
   return value && typeof value === 'object'
@@ -309,6 +463,14 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
   if (claim.audience_id && claim.audience_id !== audienceId) {
     throw new ProviderError('provider_audience_mismatch', { terminal: true });
   }
+  // A member 404 is meaningful only after proving that the configured API
+  // credential can see the configured audience. This prevents an account/key
+  // mismatch from being misdiagnosed as a missing subscriber.
+  await mailchimpRequest(
+    `/lists/${encodeURIComponent(audienceId)}?fields=id`,
+    { method: 'GET' },
+    { notFoundErrorCode: 'provider_audience_not_found' },
+  );
   const memberHash = mailchimpSubscriberHash(claim.email);
   const existing = await mailchimpRequest(
     `/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`,
@@ -316,7 +478,8 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
     { allowNotFound: true },
   );
 
-  let member = existing;
+  let member = existing || await findMailchimpMember(audienceId, claim.email);
+  let memberId = String(member?.id || memberHash);
 
   // A public re-submission may record fresh consent evidence, but it must not
   // directly flip a prior opt-out back to subscribed. Mailchimp's `pending`
@@ -324,7 +487,7 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
   // webhook is the only path that reactivates the canonical contact.
   if (claim.sync_action === 'reconfirm') {
     if (!member) {
-      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`, {
+      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberId}`, {
         method: 'PUT',
         body: JSON.stringify({
           email_address: claim.email,
@@ -333,7 +496,7 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
         }),
       });
     } else if (providerContactDisposition(member.status) === 'unsubscribed') {
-      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`, {
+      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           status: 'pending',
@@ -343,7 +506,7 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
     }
 
     return {
-      id: String(member?.id || memberHash),
+      id: String(member?.id || memberId),
       status: String(member?.status || 'unknown').toLowerCase(),
       welcomeEnrolled: Boolean(claim.welcome_enrolled_at || claim.welcome_enrolled),
     };
@@ -356,13 +519,13 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
       return { id: memberHash, status: 'unsubscribed', welcomeEnrolled: false };
     }
     if (['subscribed', 'pending'].includes(String(member.status || '').toLowerCase())) {
-      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`, {
+      member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberId}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'unsubscribed' }),
       });
     }
     return {
-      id: String(member?.id || memberHash),
+      id: String(member?.id || memberId),
       status: String(member?.status || 'unknown').toLowerCase(),
       welcomeEnrolled: false,
     };
@@ -373,7 +536,7 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
   if (claim.sync_action === 'reconcile') {
     if (!member) throw new ProviderError('provider_contact_missing', { terminal: true });
     return {
-      id: String(member?.id || memberHash),
+      id: String(member?.id || memberId),
       status: String(member?.status || 'unknown').toLowerCase(),
       welcomeEnrolled: Boolean(claim.welcome_enrolled_at || claim.welcome_enrolled),
     };
@@ -389,13 +552,14 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
       }),
     });
   } else if (providerContactDisposition(member.status) === 'subscribed') {
-    member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}`, {
+    member = await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberId}`, {
       method: 'PATCH',
       body: JSON.stringify({ merge_fields: safeMarketingMergeFields(claim) }),
     });
   }
 
   const subscribed = providerContactDisposition(member?.status) === 'subscribed';
+  memberId = String(member?.id || memberId);
   const welcomeEnrolled = Boolean(claim.welcome_enrolled_at || claim.welcome_enrolled);
   if (subscribed) {
     const tags = [
@@ -403,14 +567,14 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
       { name: sourceTag(claim.consent_source), status: 'active' },
     ];
     if (!welcomeEnrolled) tags.push({ name: MAILCHIMP_VISITOR_TAG, status: 'active' });
-    await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberHash}/tags`, {
+    await mailchimpRequest(`/lists/${encodeURIComponent(audienceId)}/members/${memberId}/tags`, {
       method: 'POST',
       body: JSON.stringify({ tags }),
     });
   }
 
   return {
-    id: String(member?.id || memberHash),
+    id: String(member?.id || memberId),
     status: String(member?.status || 'unknown').toLowerCase(),
     // Audience subscription is transport state, not enrollment in a lifecycle
     // sequence. Website visitors keep the dedicated visitor tag and remain
@@ -419,14 +583,34 @@ export async function syncClaimToMailchimp(claim: MarketingSyncClaim) {
   };
 }
 
+async function findMailchimpMember(audienceId: string, email: string) {
+  const payload = await mailchimpRequest(
+    `/search-members?query=${encodeURIComponent(email)}&list_id=${encodeURIComponent(audienceId)}`,
+    { method: 'GET' },
+  );
+  const candidates = [
+    ...(Array.isArray(payload?.exact_matches?.members) ? payload.exact_matches.members : []),
+    ...(Array.isArray(payload?.full_search?.members) ? payload.full_search.members : []),
+  ];
+  const normalizedEmail = normalizeMarketingEmail(email);
+  return candidates.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false;
+    const value = candidate as Record<string, unknown>;
+    const candidateListId = String(value.list_id || audienceId);
+    try {
+      return candidateListId === audienceId
+        && normalizeMarketingEmail(String(value.email_address || '')) === normalizedEmail;
+    } catch {
+      return false;
+    }
+  }) || null;
+}
+
 export function safeMarketingMergeFields(claim: MarketingSyncClaim) {
-  const date = /^\d{4}-\d{2}-\d{2}/.test(claim.consented_at)
-    ? claim.consented_at.slice(0, 10)
-    : new Date().toISOString().slice(0, 10);
+  const date = mailchimpDate(claim.consented_at);
   const fields: Record<string, string> = {
     CSOURCE: claim.consent_source.slice(0, 60),
     CONSENTAT: date,
-    LSTATE: 'launch_interest',
   };
   const attribution = claim.attribution || {};
   for (const [mergeTag, key] of [
@@ -441,6 +625,17 @@ export function safeMarketingMergeFields(claim: MarketingSyncClaim) {
   return fields;
 }
 
+// Mailchimp's Date merge field accepts the audience-configured US display
+// format, not an ISO date. Keep the conversion explicit so a valid consent
+// timestamp cannot quarantine an otherwise eligible subscriber.
+export function mailchimpDate(value: string, fallback = new Date()) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) return `${match[2]}/${match[3]}/${match[1]}`;
+
+  const iso = fallback.toISOString();
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}`;
+}
+
 function safeProviderAttribution(value: unknown) {
   const normalized = String(value || '').trim().slice(0, 120);
   if (!normalized || normalized.includes('@') || normalized.includes('://')) return '';
@@ -450,7 +645,7 @@ function safeProviderAttribution(value: unknown) {
 async function mailchimpRequest(
   path: string,
   init: RequestInit,
-  options: { allowNotFound?: boolean } = {},
+  options: { allowNotFound?: boolean; notFoundErrorCode?: string } = {},
 ) {
   const apiKey = requiredEnv('OUR_LITTLE_WORLD_MAILCHIMP_API_KEY');
   const serverPrefix = requiredEnv('OUR_LITTLE_WORLD_MAILCHIMP_SERVER_PREFIX');
@@ -467,6 +662,9 @@ async function mailchimpRequest(
   const text = await response.text();
   const payload = text ? safeJson(text) : {};
   if (response.status === 404 && options.allowNotFound) return null;
+  if (response.status === 404 && options.notFoundErrorCode) {
+    throw new ProviderError(options.notFoundErrorCode, { terminal: true });
+  }
   if (!response.ok) {
     const retryAfter = Number(response.headers.get('retry-after') || 0);
     if (response.status === 429) {
@@ -480,11 +678,81 @@ async function mailchimpRequest(
     if (response.status === 401 || response.status === 403) {
       throw new ProviderError('provider_configuration_error', { terminal: true });
     }
-    const title = String(payload?.title || '').toLowerCase();
-    const code = title.includes('merge') ? 'provider_merge_field_error' : 'provider_contact_rejected';
+    const code = mailchimpProviderErrorCode(payload);
+    console.error('mailchimp_provider_terminal_rejection', {
+      status: response.status,
+      code,
+      diagnostic: safeMailchimpDiagnostic(payload),
+    });
+    if (code === 'provider_contact_signup_rate_limited') {
+      throw new ProviderError(code, { retryAfterSeconds: 86_400 });
+    }
     throw new ProviderError(code, { terminal: true });
   }
   return payload || {};
+}
+
+export function mailchimpProviderErrorCode(payload: unknown) {
+  const body = payload && typeof payload === 'object'
+    ? payload as Record<string, unknown>
+    : {};
+  const title = String(body.title || '').toLowerCase();
+  const detail = String(body.detail || '').toLowerCase();
+  const errors = Array.isArray(body.errors) ? body.errors : [];
+  const fields = errors.map((entry) => {
+    if (!entry || typeof entry !== 'object') return '';
+    return String((entry as Record<string, unknown>).field || '').toLowerCase();
+  }).join(' ');
+  const messages = errors.map((entry) => {
+    if (!entry || typeof entry !== 'object') return '';
+    return String((entry as Record<string, unknown>).message || '').toLowerCase();
+  }).join(' ');
+  const diagnostic = `${title} ${detail} ${fields} ${messages}`;
+
+  if (diagnostic.includes('consentat')) return 'provider_merge_field_consent_date';
+  if (diagnostic.includes('merge')) return 'provider_merge_field_error';
+  if (diagnostic.includes('compliance')) return 'provider_contact_compliance_state';
+  if (diagnostic.includes('forgotten') || diagnostic.includes('permanently deleted')) {
+    return 'provider_contact_forgotten';
+  }
+  if (diagnostic.includes('already a list member')) return 'provider_contact_conflict';
+  if (diagnostic.includes('signed up to a lot of lists')) {
+    return 'provider_contact_signup_rate_limited';
+  }
+  if (diagnostic.includes('required') || diagnostic.includes('please enter a value')) {
+    if (fields.includes('fname')) return 'provider_required_first_name';
+    if (fields.includes('lname')) return 'provider_required_last_name';
+    return 'provider_required_merge_field';
+  }
+  if (diagnostic.includes('fake') || diagnostic.includes('invalid email')) {
+    return 'provider_contact_invalid';
+  }
+  return 'provider_contact_rejected';
+}
+
+export function safeMailchimpDiagnostic(payload: unknown) {
+  const body = payload && typeof payload === 'object'
+    ? payload as Record<string, unknown>
+    : {};
+  const redact = (value: unknown) => String(value || '')
+    .replace(/[^\s@]+@[^\s@]+/g, '[email]')
+    .replace(/https?:\/\/\S+/g, '[url]')
+    .replace(/\b[a-f0-9]{24,}\b/gi, '[token]')
+    .slice(0, 300);
+  const errors = Array.isArray(body.errors) ? body.errors : [];
+
+  return {
+    title: redact(body.title),
+    detail: redact(body.detail),
+    fields: errors.slice(0, 5).map((entry) => {
+      if (!entry || typeof entry !== 'object') return '';
+      return redact((entry as Record<string, unknown>).field);
+    }),
+    messages: errors.slice(0, 5).map((entry) => {
+      if (!entry || typeof entry !== 'object') return '';
+      return redact((entry as Record<string, unknown>).message);
+    }),
+  };
 }
 
 function timingSafeEqualHex(left: string, right: string) {
