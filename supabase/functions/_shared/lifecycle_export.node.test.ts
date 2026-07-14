@@ -80,6 +80,17 @@ test('event projection contains only coarse allowlisted lifecycle fields', async
   }
 });
 
+test('tracking dimensions that resemble contact data are omitted', async () => {
+  const event = await lifecycleEventFromClaim(claim({
+    campaign_id: '202607141234567890',
+    angle_id: 'https://example.com/private',
+    creative_id: 'parent@example.com',
+  }), contactSecret);
+  assert.equal(event.campaign_id, undefined);
+  assert.equal(event.angle_id, undefined);
+  assert.equal(event.creative_id, undefined);
+});
+
 test('billing and consent events use their authoritative source class', () => {
   assert.equal(lifecycleSource('marketing_subscribed'), 'consent_ledger');
   assert.equal(lifecycleSource('paid_started'), 'billing_webhook');

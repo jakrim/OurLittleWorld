@@ -37,9 +37,9 @@
     "audience_name": "Our Little World",
     "trigger": "olw-parent-welcome-v2 may be applied once only after server-authored marketing consent and role=parent_or_guardian",
     "required_fields": ["marketing_consent", "consent_source", "consent_timestamp", "coarse_activation_state", "actor_role"],
-    "forbidden_sources": ["Get Mentors", "LiveVault", "website launch form", "account creation without marketing consent", "gift recipient without separate consent"],
-    "website_launch_audience_id": "91d293c5c4",
-    "website_launch_isolated": true
+    "forbidden_sources": ["Get Mentors", "LiveVault", "account creation without marketing consent", "gift recipient without separate consent"],
+    "website_launch_audience_id": "333fbdbba0",
+    "website_launch_isolated": false
   },
   "frequency_policy": {
     "maximum_marketing_messages_in_7_days": 3,
@@ -89,9 +89,9 @@
     "entry_trigger": "signup_include_imported_contacts",
     "active_email_count": 6,
     "controlled_enrollment": "signup trigger completed; first email sent; next delay queued",
-    "migration": "The six-email flow remains provider-native on the isolated parent audience for controlled/internal use. Website launch interest synchronizes to audience 91d293c5c4, which has zero campaigns. Product accounts must not be connected until server-authored role, consent, activation, exit, and frequency-cap state is deployed.",
-    "public_website_signup_can_enter": false,
-    "product_eligibility_sync_deployed": false
+    "migration": "Explicitly consented double-opt-in signup and the active behavioral journey now share audience 333fbdbba0. Server-authored lifecycle tags drive activation and milestone conditions; the former website-only audience is retired from active synchronization.",
+    "public_website_signup_can_enter": true,
+    "product_eligibility_sync_deployed": true
   },
   "emails": [
     {

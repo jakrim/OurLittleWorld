@@ -1,8 +1,8 @@
 # Our Little World lifecycle measurement export
 
-Status: migration and Edge Function deployed to production on 2026-07-14 with
-the feature flag disabled. Controlled provider and measurement joins remain
-blocked by Mailchimp's recent-signup cooldown.
+Status: active in production as of 2026-07-14. The provider and measurement
+joins passed with the canonical internal QA contact, and the recurring exporter
+is enabled.
 
 ## Purpose
 
@@ -31,7 +31,7 @@ or transactional email.
 
 - Migration: `20260714003000_marketing_measurement_outbox.sql`
 - Edge function: `export-lifecycle-events`
-- Default feature flag: off
+- Production feature flag: on
 - Worker authentication: existing `x-olw-worker-secret` verifier
 - Central authentication: product-specific HMAC-SHA256 over the exact request
   timestamp and body
@@ -44,7 +44,7 @@ Required runtime secrets:
 - `LIFECYCLE_INGEST_URL`
 - `LIFECYCLE_INGEST_OUR_LITTLE_WORLD_SECRET`
 - `LIFECYCLE_CONTACT_KEY_SECRET`
-- `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED=true` only after controlled proof
+- `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED=true`
 
 ## Verification completed
 
@@ -61,9 +61,9 @@ Required runtime secrets:
 
 ## Activation and rollback
 
-Do not enable this deployed exporter until the controlled test identity proves
-the product-to-ledger join. Enable the function separately from Mailchimp
-synchronization. To roll back, turn off
+The controlled identity proved the product-to-ledger join before activation.
+The function remains operationally independent from Mailchimp synchronization.
+To roll back, turn off
 `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED`; queued product events remain in the
 measurement outbox and Mailchimp behavior is unchanged.
 
@@ -72,10 +72,9 @@ Production deployment evidence:
 - migration `20260714003000_marketing_measurement_outbox.sql` is applied;
 - `export-lifecycle-events` version 1 is active with matching runtime-only
   ingress and contact-key secrets;
-- `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED=false` remains the production
-  value, and an unauthenticated request receives a generic disabled response;
-- four consented coarse rows are queued with zero retry or quarantine rows;
-- no Mailchimp contact, audience import, journey edit, or send was performed;
-- do not retry the controlled provider contact before
-  `2026-07-15T00:09:00Z`, and do not enable the exporter until that consent
-  proof and a product-to-ledger join pass.
+- `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED=true` is the production value;
+- two privacy-safe events completed central ingestion, two non-marketable
+  historical rows were canceled, and pending/retry/claimed/quarantine are zero;
+- the central health response contains no contact identifiers;
+- tracking dimensions that resemble email, URL, or phone data are omitted
+  before export, matching the central validator.
