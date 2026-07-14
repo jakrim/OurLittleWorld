@@ -15,6 +15,18 @@ refund scenarios. Test mode does not grant production access.
 
 ## Remaining Launch Blockers
 
+Lifecycle measurement is implemented but not deployed:
+
+- Deploy the central HTTPS lifecycle ingest service with durable storage.
+- Configure matching product-specific ingest and contact-key secrets without
+  printing or committing their values.
+- Apply `20260714003000_marketing_measurement_outbox.sql` and deploy
+  `export-lifecycle-events` with the feature flag still disabled.
+- Prove one controlled event inserts once, identical replay inserts zero,
+  consent withdrawal cancels queued work, and no private identifier appears in
+  the central ledger.
+- Enable `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED` only after those checks.
+
 1. Transactional gift email is not connected.
    - Configure a dedicated transactional provider, authenticated sender, reply handling, and scheduler.
    - Verify buyer confirmation and scheduled recipient delivery in real email clients.
