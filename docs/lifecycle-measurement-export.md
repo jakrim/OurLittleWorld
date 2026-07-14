@@ -1,7 +1,8 @@
 # Our Little World lifecycle measurement export
 
-Status: implemented on `codex/olw-growth-measurement`, disabled by default, not
-deployed.
+Status: migration and Edge Function deployed to production on 2026-07-14 with
+the feature flag disabled. Controlled provider and measurement joins remain
+blocked by Mailchimp's recent-signup cooldown.
 
 ## Purpose
 
@@ -60,8 +61,21 @@ Required runtime secrets:
 
 ## Activation and rollback
 
-Do not deploy or enable this exporter until the central HTTPS ingest service,
-durable ledger, matching secrets, and controlled test identity are ready. Enable
-the function separately from Mailchimp synchronization. To roll back, turn off
+Do not enable this deployed exporter until the controlled test identity proves
+the product-to-ledger join. Enable the function separately from Mailchimp
+synchronization. To roll back, turn off
 `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED`; queued product events remain in the
 measurement outbox and Mailchimp behavior is unchanged.
+
+Production deployment evidence:
+
+- migration `20260714003000_marketing_measurement_outbox.sql` is applied;
+- `export-lifecycle-events` version 1 is active with matching runtime-only
+  ingress and contact-key secrets;
+- `OUR_LITTLE_WORLD_LIFECYCLE_EXPORT_ENABLED=false` remains the production
+  value, and an unauthenticated request receives a generic disabled response;
+- four consented coarse rows are queued with zero retry or quarantine rows;
+- no Mailchimp contact, audience import, journey edit, or send was performed;
+- do not retry the controlled provider contact before
+  `2026-07-15T00:09:00Z`, and do not enable the exporter until that consent
+  proof and a product-to-ledger join pass.
