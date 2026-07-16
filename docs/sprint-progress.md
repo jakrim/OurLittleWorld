@@ -513,3 +513,23 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   reached the React launch surface, but the ad-hoc simulator artifact had no keychain
   entitlement, so SecureStore errors prevented a signed-in Our World/video visual
   pass. No signing credentials, production data, or remote services were changed.
+
+### Curated family world production release (2026-07-16)
+
+- Committed the private-family-world mobile release as `0eb1304` and pushed
+  `polish-sprints` to GitHub. Unrelated web checkout, billing, and agent-rule work
+  remained outside the release commit.
+- Applied only migrations `20260716120000`, `20260716121500`, and
+  `20260716122500` to the linked production Supabase project. Verified the three
+  resulting tables, their row-level security, 11 total policies, and their migration
+  ledger entries. No older migration-history entries were repaired or replayed.
+- Deployed production `notify-event` version 21 from the clean release commit and
+  verified it active.
+- EAS production build `09e41664-fe66-4d1e-af81-f2254269744b` completed as app
+  version 1.1.0, build 1.1.6. Submission
+  `441a1be2-ea8f-473a-b3b7-c90b18e505da` was accepted by App Store Connect and
+  entered Apple processing for TestFlight.
+- Release verification from a clean detached worktree passed TypeScript, all 309
+  release unit tests, Expo lint, public Expo configuration, and the production iOS
+  build. Apple distribution credentials and the push-enabled App Store provisioning
+  profile were validated by EAS.
