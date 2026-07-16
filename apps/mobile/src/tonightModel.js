@@ -29,7 +29,7 @@ export function buildTonightModel({
   return {
     visible: items.length > 0,
     title: 'Tonight',
-    subtitle: 'A short evening pass through the book.',
+    subtitle: 'A short evening pass through your family world.',
     items,
   };
 }
@@ -56,7 +56,7 @@ function reviewCandidate(count) {
     priority: 20,
     eyebrow: 'Photo review',
     title: value === 1 ? '1 likely photo is ready for a look' : `${value} likely photos are ready for a look`,
-    body: 'Keep only what belongs in the book.',
+    body: 'Keep only what belongs in your family record.',
     actionLabel: 'Review',
     route: '/review',
     count: value,
@@ -100,7 +100,7 @@ function digestCandidate(digest, digestUnread) {
     kind: 'digest',
     priority: 50,
     eyebrow: 'This week',
-    title: digestUnread ? "This week's story is ready" : 'Skim this week in the book',
+    title: digestUnread ? "This week's story is ready" : 'Skim this week in your world',
     body: digest?.headline || 'A small recap is ready to revisit.',
     actionLabel: 'Open',
     route: '/digest',

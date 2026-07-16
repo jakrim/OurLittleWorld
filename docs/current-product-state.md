@@ -1,14 +1,14 @@
 # Our Little World — Current Product State
 
-Last updated: July 11, 2026
+Last updated: July 16, 2026
 
 ## Product Thesis
 
-Our Little World is a private, parent-approved baby book that helps families turn everyday photos, videos, notes, firsts, and letters into a durable family story with less work. The assistant may surface likely moments and helpful prompts, but parents remain the authority and no memory, date, milestone, relationship, feeling, or child intent may be fabricated.
+Our Little World is the private digital place where parents keep the life they are building with their baby: photos, videos, notes to each other, voice notes, Firsts, and letters to their child. The assistant may surface likely moments and helpful prompts, but parents remain the authority and no memory, date, milestone, relationship, feeling, or child intent may be fabricated. A printable or physical book is an optional future output, not the organizing center of the product.
 
 ## Current Product Loop
 
-`Today` helps parents notice, capture, review, and approve worthwhile moments. `Add` supports intentional creation. `Book` is the durable payoff through Firsts, Letters, Library, timeline, and related memory surfaces. The experience should make these connections obvious rather than presenting a collection of unrelated features.
+`Today` helps parents notice, capture, review, and approve worthwhile moments. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
 
 ## Current Architecture
 
@@ -26,16 +26,47 @@ Our Little World is a private, parent-approved baby book that helps families tur
 - Discovery separates likely-child identity, age-diverse recognition references, and
   the parent-confirmed representative photo; neither recency nor array order may stand
   in for face quality or matching trust.
+- Photo-heavy choices are best-photo-first: likely-child candidates are ranked on
+  device, true lookalike bursts default to one clear frame, the other originals remain
+  recoverable, and the native library picker is always available when a parent wants
+  a different photo.
+- Curation is day-first across the complete scan: one strongest eligible baby photo
+  anchors each local calendar day, while every additional distinct standout and
+  special video may remain. One per day is a floor, not a cap. A missing eligible
+  photo stays an honest gap, first-year coverage uses inclusive local days, and the
+  app does not claim a smile classification without a validated expression signal.
+  The dedicated 365-day view virtualizes every elapsed first-year day and keeps gap
+  days visible without loading thousands of media tiles at once.
+- Videos are evaluated from multiple sampled frames, save as playable media by
+  default, and fall back to a poster only when media policy prevents the playable
+  upload. Multi-media moments are swipeable with native and full-screen playback.
+- Photo-library authorization is per parent and per device. Each writer scans only
+  the Photos library they authorize on their own phone; the shared family record is
+  the union of saved contributions, never a wholesale mirror of either camera roll.
+  Family-visible connection state contains aggregates only and excludes local asset
+  identifiers, face data, fingerprints, candidates, and rejected photos.
+- Timeline and search fold only uncaptioned same-time bursts, Places and weekly recaps
+  lead with one representative per event, and parent-authored context remains visible.
+- Moment views are recorded only on an explicit open and support honest Added by,
+  Read/Seen by, reaction, and private reply state between family writers.
 - Family authorization, analytics payloads, account deletion, export, lapsed-subscription access, and media privacy are release-critical behavior.
 - Letters and long-term promises must be supported by export/ownership behavior; marketing cannot promise indefinite platform custody.
 
 ## Active Product Direction
 
-- Center the experience on Today, Add, and Book while keeping Firsts and Letters reachable.
+- Center the experience on Today, Add, and Our World, with Firsts and Letters as durable parts of the family space.
+- Make parent-to-parent notes, letters to baby, voice notes, photo review, and media browsing first-class jobs.
 - Reduce parent work without taking authorship away from the family.
 - Make empty states and early-life onboarding joyful and immediately understandable.
 - Use predictive assistance to surface candidates, not manufacture memories.
-- Keep gift purchase, redemption, subscription, export, and deletion behavior consistent across mobile and web.
+- Remove repetitive photo sorting from moment, First, letter, and review flows while
+  keeping every save or replacement under parent control.
+- Build the first 365 days as an honest day-by-day family album: automatically choose
+  the daily anchor, preserve distinct standouts and special videos, and show combined
+  saved-day coverage from both parents.
+- Let both parents independently contribute from their own phone without turning
+  either person's private camera roll into shared family data.
+- Keep gift purchase, redemption, subscription, export, and deletion behavior consistent across mobile and web without allowing monetization or print output to dominate daily use.
 
 ## Verification Personas
 
@@ -51,7 +82,8 @@ Maintain deterministic fixtures for:
 
 ## Active Execution Sources
 
-- `docs/assistant-curated-baby-book-prd.md`: primary product transformation PRD.
+- `docs/private-family-world-prd.md`: primary product direction and delivery plan.
+- `docs/assistant-curated-baby-book-prd.md`: completed historical transformation record; its trust and assistant-curation capabilities remain supporting infrastructure.
 - `docs/sprint-progress.md`: durable execution state and verification record.
 - `docs/polish-backlog.md`: scoped polish work where still active.
 - `docs/architecture.md`: system design.

@@ -33,6 +33,10 @@ export type MatchResult = {
   yaw: number | null;
   roll: number | null;
   brightness: number | null;
+  /** Face-crop feature print used only for child-identity matching. */
+  featureVector: number[];
+  /** Whole-image plus selected-face perceptual fingerprint for near-duplicates. */
+  visualFingerprint: number[];
 };
 
 export type ExpoFaceMatcherModuleEvents = Record<string, never>;

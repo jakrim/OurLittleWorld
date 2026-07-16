@@ -9,7 +9,7 @@
  * Public API
  * ----------
  *   embedFace(localUri) → { embedding, faceCount, primaryBox, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness } | null
- *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness }]
+ *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness, featureVector, visualFingerprint }]
  *
  * Embeddings are L2-normalised so cosine similarity == dot product.
  */
@@ -55,7 +55,8 @@ export async function embedFace(localUri) {
  *   reference: { embedding: number[] }
  *   candidates: [{ assetId, localUri }]
  *
- * Native module returns scores in [0..1] (higher = more similar).
+ * Native module returns scores in [0..1] (higher = more similar) plus the
+ * selected face crop's feature vector for on-device lookalike suppression.
  * If native is unavailable, we return uniform 0.5 score so the user
  * can still walk through their library manually.
  */
@@ -73,6 +74,8 @@ export async function matchAgainst({ reference, candidates }) {
       yaw: null,
       roll: null,
       brightness: null,
+      featureVector: null,
+      visualFingerprint: null,
     }));
   }
 
@@ -94,6 +97,8 @@ export async function matchAgainst({ reference, candidates }) {
       yaw: null,
       roll: null,
       brightness: null,
+      featureVector: null,
+      visualFingerprint: null,
     }));
   }
 }
@@ -103,9 +108,10 @@ export async function matchAgainstReferenceProfile({
   birthdayISO,
   fallbackReference,
   candidates,
+  referenceLimit,
 }) {
   if (!candidates?.length) return [];
-  const refs = selectReferencesForCandidates(profile, { birthdayISO, candidates });
+  const refs = selectReferencesForCandidates(profile, { birthdayISO, candidates, limit: referenceLimit });
   const references = refs.length ? refs : (fallbackReference ? [fallbackReference] : []);
   if (!references.length) return matchAgainst({ reference: null, candidates });
   if (references.length === 1) {

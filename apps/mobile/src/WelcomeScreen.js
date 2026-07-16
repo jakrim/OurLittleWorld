@@ -8,25 +8,25 @@ import useReducedMotion from './ui/useReducedMotion';
 
 const SLIDES = [
   {
-    key: 'baby-book',
+    key: 'family-world',
     art: 'book',
-    eyebrow: 'Assistant baby book',
+    eyebrow: 'Your private family space',
     title: 'Likely moments.\nYou approve what stays.',
-    body: 'If you allow photo access, Our Little World looks for likely baby moments in your camera roll. You approve what gets kept, and the private book grows from there.',
+    body: 'If you allow photo access, Our Little World looks for likely baby moments in your camera roll. You approve what gets kept in your shared family record.',
   },
   {
     key: 'details',
     art: 'details',
     eyebrow: 'Every little detail',
     title: 'First smiles, sleepy\nnotes, ordinary magic.',
-    body: 'Photos and video, milestones, funny habits, late-night thoughts \u2014 the small moments you\u2019ll want to replay.',
+    body: 'Photos and video, notes to each other, voice, letters, funny habits, and late-night thoughts \u2014 all kept together.',
   },
   {
     key: 'growth',
     art: 'growth',
     eyebrow: 'Grows with them',
-    title: 'A keepsake that\ngrows as they do.',
-    body: "From newborn days to first steps and far beyond, build a shared record of who they're becoming.",
+    title: 'A living record that\ngrows as they do.',
+    body: "From newborn days to first steps and far beyond, keep a shared record of who they're becoming.",
   },
   {
     key: 'private',
@@ -43,7 +43,7 @@ const TERMS_URL = 'https://ourlittleworld.me/terms/';
 
 /**
  * The first thing a new visitor sees. A swipeable intro that frames the
- * app as a private baby book before moving into email sign-in.
+ * app as a private shared family space before moving into email sign-in.
  *
  * After "begin", we move to the email screen. Signed-out users always
  * start here so the emotional intro remains the first app moment.
@@ -215,7 +215,7 @@ export default function WelcomeScreen() {
         </Animated.View>
 
         <Animated.View style={{ opacity: ctaO, width: '100%' }}>
-          <Button onPress={onBegin}>Start your baby book</Button>
+          <Button onPress={onBegin}>Start your family world</Button>
           <Spacer h={space.md} />
           <LegalNotice theme={theme} />
         </Animated.View>
@@ -279,7 +279,7 @@ function BabyBookArt({ compact, progress, theme }) {
           <View style={styles.bookHeaderCopy}>
             <View style={styles.bookJourneyWindow}>
               <Animated.View style={{ transform: [{ translateY: journeyShift }] }}>
-                <BabyBookStage eyebrow="Baby book" title="Earliest days, held together" theme={theme} />
+                <BabyBookStage eyebrow="Our World" title="Earliest days, held together" theme={theme} />
                 <BabyBookStage eyebrow="10 months" title="Crawls, claps, tiny routines" theme={theme} />
                 <BabyBookStage eyebrow="2 years" title="Words, wobble-runs, big feelings" theme={theme} />
               </Animated.View>

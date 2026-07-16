@@ -138,7 +138,7 @@ function buildConnectedFirstLetterRows({ userId, now }) {
     {
       id: firstMomentId,
       title: 'Morning smile',
-      caption_note: 'Parent-approved note for the baby book.',
+      caption_note: 'Parent-approved note for the family record.',
       captured_at: '2026-07-03T12:00:00Z',
       created_at: '2026-07-03T12:00:00Z',
       place_name: 'At home',

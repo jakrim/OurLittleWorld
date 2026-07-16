@@ -55,7 +55,7 @@ export default function ScanProgressScreen() {
 
     fired.current = true;
     (async () => {
-      await startLibraryScan({ family, user });
+      await startLibraryScan({ family, user, requestPhotoPermission: true });
     })();
   }, [family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import BirthDatePicker from './ui/BirthDatePicker';
+import BestPhotoRail from './ui/BestPhotoRail';
 import { Body, Button, Caption, Field, PhotoPlaceholder, Screen, Title, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
@@ -23,12 +25,14 @@ import {
   seedPhotoFromParams,
 } from './firstComposeSeedModel.js';
 import { notifyPartnerFirstSaved } from './notificationEvents';
-import { fetchPhotosPage, getLibraryPermissionStatus, normalizeMediaLibraryAssetId } from './photos';
+import { normalizeMediaLibraryAssetId } from './photos';
 import PostSaveNudgeSheet from './PostSaveNudgeSheet';
 import { canShowPostSaveNudge, firstSavedLetterNudge } from './postSaveNudgeModel';
 import { dismissPostSaveNudge, readPostSaveNudgeState, recordPostSaveNudgeShown } from './postSaveNudgeStore';
 import { listSharedTagged, listSharedTaggedChronological, uploadForTag } from './photoSync';
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
+import { loadBestPhotoCandidates } from './bestPhotoCandidates';
+import { candidateId } from './bestPhotoCandidateModel.js';
 
 const RECENT_PHOTO_LIMIT = 60;
 const FIRST_PHOTO_CANDIDATE_LIMIT = 120;
@@ -56,6 +60,7 @@ export default function FirstComposeSheetScreen() {
   const [note, setNote] = useState('');
   const [sharedPhotos, setSharedPhotos] = useState([]);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [photosLoading, setPhotosLoading] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [saving, setSaving] = useState(false);
   const [postSaveNudge, setPostSaveNudge] = useState(null);
@@ -127,10 +132,12 @@ export default function FirstComposeSheetScreen() {
       };
     }
 
+    setPhotosLoading(true);
     loadFirstPhotoCandidates({
       familyId: family.id,
       firstPhotoWindow,
       userId: user?.id,
+      babyBirthday: family?.babyBirthday,
     })
       .then((photos) => {
         if (!alive) return;
@@ -149,12 +156,15 @@ export default function FirstComposeSheetScreen() {
       })
       .catch(() => {
         if (alive) setSharedPhotos([]);
+      })
+      .finally(() => {
+        if (alive) setPhotosLoading(false);
       });
 
     return () => {
       alive = false;
     };
-  }, [family?.id, firstPhotoWindow, firstPhotoWindow?.capturedBefore, firstPhotoWindow?.capturedOnOrAfter, seedPhoto, user?.id]);
+  }, [family?.babyBirthday, family?.id, firstPhotoWindow, firstPhotoWindow?.capturedBefore, firstPhotoWindow?.capturedOnOrAfter, seedPhoto, user?.id]);
 
   const happenedAgeLabel = useMemo(
     () => firstHappenedAgeLabel({
@@ -191,9 +201,11 @@ export default function FirstComposeSheetScreen() {
   }), [date, family?.babyBirthday, selectedPhoto?.creation_time]);
   const suggestedTitleLocked = Boolean(seededFirst && !editingTitle);
   const effectiveTitle = title.trim() || (seededFirst ? seedTitle : '');
-  const photoRailCaption = firstPhotoWindow
-    ? "Showing earliest photos from birth through this first's date, oldest first."
-    : 'Pick one photo already in the family archive. Its date fills in automatically when available.';
+  const photoRailCaption = sharedPhotos.length
+    ? (firstPhotoWindow
+      ? "Best distinct photos from birth through this first's date, ranked for clarity."
+      : 'Best distinct recent photos from this device and your family world.')
+    : 'Choose any photo from your native library.';
 
   const toggleTitleEditing = useCallback(() => {
     if (editingTitle && seedTitle && !title.trim()) {
@@ -207,6 +219,32 @@ export default function FirstComposeSheetScreen() {
     const photoDate = firstPhotoHappenedDate(photo);
     if (photoDate) setDate(photoDate);
   }, []);
+
+  const pickPhoto = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: false,
+      quality: 1,
+      shouldDownloadFromNetwork: true,
+    });
+    const asset = result.canceled ? null : result.assets?.[0];
+    if (!asset) return;
+    const assetId = normalizeMediaLibraryAssetId(asset.assetId);
+    if (!assetId) {
+      Alert.alert('Photo unavailable', 'Choose a photo from the native library with Photos access enabled.');
+      return;
+    }
+    selectPhoto({
+      ...asset,
+      localOnly: true,
+      assetId,
+      asset_id: assetId,
+      asset_owner_user_id: user?.id,
+      mediaType: 'image',
+      type: 'image',
+      localUri: asset.uri,
+    });
+  }, [selectPhoto, user?.id]);
 
   const save = async () => {
     if (!effectiveTitle) return;
@@ -388,50 +426,24 @@ export default function FirstComposeSheetScreen() {
         {sourceMomentId ? (
           <MomentPhotoSummary photo={selectedPhoto} theme={theme} />
         ) : <View>
-          <Caption>Attach a photo, optional</Caption>
-          <Caption>{photoRailCaption}</Caption>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.photoRow}
-          >
-            <Pressable
-              onPress={() => setSelectedPhoto(null)}
-              style={[
-                styles.photoChoice,
-                !selectedPhoto && { borderColor: theme.semantic.primary },
-              ]}
-            >
-              <PhotoPlaceholder style={StyleSheet.absoluteFill} icon="flag-outline" />
-              {!selectedPhoto ? <SelectedCheck /> : null}
-            </Pressable>
-            {sharedPhotos.map((photo) => {
-              const key = `${photo.localOnly ? 'local' : photo.asset_owner_user_id}:${photo.asset_id}`;
-              const selected = selectedPhoto
-                && selectedPhoto.asset_owner_user_id === photo.asset_owner_user_id
-                && selectedPhoto.asset_id === photo.asset_id;
-              const sourceUri = photo.thumbUrl || photo.fullUrl || photo.uri || photo.localUri;
-              return (
-                <Pressable
-                  key={key}
-                  onPress={() => selectPhoto(photo)}
-                  style={[styles.photoChoice, selected && { borderColor: theme.semantic.primary }]}
-                >
-                  {sourceUri ? (
-                    <Image
-                      source={{ uri: sourceUri }}
-                      style={StyleSheet.absoluteFill}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                    />
-                  ) : (
-                    <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                  )}
-                  {selected ? <SelectedCheck /> : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <BestPhotoRail
+            photos={sharedPhotos}
+            loading={photosLoading}
+            selectedIds={new Set([candidateId(selectedPhoto)].filter(Boolean))}
+            onToggle={(photo) => {
+              if (candidateId(selectedPhoto) === candidateId(photo)) setSelectedPhoto(null);
+              else selectPhoto(photo);
+            }}
+            onOpenPicker={pickPhoto}
+            title="Best photos for this First"
+            caption={photoRailCaption}
+            pickerLabel="Choose from full library"
+          />
+          {selectedPhoto ? (
+            <Button variant="quiet" size="sm" fullWidth={false} onPress={() => setSelectedPhoto(null)}>
+              Keep without a photo
+            </Button>
+          ) : null}
         </View>}
         <View style={styles.composerRow}>
           {existing ? <Button variant="quiet" size="md" fullWidth={false} onPress={remove}>Delete</Button> : <View />}
@@ -489,46 +501,30 @@ async function buildFirstSavedLetterNudge({ family, user, first }) {
   }
 }
 
-async function loadFirstPhotoCandidates({ familyId, firstPhotoWindow, userId }) {
-  if (!firstPhotoWindow) {
-    return listSharedTagged(familyId, { limit: RECENT_PHOTO_LIMIT });
-  }
-
-  const savedPhotos = await listSharedTaggedChronological(familyId, {
-    ...firstPhotoWindow,
-    limit: FIRST_PHOTO_CANDIDATE_LIMIT,
-  });
-  const localPhotos = await listLocalFirstPhotoCandidates({ firstPhotoWindow, userId });
-  return mergePhotoCandidates(savedPhotos, localPhotos).slice(0, FIRST_PHOTO_CANDIDATE_LIMIT);
-}
-
-async function listLocalFirstPhotoCandidates({ firstPhotoWindow, userId }) {
-  if (!userId || !firstPhotoWindow?.capturedOnOrAfter || !firstPhotoWindow?.capturedBefore) return [];
-  const permission = await getLibraryPermissionStatus().catch(() => null);
-  if (!permission?.granted) return [];
-
-  const createdAfterMs = new Date(firstPhotoWindow.capturedOnOrAfter).getTime();
-  const createdBeforeMs = new Date(firstPhotoWindow.capturedBefore).getTime();
-  if (!Number.isFinite(createdAfterMs) || !Number.isFinite(createdBeforeMs)) return [];
-
-  const { assets } = await fetchPhotosPage({
-    pageSize: FIRST_PHOTO_CANDIDATE_LIMIT,
-    createdAfterMs,
-    createdBeforeMs,
-    sortAscending: true,
-  });
-
-  return (assets || []).map((asset) => {
-    const assetId = normalizeMediaLibraryAssetId(asset.id);
-    return {
-      localOnly: true,
-      asset_owner_user_id: userId,
-      asset_id: assetId,
-      creation_time: Number.isFinite(asset.creationTime) ? new Date(asset.creationTime).toISOString() : null,
-      uri: asset.uri,
-      localUri: asset.localUri,
-    };
-  }).filter((photo) => photo.asset_id);
+async function loadFirstPhotoCandidates({ familyId, firstPhotoWindow, userId, babyBirthday }) {
+  const createdAfterMs = firstPhotoWindow?.capturedOnOrAfter
+    ? new Date(firstPhotoWindow.capturedOnOrAfter).getTime()
+    : undefined;
+  const createdBeforeMs = firstPhotoWindow?.capturedBefore
+    ? new Date(firstPhotoWindow.capturedBefore).getTime()
+    : undefined;
+  const [bestLocal, savedPhotos] = await Promise.all([
+    loadBestPhotoCandidates({
+      familyId,
+      userId,
+      babyBirthday,
+      createdAfterMs: Number.isFinite(createdAfterMs) ? createdAfterMs : undefined,
+      createdBeforeMs: Number.isFinite(createdBeforeMs) ? createdBeforeMs : undefined,
+      limit: 12,
+    }),
+    firstPhotoWindow
+      ? listSharedTaggedChronological(familyId, {
+        ...firstPhotoWindow,
+        limit: FIRST_PHOTO_CANDIDATE_LIMIT,
+      })
+      : listSharedTagged(familyId, { limit: RECENT_PHOTO_LIMIT }),
+  ]);
+  return mergePhotoCandidates(bestLocal.photos, savedPhotos).slice(0, FIRST_PHOTO_CANDIDATE_LIMIT);
 }
 
 function mergePhotoCandidates(savedPhotos = [], localPhotos = []) {
@@ -540,11 +536,7 @@ function mergePhotoCandidates(savedPhotos = [], localPhotos = []) {
     seen.add(key);
     merged.push(photo);
   }
-  return merged.sort((a, b) => {
-    const aTime = a.creation_time ? new Date(a.creation_time).getTime() : Number.MAX_SAFE_INTEGER;
-    const bTime = b.creation_time ? new Date(b.creation_time).getTime() : Number.MAX_SAFE_INTEGER;
-    return aTime - bTime;
-  });
+  return merged;
 }
 
 const styles = StyleSheet.create({
@@ -570,10 +562,6 @@ const styles = StyleSheet.create({
   suggestedNoteText: {
     flex: 1,
     gap: 2,
-  },
-  photoRow: {
-    gap: space.sm,
-    paddingTop: space.sm,
   },
   templateCard: {
     borderRadius: radius.lg,
@@ -640,26 +628,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoChoice: {
-    width: 68,
-    height: 68,
-    borderRadius: radius.md,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectedCheck: {
-    position: 'absolute',
-    right: 4,
-    bottom: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   composerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -670,12 +638,3 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
 });
-
-function SelectedCheck() {
-  const theme = useTheme();
-  return (
-    <View style={[styles.selectedCheck, { backgroundColor: theme.semantic.primary }]}>
-      <Ionicons name="checkmark" size={14} color={theme.colors.onPrimary} />
-    </View>
-  );
-}

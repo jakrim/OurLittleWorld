@@ -180,11 +180,11 @@ export default function SetupScreen() {
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
 	        {isFirstSetup ? (
 	          <IntroHeader
-	            hero={'Start the private\nbaby book.'}
+	            hero={'Start your private\nfamily world.'}
 	            body={
 	              'Add their name and birth date. If you allow photo access, we start '
 	              + 'from that day to look for likely moments; you approve what belongs, '
-	              + 'and the private book grows.'
+	              + 'and your shared family record grows.'
 	            }
 	          />
         ) : (
@@ -334,15 +334,15 @@ function RitualSettingsCard({ onInvite, onLetters, onLibrary }) {
       />
       <SettingsRow
         icon="mail-outline"
-        title="Time capsules"
-        detail="Letters saved with the baby book."
+        title="Letters to baby"
+        detail="Words, photos, and voice kept for your child."
         theme={theme}
         onPress={onLetters}
       />
       <SettingsRow
-        icon="book-outline"
-        title="Family archive"
-        detail="Photos, places, and saved milestones live in Library."
+        icon="albums-outline"
+        title="Our World"
+        detail="Photos, notes, voice, letters, and milestones live together."
         theme={theme}
         onPress={onLibrary}
       />

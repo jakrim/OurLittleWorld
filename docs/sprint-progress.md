@@ -257,6 +257,15 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
 
 ## Notes
 
+### Website acquisition funnel repair (2026-07-14)
+
+- Self-checkout now asks only for a preselected plan and email; profile and child-stage details are deferred to onboarding.
+- Consent-granted, bounded UTM campaign/creative attribution is allowlisted into Stripe Checkout and subscription metadata.
+- Checkout success now verifies the Stripe session and waits for webhook-provisioned claim state before showing a code or recording completion. The self-purchase path opens the app with the code prefilled and supports configured store-install links; pending claims remain explicit and retryable.
+- Mobile redemption analytics now classify website, gift, and partner codes from the authoritative RPC response instead of treating every code as a gift.
+- Website analytics now has explicit allow/deny controls and a persistent preferences entry point.
+- Deployment, live payment testing, public store URLs, and production credential changes remain intentionally pending owner operations.
+
 - Unit tests: `node --test` under `apps/mobile/tests/unit/` (`npm run test:unit`; `npm test` = tsc + unit). No RN test framework existed before.
 - Pre-existing staged files on master (.nvmrc, .serena/, app.json, eas.json, docs/*) carried onto the branch uncommitted; item commits are path-scoped so they are never swept in.
 - Known minor: after reading the digest, Today's "story is ready" nudge can persist up to the 30s refresh TTL before clearing.
@@ -438,3 +447,69 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
 - Added a photo-focus state to Moment detail. Tapping a still photo minimizes the details and changes the photo to uncropped `contain` presentation; the visible handle supports native pan gestures down from details and up from photo focus, and also remains tappable and accessible. Changing moments resets to the normal detail state.
 - Corrected `Set as milestone`: it no longer inserts a completed First before confirmation. It opens an unsaved draft seeded with the moment title/note/photo and capture date. The linked moment date is rendered as a non-editable fact, the already-selected photo is summarized once instead of showing the archive picker, the redundant Source card is removed, Save performs the create, and Cancel returns without a write. Existing linked Firsts still reopen for editing.
 - Verification: `node --test apps/mobile/tests/unit/momentConnectionChips.test.js apps/mobile/tests/unit/momentMilestoneModel.test.js apps/mobile/tests/unit/firstComposeSeedModel.test.js` passed 20 focused tests; full `pnpm --filter @ourlittleworld/mobile test` passed TypeScript plus 281 unit tests; `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` and scoped diff checks passed. On the authorized iPhone Air simulator, committed non-mutating smoke `apps/mobile/.maestro/moment-detail-story-and-photo.yaml` passed: revised actions rendered with no co-parent card; photo tap, handle swipe-down, and sheet swipe-up were reversible; the milestone draft showed the inherited fixed date/photo with no Source or photo picker; and Cancel returned without saving. Private simulator screenshots stayed outside the repo.
+
+### Private family world product reset (2026-07-15)
+
+- Recovered the decision path from sessions `019f4461-86f9-70a2-b9dc-67a34d12de58`, `019f4250-32a1-7651-9afc-5ffa907233eb`, and `019f3a10-1cd2-7730-ac1a-6ea5fc9fd917`. The Book-centered navigation was a recent product-direction choice, not a storage or authorization constraint; existing moments, letters, voice media, family writer access, and review flows support a private family-space model.
+- Restored the parent-facing loop to `Today` → `Add` → `Our World`. Add now begins with photos/moment, note to each other, voice note, or letter to baby; each route reduces the composer to the relevant inputs. Parent notes reuse durable text-only moments in the authorized shared timeline and emit a content-free co-parent activity notification.
+- Reframed the first Our World viewport around moments, media, voices, Firsts, Letters, and notes. Search, photo review, places, and export remain available, while print/photo-book work is explicitly a secondary future extra. Removed book-production language from ordinary onboarding, save, review, recap, deletion, and reminder paths.
+- Added `docs/private-family-world-prd.md` as the active direction and marked the July 8 baby-book PRD as a historical implementation record. Internal `book*` data/model names remain temporarily for compatibility.
+- Verification: `pnpm --filter @ourlittleworld/mobile test` passed TypeScript plus 288 unit tests; `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed; and `git diff --check` passed. On the signed-in local-only iPhone 16e simulator, `top-level-today-add-book.yaml` passed Today → Our World → Add and the intention chooser, while `book-navigation-smoke.yaml` passed the readable full-width parent-note/voice cards plus Firsts and Letters navigation. Expo/local screenshots verified updated onboarding, the Add chooser, the parent-note composer, and the Our World empty state. Expo JavaScript error-log collection returned no errors. The disposable auto-save fixture initially lacked its local QA entitlement seed after Supabase restart; the local seed was restored without a reset or production access.
+
+### Best-photo-first capture and review (2026-07-15)
+
+- Added a reusable, bounded on-device candidate pass that scores recent or date-relevant likely-child photos, ranks measured quality first, and suppresses visual lookalikes before presenting them. Add Moment, First compose, and Letter compose now lead with these distinct candidates and keep the native Photos picker as a one-tap full-library choice.
+- Corrected review-stack behavior so a lookalike burst defaults to one best frame regardless of burst size. Expanded stacks still expose every original and allow a parent to promote a different frame. Older native builds without visual fingerprints now fall back to a three-second burst gap instead of incorrectly folding an entire 30-minute photo session.
+- Extended the iOS matcher result with the already-computed candidate feature vector, avoiding a second Vision analysis while enabling visual comparison in JavaScript. Candidate analysis stays on device, is bounded to 48 recent images, and is cached briefly per family/window.
+- Verification: `node --test tests/unit/photoStackModel.test.js tests/unit/bestPhotoCandidateModel.test.js tests/unit/firstSuggestionModel.test.js` passed 29 focused tests; `pnpm --filter @ourlittleworld/mobile test` passed TypeScript plus all 293 unit tests; and `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed. Fresh iOS Debug and Release simulator builds succeeded, and the Release app installed and launched. Expo MCP remained attached to a different project, while the available simulator had no authenticated family session, so the signed-in candidate rails could not be visually exercised without creating remote account data; no account or family was created for this check.
+
+### Event-first family space and two-parent libraries (2026-07-16)
+
+- Timeline and Search now fold only uncaptioned photo-only records captured inside the conservative three-second burst window, choose the clearest representative, and expose the hidden saved frames on demand. Places render one representative per saved event, weekly recaps show one representative per moment, and the prompt composer can place one clear already-saved photo from the relevant day beside the writing starter.
+- Interrupted uploads now retry quietly from both the local queue and the current writer's incomplete cloud rows with a five-minute cooldown. Technical error strings were removed from the parent surface; one calm Retry card remains only when background recovery cannot finish.
+- Added a production two-parent library contract and implementation. Each writer independently authorizes and scans their own phone, maintains their own child reference/trust/checkpoint state, and can mutate only their own aggregate `family_library_connections` row. The partner-visible panel shows connection health but never camera-roll items, asset ids, face data, fingerprints, candidates, or rejects. The shared archive remains the union of saved contributions.
+- Added explicit moment-open receipts for family writers plus honest Added by, Read/Seen by, reacted, and replied labels. Short private replies remain attached to the canonical moment. Reactions and replies emit content-free partner activity and never treat push delivery as a read.
+- Verification: 19 focused tests passed; full `pnpm --filter @ourlittleworld/mobile test` passed TypeScript plus all 300 unit tests; `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed; `deno check supabase/functions/notify-event/index.ts` passed; and scoped diff checks passed. The three additive migrations executed successfully inside one rollback-only local transaction. The normal local migration runner was not used because the existing database ledger contains remote-only July 13-14 versions absent from this checkout; no history repair or remote change was attempted. A fresh Debug iOS simulator build succeeded. Its Expo dev launcher hit the same pre-JavaScript SwiftUI/AttributeGraph crash previously observed on this multi-project simulator, so signed-in visual checks remain outstanding; this was a launcher failure before the app bundle connected to Metro, not a runtime failure in these screens.
+
+### Day-by-day first-year curation and video viewing (2026-07-16)
+
+- Added `dailyCurationModel.js` as the shared day-first policy. It groups the complete
+  scan by local calendar day, keeps one strongest eligible baby photo as the daily
+  anchor, then retains every additional distinct standout and special video without
+  an arbitrary per-day count cap. Missing eligible photos remain honest gaps. For the
+  July 23, 2025 birthday, July 16, 2026 is modeled as inclusive first-year day 359.
+- Scan auto-save selection now waits until all photo pages and sampled videos have
+  finished, preventing an early weak frame from winning before the best daily
+  representative is known. Review defaults use the same daily policy while preserving
+  parent picks, skips, native-picker escape, review-first trust, and correction paths.
+- Corrected duplicate evidence: the native face-crop feature print remains identity
+  evidence only. A cheap whole-image plus selected-face perceptual fingerprint now
+  drives near-duplicate suppression, so separate photos cannot fold merely because
+  they contain the same baby. Older builds without a perceptual fingerprint use only
+  the conservative three-second burst fallback.
+- Video candidates now collapse multiple sampled frames back to the source asset,
+  retain the strongest frame, and record sampled/matching-frame presence. Review and
+  calibrated auto-save attempt full playable video first and use poster-only fallback
+  only when media policy requires it. Moment detail pages horizontally through every
+  saved photo and video, shows position in the set, pauses off-screen videos, and keeps
+  native controls plus full-screen playback.
+- Our World now shows honest first-year photo-day coverage and a recent horizontal
+  day rail. `Open all 365 days` leads to a virtualized first-year list with a card for
+  every elapsed day, neutral gap rows, and all saved standouts/videos for populated
+  days. Coverage is built only from saved photo/video records and therefore combines
+  both parents' approved contributions without reading either unsaved camera roll.
+  Its archive read now uses stable 500-row pagination up to 5,000 curated moments, so
+  standouts cannot silently push early first-year days past the old 500-moment screen
+  limit. The general timeline keeps a bounded recent render window while the daily
+  album owns full first-year browsing. The active PRD, current product state, and
+  architecture now carry the durable day-first contract and explicitly avoid
+  unvalidated smile-classification claims.
+- Verification: focused daily, archive-pagination, duplicate, video,
+  upload-metadata, best-photo, and suggested-first tests passed;
+  `pnpm --filter @ourlittleworld/mobile test` passed TypeScript plus all 309 unit
+  tests; `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed; the
+  full Debug iOS simulator build and the focused
+  `ExpoFaceMatcher` Swift build passed. The installed Debug app connected to Metro and
+  reached the React launch surface, but the ad-hoc simulator artifact had no keychain
+  entitlement, so SecureStore errors prevented a signed-in Our World/video visual
+  pass. No signing credentials, production data, or remote services were changed.

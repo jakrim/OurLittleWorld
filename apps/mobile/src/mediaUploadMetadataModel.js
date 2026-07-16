@@ -10,9 +10,18 @@ export function mediaUploadMetadata(base = {}, match = null) {
   const captureQuality = finiteOrNull(match.captureQuality);
   const recognitionScore = finiteOrNull(match.score);
   const faceCount = finiteOrNull(match.faceCount);
+  const videoPresenceRatio = finiteOrNull(match.videoPresenceRatio);
+  const videoSampledFrames = finiteOrNull(match.videoSampledFrames);
+  const videoMatchedFrames = finiteOrNull(match.videoMatchedFrames);
   if (captureQuality != null) out.captureQuality = captureQuality;
   if (recognitionScore != null) out.recognitionScore = recognitionScore;
   if (faceCount != null) out.faceCount = faceCount;
+  if (videoPresenceRatio != null) out.videoPresenceRatio = videoPresenceRatio;
+  if (videoSampledFrames != null) out.videoSampledFrames = videoSampledFrames;
+  if (videoMatchedFrames != null) out.videoMatchedFrames = videoMatchedFrames;
+  if (match.curation?.dayKey) out.curationDay = String(match.curation.dayKey);
+  if (match.curation?.role) out.curationRole = String(match.curation.role);
+  if (match.curation?.reason) out.curationReason = String(match.curation.reason);
   return out;
 }
 

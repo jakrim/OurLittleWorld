@@ -82,7 +82,7 @@ export function selectDayCardNudge({
   if (bookReadinessNudge?.title) {
     return {
       kind: 'book-readiness',
-      eyebrow: bookReadinessNudge.eyebrow || 'Book',
+      eyebrow: bookReadinessNudge.eyebrow || 'Remember',
       title: bookReadinessNudge.title,
       route: bookReadinessNudge.route || '/library',
     };

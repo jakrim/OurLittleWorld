@@ -1,9 +1,14 @@
 # PRD: Assistant-Curated Baby Book Transformation
 
 Date: July 8, 2026
-Status: Implementation complete; end-to-end QA passed with local disposable-family real-write coverage
+Status: Historical implementation record; superseded as primary product direction by `docs/private-family-world-prd.md`
 Primary app: `apps/mobile`
 Supporting surfaces: `apps/web`, App Store metadata, partner/gift flows
+
+The assistant and trust capabilities delivered here remain part of the product. The
+book-centric navigation and readiness framing do not. Future work must follow the
+private-family-world direction while preserving the executable privacy and
+parent-approval boundaries established in this document.
 
 ## 0. Agent Loop Instructions
 

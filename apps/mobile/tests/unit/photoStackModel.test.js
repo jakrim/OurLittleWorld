@@ -10,10 +10,10 @@ import {
   selectedAssetIdsForReview,
 } from '../../src/photoStackModel.js';
 
-test('a 40-shot photo shoot folds into no more than 4 stacks', () => {
+test('a 40-shot lookalike photo shoot folds to one best frame', () => {
   const matches = Array.from({ length: 40 }, (_, index) => match(index, {
     creationTime: Date.UTC(2026, 6, 5, 12, index),
-    featureVector: [1, 0.01 * index],
+    visualFingerprint: [1, 0.01 * index],
   }));
 
   const items = buildReviewStacks(matches);
@@ -21,17 +21,17 @@ test('a 40-shot photo shoot folds into no more than 4 stacks', () => {
 
   assert.ok(stacks.length <= 4);
   assert.equal(stacks.reduce((sum, item) => sum + item.matches.length, 0), 40);
-  assert.equal(stacks[0].keep.length, 3);
-  assert.equal(stacks[0].folded.length, 37);
+  assert.equal(stacks[0].keep.length, 1);
+  assert.equal(stacks[0].folded.length, 39);
 });
 
 test('session gap splits stacks after 30 minutes', () => {
   const start = Date.UTC(2026, 6, 5, 12, 0);
   const matches = [
-    match(1, { creationTime: start, featureVector: [1, 0] }),
-    match(2, { creationTime: start + 10 * 60 * 1000, featureVector: [1, 0.01] }),
-    match(3, { creationTime: start + PHOTO_STACK_SESSION_GAP_MS + 31 * 60 * 1000, featureVector: [1, 0] }),
-    match(4, { creationTime: start + PHOTO_STACK_SESSION_GAP_MS + 32 * 60 * 1000, featureVector: [1, 0.01] }),
+    match(1, { creationTime: start, visualFingerprint: [1, 0] }),
+    match(2, { creationTime: start + 10 * 60 * 1000, visualFingerprint: [1, 0.01] }),
+    match(3, { creationTime: start + PHOTO_STACK_SESSION_GAP_MS + 31 * 60 * 1000, visualFingerprint: [1, 0] }),
+    match(4, { creationTime: start + PHOTO_STACK_SESSION_GAP_MS + 32 * 60 * 1000, visualFingerprint: [1, 0.01] }),
   ];
 
   const stacks = buildReviewStacks(matches).filter((item) => item.type === 'stack');
@@ -131,11 +131,44 @@ test('stack keep and skip actions are reversible before save', () => {
   );
 });
 
-test('default keep count is top 1 plus one per 10, capped at 3', () => {
+test('default keep count is one best frame for every lookalike stack', () => {
   assert.equal(defaultKeepCount(9), 1);
-  assert.equal(defaultKeepCount(10), 2);
-  assert.equal(defaultKeepCount(20), 3);
-  assert.equal(defaultKeepCount(40), 3);
+  assert.equal(defaultKeepCount(10), 1);
+  assert.equal(defaultKeepCount(20), 1);
+  assert.equal(defaultKeepCount(40), 1);
+});
+
+test('missing visual fingerprints only fold true rapid bursts', () => {
+  const start = Date.UTC(2026, 6, 5, 12, 0);
+  const matches = [
+    match(1, { creationTime: start, visualFingerprint: null, captureQuality: 0.7 }),
+    match(2, { creationTime: start + 1000, visualFingerprint: null, captureQuality: 0.9 }),
+    match(3, { creationTime: start + 5 * 60 * 1000, visualFingerprint: null, captureQuality: 0.8 }),
+  ];
+
+  const items = buildReviewStacks(matches);
+  assert.equal(items.length, 2);
+  assert.equal(items.find((item) => item.type === 'stack')?.cover.assetId, 'asset-2');
+});
+
+test('whole-image fingerprints keep different photos even when face identity vectors match', () => {
+  const start = Date.UTC(2026, 6, 5, 12, 0);
+  const matches = [
+    match(1, {
+      creationTime: start,
+      featureVector: [1, 0],
+      visualFingerprint: [1, 1, 1, 1],
+    }),
+    match(2, {
+      creationTime: start + 1000,
+      featureVector: [1, 0],
+      visualFingerprint: [1, -1, 1, -1],
+    }),
+  ];
+
+  const items = buildReviewStacks(matches);
+  assert.equal(items.length, 2);
+  assert.ok(items.every((item) => item.type === 'match'));
 });
 
 function match(index, patch = {}) {
@@ -151,6 +184,7 @@ function match(index, patch = {}) {
     accepted: true,
     saved: false,
     featureVector: [1, 0],
+    visualFingerprint: [1, 0],
     ...patch,
   };
 }

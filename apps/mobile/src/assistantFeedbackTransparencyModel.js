@@ -31,7 +31,7 @@ const FEEDBACK_TRANSPARENCY = Object.freeze({
       FEEDBACK_TARGETS.BOOK_READINESS,
       FEEDBACK_TARGETS.CAMERA_ROLL_ORIGINALS,
     ],
-    confirmBody: 'This removes it from the baby book, keeps the original in Photos, records a photo-match correction for future scans, and pauses auto-save until a parent reviews it.',
+    confirmBody: 'This removes it from your family world, keeps the original in Photos, records a photo-match correction for future scans, and pauses auto-save until a parent reviews it.',
     successBody: 'The original stays in Photos. Future scans for this parent treat it as a photo-match correction, and auto-save pauses for review.',
   },
   [FEEDBACK_KINDS.FIRST_SUGGESTION_NOT_THIS]: {

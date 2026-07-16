@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -13,8 +13,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Body, Button, Caption, Eyebrow, Field, Screen, Title, radius, shadow, space, useTheme } from './ui';
+import BestPhotoRail from './ui/BestPhotoRail';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { candidateId } from './bestPhotoCandidateModel.js';
+import { loadBestPhotoCandidates } from './bestPhotoCandidates';
 import { canTranscribeLetterLocally, transcribeLetterRecording } from './letterTranscription';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { uploadLetterAttachments } from './moments';
@@ -47,6 +50,8 @@ export default function LetterComposeSheetScreen() {
   const [title, setTitle] = useState(seedTitle || '');
   const [body, setBody] = useState(seedBody || '');
   const [assets, setAssets] = useState([]);
+  const [bestPhotos, setBestPhotos] = useState({ photos: [], suppressedCount: 0 });
+  const [bestPhotosLoading, setBestPhotosLoading] = useState(false);
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
@@ -63,6 +68,28 @@ export default function LetterComposeSheetScreen() {
     () => `Only the two family writers can read this letter for ${family?.babyName || 'your baby'}.`,
     [family?.babyName],
   );
+
+  useEffect(() => {
+    let alive = true;
+    if (!family?.id || !user?.id) return () => { alive = false; };
+    setBestPhotosLoading(true);
+    loadBestPhotoCandidates({
+      familyId: family.id,
+      userId: user.id,
+      babyBirthday: family.babyBirthday,
+      limit: 10,
+    })
+      .then((result) => {
+        if (alive) setBestPhotos(result);
+      })
+      .catch(() => {
+        if (alive) setBestPhotos({ photos: [], suppressedCount: 0 });
+      })
+      .finally(() => {
+        if (alive) setBestPhotosLoading(false);
+      });
+    return () => { alive = false; };
+  }, [family?.babyBirthday, family?.id, user?.id]);
 
   const leave = async () => {
     if (recorderState.isRecording) {
@@ -108,6 +135,16 @@ export default function LetterComposeSheetScreen() {
     });
     if (result.canceled || !result.assets?.length) return;
     setAssets((current) => [...current, ...result.assets].slice(0, 12));
+  };
+
+  const toggleBestPhoto = (photo) => {
+    const id = candidateId(photo);
+    if (!id) return;
+    setAssets((current) => {
+      const selected = current.some((asset) => candidateId(asset) === id);
+      if (selected) return current.filter((asset) => candidateId(asset) !== id);
+      return [...current, photo].slice(0, 12);
+    });
   };
 
   const startRecording = async () => {
@@ -325,8 +362,17 @@ export default function LetterComposeSheetScreen() {
               <Caption>Words, voice, and the pieces of today belong together.</Caption>
             </View>
           </View>
+          <BestPhotoRail
+            photos={bestPhotos.photos}
+            loading={bestPhotosLoading}
+            selectedIds={new Set(assets.map(candidateId).filter(Boolean))}
+            onToggle={toggleBestPhoto}
+            onOpenPicker={pickMedia}
+            title="Best recent photos"
+            caption={letterPhotoCaption(bestPhotos)}
+            pickerLabel="Open photo library"
+          />
           <View style={styles.toolRow}>
-            <ToolButton theme={theme} icon="images-outline" label="Library" onPress={pickMedia} />
             <ToolButton theme={theme} icon="camera-outline" label="Camera" onPress={captureMedia} />
             <ToolButton
               theme={theme}
@@ -407,10 +453,10 @@ export default function LetterComposeSheetScreen() {
 
         <View style={[styles.openLine, { borderColor: theme.semantic.border }]}>
           <View style={[styles.openIcon, { backgroundColor: theme.colors.primarySoft }]}>
-            <Ionicons name="book-outline" size={18} color={theme.semantic.primary} />
+            <Ionicons name="albums-outline" size={18} color={theme.semantic.primary} />
           </View>
           <View style={styles.openCopy}>
-            <Body style={styles.openTitle}>Lives in the family book</Body>
+            <Body style={styles.openTitle}>Lives in your family world</Body>
             <Caption>Open anytime. Existing sealed letters still honor their chosen dates.</Caption>
           </View>
           <Ionicons name="checkmark-circle" size={20} color={theme.semantic.secondary} />
@@ -421,9 +467,9 @@ export default function LetterComposeSheetScreen() {
           loading={saving}
           disabled={!canSave}
           icon={<Ionicons name="mail-outline" size={18} color={theme.colors.onPrimary} />}
-          accessibilityHint="Saves the words and selected attachments to the private family book"
+          accessibilityHint="Saves the words and selected attachments to your private family world"
         >
-          Save to their book
+          Save letter
         </Button>
         <Caption align="center">Nothing is shared outside your two family writers.</Caption>
       </View>
@@ -478,6 +524,14 @@ function buildWaveform(seedSeconds) {
   });
 }
 
+function letterPhotoCaption(result) {
+  if (result?.suppressedCount) {
+    return `Showing the clearest distinct photos; ${result.suppressedCount} similar ${result.suppressedCount === 1 ? 'shot was' : 'shots were'} tucked away.`;
+  }
+  if (!result?.photos?.length) return 'Choose any photo or video from your native library.';
+  return 'Clear, distinct photos first. Similar bursts stay out of the way.';
+}
+
 function firstParam(value) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -486,7 +540,7 @@ function sourceContextLabel({ sourceMomentId, sourceFirstId, sourceDigestWeekSta
   if (sourceFirstId) return 'Started from a saved first.';
   if (sourceMomentId) return 'Started from a saved moment.';
   if (sourceDigestWeekStart) return 'Started from this weekly digest.';
-  if (source === 'book') return 'Started from Book.';
+  if (source === 'world' || source === 'book') return 'Started from Our World.';
   return null;
 }
 

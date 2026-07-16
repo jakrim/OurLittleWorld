@@ -159,7 +159,7 @@ test('video-only moment gets a book-ready caption nudge', () => {
     now,
   });
   assert.equal(nudge.kind, 'book-ready');
-  assert.equal(nudge.question, 'Add one line to help make this book-ready?');
+  assert.equal(nudge.question, 'Add one line while this is still fresh?');
   assert.equal(nudge.actionLabel, 'Add one line');
   assert.deepEqual(nudge.route, {
     pathname: '/moment/[momentId]',

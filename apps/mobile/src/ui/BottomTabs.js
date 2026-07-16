@@ -9,7 +9,7 @@ import { radius, shadow, space, useTheme } from './theme';
 const TABS = [
   { key: 'today', label: 'Today', icon: 'home-outline', route: '/timeline' },
   { key: 'add', label: 'Add', icon: 'add', route: null },
-  { key: 'book', label: 'Book', icon: 'book-outline', route: '/library' },
+  { key: 'world', label: 'Our World', icon: 'albums-outline', route: '/library' },
 ];
 
 export default function BottomTabs({ active, onAddPress }) {

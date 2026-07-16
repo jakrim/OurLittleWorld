@@ -16,12 +16,12 @@ import { recordCalibrationReview } from './recognitionTrust';
 import {
   assetIdsForReviewAction,
   buildReviewStacks,
-  defaultFoldedAssetIds,
   expandReviewItems,
-  selectedAssetIdsForReview,
 } from './photoStackModel';
 import { maybePromptForPushNotifications } from './pushNotifications';
 import * as Scan from './scanController';
+import { buildDailyCurationPlan, curationDayKey } from './dailyCurationModel';
+import { isMediaPolicyError } from './mediaPolicy';
 
 /**
  * Live review grid.
@@ -80,16 +80,15 @@ export default function ReviewMatchesScreen() {
     return out;
   }, [filter, unsavedMatches]);
 
-  const allReviewItems = useMemo(() => buildReviewStacks(unsavedMatches), [unsavedMatches]);
   const reviewItems = useMemo(() => buildReviewStacks(filteredMatches), [filteredMatches]);
   const displayItems = useMemo(() => expandReviewItems(reviewItems, expandedStackIds), [expandedStackIds, reviewItems]);
-  const defaultFoldedIds = useMemo(() => defaultFoldedAssetIds(allReviewItems), [allReviewItems]);
-  const selectedAssetIds = useMemo(() => selectedAssetIdsForReview({
-    matches,
-    reviewItems: allReviewItems,
-    promotedFoldedIds,
-    rejectedIds,
-  }), [allReviewItems, matches, promotedFoldedIds, rejectedIds]);
+  const curationPlan = useMemo(() => buildDailyCurationPlan(unsavedMatches), [unsavedMatches]);
+  const selectedAssetIds = useMemo(() => {
+    const selected = new Set(curationPlan.selectedAssetIds);
+    for (const id of promotedFoldedIds) selected.add(id);
+    for (const id of rejectedIds) selected.delete(id);
+    return selected;
+  }, [curationPlan.selectedAssetIds, promotedFoldedIds, rejectedIds]);
   const selectedCount = selectedAssetIds.size;
 
   useEffect(() => {
@@ -109,7 +108,7 @@ export default function ReviewMatchesScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const ids = new Set(displayItems.flatMap((item) => assetIdsForReviewAction(item, 'accept')));
     setRejectedIds((current) => withoutIds(current, ids));
-    setPromotedFoldedIds((current) => withIds(current, [...ids].filter((id) => defaultFoldedIds.has(id))));
+    setPromotedFoldedIds((current) => withIds(current, ids));
   };
 
   const rejectVisible = () => {
@@ -119,15 +118,15 @@ export default function ReviewMatchesScreen() {
     setPromotedFoldedIds((current) => withoutIds(current, ids));
   };
 
-  const toggleMatch = useCallback((match, accepted, { folded = false } = {}) => {
+  const toggleMatch = useCallback((match, accepted) => {
     if (!match?.assetId) return;
     Haptics.selectionAsync();
     if (accepted) {
       setRejectedIds((current) => withIds(current, [match.assetId]));
-      if (folded) setPromotedFoldedIds((current) => withoutIds(current, [match.assetId]));
+      setPromotedFoldedIds((current) => withoutIds(current, [match.assetId]));
     } else {
       setRejectedIds((current) => withoutIds(current, [match.assetId]));
-      if (folded) setPromotedFoldedIds((current) => withIds(current, [match.assetId]));
+      setPromotedFoldedIds((current) => withIds(current, [match.assetId]));
     }
   }, []);
 
@@ -142,7 +141,16 @@ export default function ReviewMatchesScreen() {
 
   const onSave = async () => {
     if (!family) return;
-    const accepted = matches.filter((m) => selectedAssetIds.has(m.assetId) && !m.saved);
+    const accepted = matches
+      .filter((m) => selectedAssetIds.has(m.assetId) && !m.saved)
+      .map((match) => ({
+        ...match,
+        curation: curationPlan.decisionByAssetId[match.assetId] || {
+          dayKey: curationDayKey(match.creationTime),
+          role: 'parent-pick',
+          reason: 'parent-pick',
+        },
+      }));
     const rejected = matches.filter((m) => rejectedIds.has(m.assetId) && !m.saved);
     if (!accepted.length) {
       Alert.alert('Nothing selected', 'Tap media to keep it first.');
@@ -160,19 +168,34 @@ export default function ReviewMatchesScreen() {
     const savedIds = [];
     let done = 0;
     let errors = 0;
+    let previewVideos = 0;
     const concurrency = 6;
     const workers = Array.from({ length: concurrency }, async () => {
       while (queue.length > 0) {
         const m = queue.shift();
         if (!m) return;
         try {
-          await Tags.setBaby({
-            familyId: family.id,
-            assetId: m.assetId,
-            isBaby: true,
-            match: m,
-            videoPosterOnly: m.mediaType === 'video',
-          });
+          try {
+            await Tags.setBaby({
+              familyId: family.id,
+              assetId: m.assetId,
+              isBaby: true,
+              match: m,
+              videoPosterOnly: false,
+              source: 'daily-curation',
+            });
+          } catch (error) {
+            if (m.mediaType !== 'video' || !isMediaPolicyError(error)) throw error;
+            await Tags.setBaby({
+              familyId: family.id,
+              assetId: m.assetId,
+              isBaby: true,
+              match: m,
+              videoPosterOnly: true,
+              source: 'daily-curation',
+            });
+            previewVideos += 1;
+          }
           savedIds.push(m.assetId);
         } catch (e) {
           console.warn('save match failed', m.assetId, e?.message);
@@ -203,6 +226,12 @@ export default function ReviewMatchesScreen() {
         userId: user.id,
         reason: 'review-save',
       });
+    }
+    if (previewVideos > 0) {
+      Alert.alert(
+        `${previewVideos} ${previewVideos === 1 ? 'video was' : 'videos were'} saved as previews`,
+        'The family moment is safe. The parent with the original can open it later to save the playable video.',
+      );
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -368,9 +397,13 @@ export default function ReviewMatchesScreen() {
                   <Spacer h={space.sm} />
                   <Body>
                     {scanning
-                      ? 'Review starts with likely matches selected. Tap anything that is not them to skip it; tap again to keep it before saving. Clean reviews help clear future matches save automatically.'
-                      : `Review starts with likely matches selected. Tap anything that is not ${family?.babyName || 'them'} to skip it; tap again to keep it before saving. Clean reviews help clear future matches save automatically.`}
+                      ? 'One clear photo is selected for every day that has an eligible match. Distinct standout photos and special videos stay selected too.'
+                      : `One clear photo is selected for every day that has an eligible match. Distinct standout photos and special videos stay selected too; tap anything that is not ${family?.babyName || 'them'} to skip it.`}
                   </Body>
+                  <Spacer h={space.xs} />
+                  <Caption>
+                    {curationPlan.photoDayCount.toLocaleString()} photo days · {curationPlan.photoCount.toLocaleString()} photos · {curationPlan.videoCount.toLocaleString()} videos selected
+                  </Caption>
                   <Spacer h={space.md} />
                   <View style={styles.chipRow}>
                     <Chip active={filter === 'all'} onPress={() => setFilter('all')}>

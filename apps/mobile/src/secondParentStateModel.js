@@ -41,6 +41,31 @@ export function buildDigestViewStatusLabel({
   return digestUnread ? 'Unread on this device' : 'Opened on this device';
 }
 
+export function buildMomentPartnerStatus({
+  moment = null,
+  membersById = {},
+  userId = null,
+} = {}) {
+  if (!moment) return [];
+  const authorId = moment.author_user_id || moment.authorUserId || null;
+  const parentNote = (moment.tags || []).some((tag) => String(tag).toLowerCase() === 'parent-note');
+  const rows = [];
+  if (authorId) {
+    rows.push(authorId === userId
+      ? 'Added by you'
+      : `Added by ${promptMemberName(membersById[authorId], 'your co-parent')}`);
+  }
+
+  const viewers = uniqueOtherParents(moment.views, { membersById, userId, excludeUserId: authorId });
+  if (viewers.length) rows.push(`${parentNote ? 'Read' : 'Seen'} by ${joinNames(viewers)}`);
+
+  const reactors = uniqueOtherParents(moment.reactions, { membersById, userId });
+  if (reactors.length) rows.push(`${joinNames(reactors)} reacted`);
+  const repliers = uniqueOtherParents(moment.replies, { membersById, userId });
+  if (repliers.length) rows.push(`${joinNames(repliers)} replied`);
+  return rows;
+}
+
 function isAnsweredPromptRow(row) {
   if (!row) return false;
   return !!(String(row.response_text || row.responseText || '').trim() || row.moment_id || row.momentId);
@@ -57,6 +82,16 @@ function viewerLabel(viewer, { membersById = {}, userId = null } = {}) {
   if (!viewerId) return null;
   if (viewerId === userId) return 'You';
   return promptMemberName(membersById?.[viewerId], 'Your co-parent');
+}
+
+function uniqueOtherParents(rows, { membersById, userId, excludeUserId = null }) {
+  const ids = new Set();
+  for (const row of rows || []) {
+    const id = typeof row === 'string' ? row : (row?.user_id || row?.userId || row?.author_user_id || row?.authorUserId);
+    if (!id || id === userId || id === excludeUserId || ids.has(id)) continue;
+    ids.add(id);
+  }
+  return [...ids].map((id) => promptMemberName(membersById[id], 'Your co-parent'));
 }
 
 function joinNames(names) {

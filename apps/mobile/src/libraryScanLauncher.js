@@ -7,6 +7,9 @@ import { addTrustedReferenceImage, readReferenceProfile, representativeReference
 import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
 import { Tags } from './storage';
 import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iCloudRetryQueue';
+import { publishFamilyLibraryConnection } from './familyLibrarySync';
+import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
+import { isMediaPolicyError } from './mediaPolicy';
 
 export async function startLibraryScan({
   family,
@@ -14,9 +17,21 @@ export async function startLibraryScan({
   pendingLibraryChange,
   allowWithoutReference = true,
   waitForCompletion = false,
+  requestPhotoPermission = false,
 } = {}) {
   if (!family?.id || !user?.id) return { started: false, reason: 'missing-context' };
   if (Scan.isRunning()) return { started: false, reason: 'already-running' };
+  const permission = requestPhotoPermission
+    ? await ensureLibraryPermission()
+    : await getLibraryPermissionStatus();
+  if (!permission?.granted) {
+    await publishFamilyLibraryConnection({
+      familyId: family.id,
+      userId: user.id,
+      status: 'needs_permission',
+    }).catch(() => {});
+    return { started: false, reason: 'photo-permission' };
+  }
 
   const checkpoint = await readScanCheckpoint({ familyId: family.id, userId: user.id });
   const change = pendingLibraryChange === undefined
@@ -74,14 +89,26 @@ export async function startLibraryScan({
     ? {
       threshold: autoSaveConfig.threshold,
       save: async (assetId, match) => {
-        await Tags.setBaby({
-          familyId: family.id,
-          assetId,
-          isBaby: true,
-          match,
-          videoPosterOnly: match?.mediaType === 'video',
-          source: 'scan-auto-save',
-        });
+        try {
+          await Tags.setBaby({
+            familyId: family.id,
+            assetId,
+            isBaby: true,
+            match,
+            videoPosterOnly: false,
+            source: 'daily-curation-auto-save',
+          });
+        } catch (error) {
+          if (match?.mediaType !== 'video' || !isMediaPolicyError(error)) throw error;
+          await Tags.setBaby({
+            familyId: family.id,
+            assetId,
+            isBaby: true,
+            match,
+            videoPosterOnly: true,
+            source: 'daily-curation-auto-save',
+          });
+        }
         await recordRecentAutoSave({
           familyId: family.id,
           userId: user.id,
@@ -114,6 +141,12 @@ export async function startLibraryScan({
       },
     }
     : null;
+
+  publishFamilyLibraryConnection({
+    familyId: family.id,
+    userId: user.id,
+    status: 'scanning',
+  }).catch(() => {});
 
   const scanPromise = Scan.start({
     reference: ref,
@@ -158,6 +191,14 @@ export async function startLibraryScan({
         familyId: family.id,
         userId: user.id,
       });
+      await publishFamilyLibraryConnection({
+        familyId: family.id,
+        userId: user.id,
+        status: 'ready',
+        surfacedCount: finalState.matches?.length || finalState.acceptedCount || 0,
+        savedCount: finalState.autoSavedCount || 0,
+        completedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
+      }).catch(() => {});
     },
   });
   const scanKey = Scan.getState().scanKey;
@@ -165,6 +206,11 @@ export async function startLibraryScan({
     try {
       await scanPromise;
     } catch (err) {
+      publishFamilyLibraryConnection({
+        familyId: family.id,
+        userId: user.id,
+        status: 'error',
+      }).catch(() => {});
       console.warn('library scan start failed', err?.message);
       throw err;
     }
@@ -179,6 +225,11 @@ export async function startLibraryScan({
   }
 
   scanPromise.catch((err) => {
+    publishFamilyLibraryConnection({
+      familyId: family.id,
+      userId: user.id,
+      status: 'error',
+    }).catch(() => {});
     console.warn('library scan start failed', err?.message);
   });
 

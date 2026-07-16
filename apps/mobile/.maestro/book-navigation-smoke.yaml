@@ -1,20 +1,27 @@
-# PRD Book navigation smoke: Book is the top-level destination, while Firsts
-# and Letters stay reachable from it and show explicit back buttons.
+# Private-family-world navigation smoke: the family space is the top-level
+# destination, while Firsts and Letters remain connected collections.
 appId: com.jessekrim.ourlittleworld
 ---
 - openLink: "ourlittleworld://library?segment=photos"
 - assertVisible:
-    text: ".*book\\."
-- assertVisible: "Open Firsts"
-- assertVisible: "Open Letters"
-- assertVisible: "Open Book preview"
+    text: ".*world\\."
+- assertVisible: "Open Between parents"
+- assertVisible: "Open Voice notes"
+- scrollUntilVisible:
+    element:
+      text: "Open Firsts"
+    direction: DOWN
 - tapOn: "Open Firsts"
 - assertVisible: "Go back"
 - tapOn: "Go back"
 - assertVisible:
-    text: ".*book\\."
-- openLink: "ourlittleworld://letters"
+    text: ".*world\\."
+- scrollUntilVisible:
+    element:
+      text: "Open Letters to baby"
+    direction: DOWN
+- tapOn: "Open Letters to baby"
 - assertVisible: "Go back"
 - tapOn: "Go back"
 - assertVisible:
-    text: ".*book\\."
+    text: ".*world\\."

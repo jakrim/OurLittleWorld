@@ -1,10 +1,10 @@
 import { AUTO_SAVE_CAPTURE_QUALITY_FLOOR } from './scanQualityModel.js';
 
 export const PHOTO_STACK_SESSION_GAP_MS = 30 * 60 * 1000;
+export const PHOTO_STACK_FALLBACK_BURST_GAP_MS = 3 * 1000;
 export const PHOTO_STACK_NEAR_DUPLICATE_DISTANCE = 0.18;
 export const PHOTO_STACK_KEEP_BASE = 1;
-export const PHOTO_STACK_KEEP_EVERY = 10;
-export const PHOTO_STACK_KEEP_MAX = 3;
+export const PHOTO_STACK_KEEP_MAX = 1;
 
 export function buildReviewStacks(matches = [], {
   sessionGapMs = PHOTO_STACK_SESSION_GAP_MS,
@@ -103,7 +103,7 @@ export function assetIdsForReviewAction(item, action = 'accept') {
 export function defaultKeepCount(size) {
   const count = Number(size || 0);
   if (count <= 0) return 0;
-  return Math.min(PHOTO_STACK_KEEP_MAX, PHOTO_STACK_KEEP_BASE + Math.floor(count / PHOTO_STACK_KEEP_EVERY));
+  return PHOTO_STACK_KEEP_BASE;
 }
 
 function splitSessions(matches, sessionGapMs) {
@@ -120,7 +120,7 @@ function splitSessions(matches, sessionGapMs) {
 }
 
 function clusterSession(session, nearDuplicateDistance) {
-  if (!sessionHasComparableFeatures(session)) return [session];
+  if (!sessionHasComparableFeatures(session)) return splitFallbackBursts(session);
 
   const clusters = [];
   for (const match of session) {
@@ -135,6 +135,19 @@ function clusterSession(session, nearDuplicateDistance) {
     else clusters.push([match]);
   }
   return clusters;
+}
+
+function splitFallbackBursts(session) {
+  const sorted = [...session].sort((a, b) => Number(a?.creationTime || 0) - Number(b?.creationTime || 0));
+  const bursts = [];
+  for (const match of sorted) {
+    const current = bursts[bursts.length - 1];
+    const previous = current?.[current.length - 1];
+    const gap = Math.abs(Number(match?.creationTime || 0) - Number(previous?.creationTime || 0));
+    if (!current || gap > PHOTO_STACK_FALLBACK_BURST_GAP_MS) bursts.push([match]);
+    else current.push(match);
+  }
+  return bursts;
 }
 
 function reviewMatchItem(match) {
@@ -261,7 +274,7 @@ export function featureDistance(a, b) {
 }
 
 function featureVector(match) {
-  return match?.featureVector || match?.embedding || match?.featurePrint || null;
+  return match?.visualFingerprint || match?.perceptualFingerprint || match?.visualHash || null;
 }
 
 function cosineSimilarity(a, b) {

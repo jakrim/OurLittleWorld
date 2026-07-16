@@ -91,7 +91,7 @@ export function selectBookReadinessNudge({ records = [], chapters = [] } = {}) {
   if (chapterCandidate) {
     const record = latestNeedsContextRecord(chapterCandidate.chapter.records, chapterCandidate.chapter.contextItems);
     return {
-      eyebrow: 'Book',
+      eyebrow: 'Remember',
       title: `Add one line to make ${shortChapterTitle(chapterCandidate.chapter.title)} easier to remember`,
       route: routeForRecord(record) || { pathname: '/library', params: { segment: 'photos' } },
       state: 'needs_context',
@@ -103,7 +103,7 @@ export function selectBookReadinessNudge({ records = [], chapters = [] } = {}) {
     const record = latestNeedsContextRecord(records, []);
     if (record) {
       return {
-        eyebrow: 'Book',
+        eyebrow: 'Remember',
         title: 'Add one line to make this moment easier to remember',
         route: routeForRecord(record) || { pathname: '/library', params: { segment: 'photos' } },
         state: 'needs_context',

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Share, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -29,7 +29,13 @@ import { EXPORT_PREVIEW_LIMITATIONS } from './archiveExportModel';
 import { EXPORT_POLICY_COPY } from './exportPolicyCopy';
 import { ageAt, ensureLibraryPermission, fetchPhotosPage, formatAge } from './photos';
 import { Tags } from './storage';
-import { backfillPendingForOwner, deleteForTag, getUploadQueueStatus, listSharedTagged } from './photoSync';
+import {
+  backfillPendingForOwner,
+  deleteForTag,
+  getUploadQueueStatus,
+  listSharedTagged,
+  silentlyRepairUploadsForOwner,
+} from './photoSync';
 import { listMomentArchive } from './moments';
 import { countLabel } from './plural';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
@@ -46,9 +52,14 @@ import { DailyPrompts, Firsts, Letters } from './rituals';
 import { buildBookHomeModel } from './bookHomeModel';
 import { buildPrivateBookPreviewSharePayload } from './privateRecapShareModel';
 import { buildLibraryManualQaFixture } from './libraryManualQaFixtures';
+import { groupArchiveRecordsForPresentation } from './familyPhotoPresentationModel';
+import { Family } from './families';
+import { listFamilyLibraryConnections } from './familyLibrarySync';
+import { buildFamilyLibrarySyncModel } from './familyLibrarySyncModel';
+import { buildSavedDailyAlbum } from './dailyCurationModel';
 
-const PRINT_DRAFT_COPY = 'Our goal is a printed baby book. This preview is a draft: the app narrows saved moments into chapters, then parents choose favorites, edit captions, and approve layout before anything is print-ready.';
-const PRINT_DRAFT_CARD_COPY = 'Build an editable print draft from book-ready highlights. You still choose favorites, captions, and layout before printing.';
+const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
+const TIMELINE_RENDER_LIMIT = 500;
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -82,6 +93,8 @@ export default function LibraryScreen() {
   const [repairingUploads, setRepairingUploads] = useState(false);
   const [showLocalPhotos, setShowLocalPhotos] = useState(false);
   const [showUtilityDetails, setShowUtilityDetails] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState([]);
+  const [libraryConnections, setLibraryConnections] = useState([]);
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
@@ -122,16 +135,30 @@ export default function LibraryScreen() {
 
   const loadShared = useCallback(async () => {
     if (!family?.id) return;
-    const [sharedRows, tagRows, momentRows, firstRows, letterRows, promptRows, recentRows, calibrationRow, uploadStatus] = await Promise.all([
+    const [
+      sharedRows,
+      tagRows,
+      momentRows,
+      firstRows,
+      letterRows,
+      promptRows,
+      recentRows,
+      calibrationRow,
+      uploadStatus,
+      memberRows,
+      connectionRows,
+    ] = await Promise.all([
       listSharedTagged(family.id, { limit: 90 }).catch(() => []),
       Tags.all(family.id).catch(() => ({})),
-      listMomentArchive(family.id, { limit: 500 }).catch(() => []),
+      listMomentArchive(family.id, { limit: 5000 }).catch(() => []),
       Firsts.list(family.id).catch(() => []),
       Letters.list(family.id).catch(() => []),
       DailyPrompts.listResponses(family.id).catch(() => []),
       user?.id ? getRecentAutoSaves({ familyId: family.id, userId: user.id }).catch(() => []) : [],
       user?.id ? getImportCalibration({ familyId: family.id, userId: user.id }).catch(() => null) : null,
       getUploadQueueStatus({ familyId: family.id }).catch(() => ({ total: 0, pending: 0, uploading: 0, failed: 0, lastError: null })),
+      Family.members(family.id).catch(() => []),
+      listFamilyLibraryConnections(family.id).catch(() => []),
     ]);
     setShared(sharedRows);
     setMoments(momentRows);
@@ -142,6 +169,8 @@ export default function LibraryScreen() {
     setRecentAutoSaves(recentRows);
     setImportCalibration(calibrationRow);
     setUploadQueue(uploadStatus);
+    setFamilyMembers(memberRows);
+    setLibraryConnections(connectionRows);
   }, [family?.id, user?.id]);
 
   const loadLocalInitial = useCallback(async () => {
@@ -165,7 +194,20 @@ export default function LibraryScreen() {
     }
   }, [family?.id]);
 
-  useFocusEffect(useCallback(() => { loadShared(); }, [loadShared]));
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    loadShared();
+    if (family?.id) {
+      silentlyRepairUploadsForOwner({ familyId: family.id })
+        .then((result) => {
+          if (active && result?.attempted) loadShared();
+        })
+        .catch(() => {});
+    }
+    return () => {
+      active = false;
+    };
+  }, [family?.id, loadShared]));
 
   useEffect(() => {
     if (segment === 'photos' && showLocalPhotos && local.length === 0) loadLocalInitial();
@@ -210,6 +252,16 @@ export default function LibraryScreen() {
   const archiveRecords = bookHome.records;
   const archiveStats = bookHome.stats;
   const archiveSections = bookHome.chapters;
+  const presentationSections = useMemo(
+    () => limitArchiveSectionsForTimeline(archiveSections, TIMELINE_RENDER_LIMIT),
+    [archiveSections],
+  );
+  const dailyAlbum = useMemo(
+    () => buildSavedDailyAlbum(archiveRecords, {
+      babyBirthday: family?.babyBirthday,
+    }),
+    [archiveRecords, family?.babyBirthday],
+  );
   const yearSummaries = bookHome.yearSummaries;
   const recentAutoSaveRows = useMemo(
     () => hydrateRecentAutoSaves({ recent: effectiveRecentAutoSaves, shared: effectiveShared, moments: effectiveMoments, currentUserId: user?.id }),
@@ -249,7 +301,7 @@ export default function LibraryScreen() {
         enabled ? 'Auto-save is on' : 'Review first selected',
         enabled
           ? 'Future scans can save clear matches automatically. Low-quality matches still wait for review.'
-          : 'Saved memories stay in Book. Future clear matches will wait for review first.',
+          : 'Saved memories stay in Our World. Future clear matches will wait for review first.',
       );
     } catch (err) {
       Alert.alert('Could not update photo saving', err?.message || String(err));
@@ -266,6 +318,10 @@ export default function LibraryScreen() {
     () => filterArchiveRecords({ records: archiveRecords, query, filter: archiveFilter }),
     [archiveFilter, archiveRecords, query],
   );
+  const searchEventGroups = useMemo(
+    () => groupArchiveRecordsForPresentation(searchResults),
+    [searchResults],
+  );
   const libraryTileSize = useMemo(() => libraryTileSizeForWidth(viewportWidth), [viewportWidth]);
   const utilityVisibility = useMemo(
     () => buildBookUtilityVisibility({
@@ -274,6 +330,14 @@ export default function LibraryScreen() {
       pendingChange: effectivePendingChange,
     }),
     [effectiveICloudRetry, effectivePendingChange, effectiveUploadQueue],
+  );
+  const familyLibraryModel = useMemo(
+    () => buildFamilyLibrarySyncModel({
+      members: familyMembers,
+      connections: libraryConnections,
+      currentUserId: user?.id,
+    }),
+    [familyMembers, libraryConnections, user?.id],
   );
 
   const openShared = (photo) => {
@@ -349,7 +413,7 @@ export default function LibraryScreen() {
     },
     {
       icon: 'trash-outline',
-      label: 'Remove from book',
+      label: 'Remove from Our World',
       destructive: true,
       onPress: removeShared,
     },
@@ -425,9 +489,11 @@ export default function LibraryScreen() {
 
   return (
     <AppShell
-      active="book"
-      title={`${possessiveName(family?.babyName || 'Baby')} book.`}
-      subtitle={bookHome.subtitle}
+      active="world"
+      title={`${possessiveName(family?.babyName || 'Baby')} world.`}
+      subtitle={archiveStats.moments
+        ? `${countText(archiveStats.moments, 'moment')} kept privately.`
+        : 'A private space for your family.'}
       showsVerticalScrollIndicator
       showJumpToTop
       scrollToTopSignal={scrollResetKey}
@@ -439,8 +505,9 @@ export default function LibraryScreen() {
           onAdd={() => router.push('/add')}
           onOpenFirsts={() => router.push('/firsts')}
           onOpenLetters={() => router.push('/letters')}
-          onWriteLetter={() => router.push({ pathname: '/letter-compose', params: { source: 'book' } })}
-          onOpenExport={() => openSegment('export')}
+          onWriteLetter={() => router.push({ pathname: '/letter-compose', params: { source: 'world' } })}
+          onWriteNote={() => router.push({ pathname: '/add', params: { intent: 'partner-note' } })}
+          onRecordVoice={() => router.push({ pathname: '/add', params: { intent: 'voice' } })}
           theme={theme}
         />
       ) : null}
@@ -450,7 +517,7 @@ export default function LibraryScreen() {
           value={segment}
           onChange={openSegment}
           options={[
-            { value: 'photos', label: 'Chapters' },
+            { value: 'photos', label: 'Timeline' },
             { value: 'places', label: 'Places' },
             { value: 'search', label: 'Search' },
             { value: 'export', label: 'Export' },
@@ -467,9 +534,16 @@ export default function LibraryScreen() {
             {utilityVisibility.showBlockingUpload ? (
               <UploadQueuePanel status={effectiveUploadQueue} repairing={repairingUploads} onRepair={repairUploadQueue} theme={theme} />
             ) : null}
+            <DailyAlbumPanel
+              childName={family?.babyName}
+              model={dailyAlbum}
+              onOpen={openArchiveRecord}
+              onOpenAlbum={() => router.push('/daily-album')}
+              theme={theme}
+            />
             <SavedMomentGrid
               childName={family?.babyName}
-              sections={archiveSections}
+              sections={presentationSections}
               stats={archiveStats}
               onPress={openArchiveRecord}
               tileSize={libraryTileSize}
@@ -509,6 +583,11 @@ export default function LibraryScreen() {
               savingPreference={savingAutoSavePreference}
               theme={theme}
             />
+            <FamilyLibraryPanel
+              model={familyLibraryModel}
+              onScan={() => router.push('/scan')}
+              theme={theme}
+            />
             <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
             {showLocalPhotos ? (
               <LocalCameraRollPanel
@@ -536,7 +615,10 @@ export default function LibraryScreen() {
               <Card key={place.id} padding="md" style={styles.placeRow}>
                 <View style={styles.placeText}>
                   <Eyebrow>{place.label}</Eyebrow>
-                  <Title style={styles.placeTitle}>{countText(place.photos.length, 'saved moment')}</Title>
+                  <Title style={styles.placeTitle}>{countText(place.eventCount ?? place.photos.length, 'saved event')}</Title>
+                  {place.sourcePhotoCount > place.eventCount ? (
+                    <Caption>{countText(place.sourcePhotoCount, 'photo')} grouped into distinct visits</Caption>
+                  ) : null}
                   <Caption>{place.topScenes.slice(0, 3).join(' · ') || 'Family outing'}</Caption>
                 </View>
                 <View style={styles.placeThumbRow}>
@@ -564,7 +646,7 @@ export default function LibraryScreen() {
               <Card>
                 <Eyebrow>Places</Eyebrow>
                 <Title style={styles.cardTitle}>No mapped moments yet.</Title>
-                <Body>Photos with location metadata will collect here as the book grows.</Body>
+                <Body>Photos with location metadata will collect here as your world grows.</Body>
               </Card>
             )}
           </View>
@@ -575,7 +657,7 @@ export default function LibraryScreen() {
               onQueryChange={setQuery}
               filter={archiveFilter}
               onFilterChange={setArchiveFilter}
-              results={searchResults}
+              results={searchEventGroups}
               stats={archiveStats}
               onOpen={openArchiveRecord}
               theme={theme}
@@ -600,7 +682,7 @@ export default function LibraryScreen() {
         visible={!!actionPhoto}
         onClose={() => setActionPhoto(null)}
         actions={photoSheetActions}
-        subtitle={actionPhoto ? 'Remove only from the book; the original stays in Photos.' : undefined}
+        subtitle={actionPhoto ? 'Remove only from Our Little World; the original stays in Photos.' : undefined}
       />
     </AppShell>
   );
@@ -619,41 +701,39 @@ function libraryTileSizeForWidth(width) {
   return Math.max(68, Math.floor((boundedWidth - (space.xs * (columns - 1))) / columns));
 }
 
-function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWriteLetter, onOpenExport, theme }) {
+function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWriteLetter, onWriteNote, onRecordVoice, theme }) {
   const chapter = model?.currentMonthChapter || null;
   const stats = model?.stats || {};
-  const bookReadyStats = model?.bookReadyStats || {};
   const firstsSummary = model?.firstsSummary || { count: 0, latest: null };
   const lettersSummary = model?.lettersSummary || { count: 0, latest: null, latestState: null, openCount: 0, sealedCount: 0 };
-  const readiness = model?.printExportReadiness || { state: 'empty', title: 'Not ready to print yet', body: '' };
   const chapterMedia = (chapter?.photos || 0) + (chapter?.videos || 0);
   const hasSavedMoments = Number(stats?.moments || 0) > 0;
-  const title = chapter?.title || 'Start the first chapter.';
+  const title = chapter?.title || 'Start your family record.';
   const body = chapter
-    ? `${chapter.ageLabel ? `${chapter.ageLabel}. ` : ''}${chapter.summary} saved for this chapter. ${chapter.bookReadySummary || ''}`
-    : 'The book stays empty until you approve a moment, answer a prompt, save a first, or write a letter.';
+    ? `${chapter.ageLabel ? `${chapter.ageLabel}. ` : ''}${worldMonthSummary(chapter.summary)} kept this month.`
+    : 'Keep a photo, a note between parents, a voice, a First, or a letter to begin.';
 
   return (
     <View style={styles.bookHomeStack}>
       <Card variant="muted" style={styles.bookChapterCard}>
         <View style={styles.sectionHeader}>
           <View style={styles.resultText}>
-            <Eyebrow>{chapter ? 'Current chapter' : 'Baby book'}</Eyebrow>
+            <Eyebrow>{chapter ? 'This month' : 'Our World'}</Eyebrow>
             <Title style={styles.bookChapterTitle}>{title}</Title>
             <Body>{body}</Body>
           </View>
           <View style={[styles.bookIcon, { backgroundColor: theme.colors.primarySoft }]}>
-            <Ionicons name="book-outline" size={21} color={theme.semantic.primary} />
+            <Ionicons name="albums-outline" size={21} color={theme.semantic.primary} />
           </View>
         </View>
         <View style={styles.chapterStatsRow}>
-          <ChapterStat label="saved" value={chapter?.records?.length || 0} theme={theme} />
+          <ChapterStat label="moments" value={chapter?.records?.length || 0} theme={theme} />
           <ChapterStat label="media" value={chapterMedia} theme={theme} />
-          <ChapterStat label="book-ready" value={chapter?.bookReadyRecords?.length || bookReadyStats?.moments || 0} theme={theme} />
+          <ChapterStat label="voices" value={chapter?.voiceNotes || 0} theme={theme} />
         </View>
         {hasSavedMoments ? (
           <Caption>
-            Saved in the archive means kept privately. Book-ready means it has enough parent context or quality to lead a preview.
+            Photos, words, voices, Firsts, and letters all belong to the same private family record.
           </Caption>
         ) : null}
         {!hasSavedMoments ? (
@@ -664,12 +744,30 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
             onPress={onAdd}
             icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
           >
-            Add first moment
+            Add to your world
           </Button>
         ) : null}
       </Card>
 
       <View style={styles.bookEntryGrid}>
+        <BookEntryCard
+          icon="chatbubbles-outline"
+          eyebrow="Between parents"
+          title="Leave a note"
+          detail="Private to the two family writers"
+          body="Write something your co-parent can find in the shared timeline."
+          onPress={onWriteNote}
+          theme={theme}
+        />
+        <BookEntryCard
+          icon="mic-outline"
+          eyebrow="Voice notes"
+          title="Keep a voice"
+          detail={model?.voiceSummary?.count ? countText(model.voiceSummary.count, 'voice note') : 'No recording needed to begin'}
+          body="Record the sound of this season and keep the original audio."
+          onPress={onRecordVoice}
+          theme={theme}
+        />
         <BookEntryCard
           icon="sparkles-outline"
           eyebrow="Firsts"
@@ -683,22 +781,13 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
         />
         <BookEntryCard
           icon="mail-outline"
-          eyebrow="Letters"
+          eyebrow="Letters to baby"
           title={lettersCollectionTitle(lettersSummary)}
           detail={lettersStateDetail(lettersSummary)}
           body={lettersLatestDetail(lettersSummary)}
           onPress={onOpenLetters}
           actionLabel="Write"
           onAction={onWriteLetter}
-          theme={theme}
-        />
-        <BookEntryCard
-          icon="print-outline"
-          eyebrow="Book preview"
-          title={readiness.title}
-          detail={readinessStateDetail(readiness)}
-          body={PRINT_DRAFT_CARD_COPY}
-          onPress={onOpenExport}
           theme={theme}
         />
       </View>
@@ -739,7 +828,7 @@ function BookEntryCard({ icon, eyebrow, title, detail, body, onPress, actionLabe
             onPress={onPress}
             accessibilityRole="button"
             accessibilityLabel={`Open ${eyebrow}`}
-            accessibilityHint="Opens this book collection."
+            accessibilityHint="Opens this family collection."
             style={styles.bookEntryMain}
           >
             {contents}
@@ -763,7 +852,7 @@ function BookEntryCard({ icon, eyebrow, title, detail, body, onPress, actionLabe
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Open ${eyebrow}`}
-      accessibilityHint="Opens this book collection."
+      accessibilityHint="Opens this family collection."
       style={styles.bookEntryPressable}
     >
       <Card padding="md" style={styles.bookEntryCard}>
@@ -777,9 +866,15 @@ function firstsCollectionTitle(summary) {
   return summary?.count ? `${countText(summary.count, 'first')} saved` : 'No firsts yet';
 }
 
+function worldMonthSummary(summary) {
+  return String(summary || '')
+    .replace(/book notes?/gi, (match) => (match.toLowerCase().endsWith('s') ? 'notes' : 'note'))
+    .replace(/chapter/gi, 'month');
+}
+
 function firstsLatestDetail(summary) {
   const latest = summary?.latest;
-  if (!latest) return 'Milestones stay with the book.';
+  if (!latest) return 'Milestones stay with the family story.';
   const title = latest.title || 'Untitled first';
   const date = formatBookDateLabel(latest.happened_at || latest.created_at);
   return `Latest: ${title}${date ? ` · ${date}` : ''}`;
@@ -801,17 +896,10 @@ function lettersStateDetail(summary) {
 
 function lettersLatestDetail(summary) {
   const latest = summary?.latest;
-  if (!latest) return 'Letters stay with the baby book.';
+  if (!latest) return 'Letters stay with your family world.';
   const title = latest.title || 'Untitled letter';
   const state = latestLetterStateLabel(summary);
   return `Latest: ${title}${state ? ` · ${state}` : ''}`;
-}
-
-function readinessStateDetail(readiness) {
-  if (readiness?.state === 'print_ready') return 'Parent-approved preview';
-  if (readiness?.state === 'building') return 'Taking shape';
-  if (readiness?.state === 'archive_only') return 'Archive only';
-  return 'Needs saved context';
 }
 
 function BookToolsPanel({
@@ -831,9 +919,9 @@ function BookToolsPanel({
     <Card padding="md" style={styles.bookToolsCard}>
       <View style={styles.sectionHeader}>
         <View style={styles.resultText}>
-          <Eyebrow>Book tools</Eyebrow>
-          <Title style={styles.bookToolsTitle}>Find, export, or check details.</Title>
-          <Caption>Secondary tools stay here after the saved chapters.</Caption>
+          <Eyebrow>More in your world</Eyebrow>
+          <Title style={styles.bookToolsTitle}>Find, export, or review photos.</Title>
+          <Caption>Places, search, camera-roll review, and export stay out of the main family flow.</Caption>
         </View>
         <Ionicons name="ellipsis-horizontal-circle-outline" size={22} color={theme.semantic.primary} />
       </View>
@@ -855,7 +943,7 @@ function BookToolsPanel({
         <BookToolButton
           icon="download-outline"
           title="Export"
-          body="Build a draft."
+          body="Export your record."
           onPress={onOpenExport}
           theme={theme}
         />
@@ -918,13 +1006,22 @@ function latestLetterStateLabel(summary) {
 }
 
 function SavedMomentGrid({ childName, sections, stats, onPress, tileSize, theme }) {
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleGroup = (key) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   if (!sections.length) return null;
   return (
     <Card>
       <View style={styles.sectionHeader}>
         <View style={styles.resultText}>
-          <Eyebrow>{possessiveName(childName || 'Baby')} book</Eyebrow>
-          <Title style={styles.cardTitle}>Chapters by month.</Title>
+          <Eyebrow>{possessiveName(childName || 'Baby')} timeline</Eyebrow>
+          <Title style={styles.cardTitle}>Everything, month by month.</Title>
         </View>
         <Caption style={styles.headerCaption} numberOfLines={2}>{archiveStatsCaption(stats)}</Caption>
       </View>
@@ -945,15 +1042,22 @@ function SavedMomentGrid({ childName, sections, stats, onPress, tileSize, theme 
           </View>
           <ChapterContextList items={section.contextItems || []} theme={theme} />
           <View style={styles.savedGrid}>
-            {section.records.map((record) => (
-              <ArchiveRecordTile
-                key={record.key}
-                record={record}
-                onPress={() => onPress(record)}
-                tileSize={tileSize}
-                theme={theme}
-              />
-            ))}
+            {(section.presentationGroups || groupArchiveRecordsForPresentation(section.records)).flatMap((group) => {
+              const expanded = expandedGroups.has(group.key);
+              const records = expanded ? group.records : [group.representative];
+              return records.map((record, index) => (
+                <ArchiveRecordTile
+                  key={expanded ? record.key : group.key}
+                  record={record}
+                  onPress={() => onPress(record)}
+                  tileSize={tileSize}
+                  theme={theme}
+                  groupedCount={!expanded && index === 0 ? group.hiddenCount : 0}
+                  groupExpanded={expanded}
+                  onToggleGroup={group.hiddenCount ? () => toggleGroup(group.key) : null}
+                />
+              ));
+            })}
           </View>
         </View>
       ))}
@@ -961,7 +1065,83 @@ function SavedMomentGrid({ childName, sections, stats, onPress, tileSize, theme 
   );
 }
 
-function ArchiveRecordTile({ record, onPress, tileSize, theme }) {
+function DailyAlbumPanel({ childName, model, onOpen, onOpenAlbum, theme }) {
+  if (!model?.savedDayCount) return null;
+  const elapsed = Number(model.firstYearElapsedDays || 0);
+  const covered = Number(model.firstYearPhotoDays || 0);
+  return (
+    <Card>
+      <View style={styles.sectionHeader}>
+        <View style={styles.resultText}>
+          <Eyebrow>Day by day</Eyebrow>
+          <Title style={styles.cardTitle}>A photo for every day.</Title>
+          <Body>
+            {elapsed
+              ? `${covered.toLocaleString()} of ${elapsed.toLocaleString()} first-year days have a saved photo.`
+              : `${model.photoDayCount.toLocaleString()} days have a saved photo.`}
+          </Body>
+          <Caption>
+            A day counts only when an eligible photo of {childName || 'your baby'} exists. Distinct standout photos and special videos stay with that day too.
+          </Caption>
+        </View>
+        <View style={[styles.dailyCountBadge, { backgroundColor: theme.colors.primarySoft }]}>
+          <Title style={{ color: theme.semantic.primary }}>{covered || model.photoDayCount}</Title>
+          <Caption>days</Caption>
+        </View>
+      </View>
+      {model.recentDays?.length ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dailyRail}
+        >
+          {model.recentDays.map((day) => (
+            <Pressable
+              key={day.dayKey}
+              onPress={() => onOpen(day.representative)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open saved media from ${formatDailyAlbumDate(day.dayKey)}`}
+              style={[styles.dailyTile, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+            >
+              {day.representative?.thumbUrl ? (
+                <Image source={{ uri: day.representative.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              ) : (
+                <PhotoPlaceholder seed={day.dayKey} style={StyleSheet.absoluteFill} />
+              )}
+              <View style={styles.dailyTileScrim} />
+              <Caption style={styles.dailyTileDate}>{formatDailyAlbumDate(day.dayKey)}</Caption>
+              {day.videos.length ? (
+                <View style={styles.dailyVideoBadge}>
+                  <Ionicons name="play" size={10} color={theme.colors.onPrimary} />
+                </View>
+              ) : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+      <Button
+        size="md"
+        variant="quiet"
+        fullWidth={false}
+        style={styles.cardButton}
+        onPress={onOpenAlbum}
+        icon={<Ionicons name="calendar-outline" size={16} color={theme.semantic.primary} />}
+      >
+        Open all 365 days
+      </Button>
+    </Card>
+  );
+}
+
+function ArchiveRecordTile({
+  record,
+  onPress,
+  tileSize,
+  theme,
+  groupedCount = 0,
+  groupExpanded = false,
+  onToggleGroup = null,
+}) {
   const media = record.moment?.media || [];
   const firstMedia = media[0];
   const hasVoiceOnly = record.voiceOnly;
@@ -971,7 +1151,7 @@ function ArchiveRecordTile({ record, onPress, tileSize, theme }) {
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Open chapter moment: ${record.title || 'Untitled moment'}`}
+      accessibilityLabel={`Open saved moment: ${record.title || 'Untitled moment'}`}
       style={[
         styles.savedTile,
         { width: tileSize, height: tileSize, backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border },
@@ -1002,6 +1182,21 @@ function ArchiveRecordTile({ record, onPress, tileSize, theme }) {
           <Caption style={styles.savedCountText}>+{groupedMediaCount - 1}</Caption>
         </View>
       ) : null}
+      {groupedCount > 0 ? (
+        <Pressable
+          onPress={(event) => {
+            event?.stopPropagation?.();
+            onToggleGroup?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${groupExpanded ? 'Collapse' : 'Show'} ${groupedCount} similar ${groupedCount === 1 ? 'photo' : 'photos'}`}
+          accessibilityState={{ expanded: groupExpanded }}
+          style={[styles.savedEventBadge, { backgroundColor: theme.semantic.primary }]}
+        >
+          <Ionicons name="copy-outline" size={11} color={theme.colors.onPrimary} />
+          <Caption style={[styles.savedCountText, { color: theme.colors.onPrimary }]}>+{groupedCount}</Caption>
+        </Pressable>
+      ) : null}
       {record.title && !hasVoiceOnly ? (
         <Caption style={[styles.savedCaption, { color: theme.colors.onPrimary }]} numberOfLines={1}>
           {record.title}
@@ -1028,7 +1223,7 @@ function ChapterContextList({ items, theme }) {
         </View>
       ))}
       {items.length > 5 ? (
-        <Caption style={styles.searchMeta}>{items.length - 5} more chapter notes stay with this month.</Caption>
+        <Caption style={styles.searchMeta}>{items.length - 5} more notes stay with this month.</Caption>
       ) : null}
     </View>
   );
@@ -1047,7 +1242,7 @@ function chapterContextKindLabel(kind) {
   if (kind === 'letter') return 'Letter';
   if (kind === 'prompt') return 'Prompt';
   if (kind === 'voice') return 'Voice';
-  return 'Book note';
+  return 'Note';
 }
 
 function ArchiveEmptyState({ onAdd, theme }) {
@@ -1055,11 +1250,11 @@ function ArchiveEmptyState({ onAdd, theme }) {
     <Card variant="muted">
       <View style={styles.sectionHeader}>
         <View style={styles.resultText}>
-          <Eyebrow>Book beginning</Eyebrow>
-          <Title style={styles.cardTitle}>Nothing in the book yet.</Title>
-          <Body>Use Add, or review likely photos from assistant discovery, to approve the first moment for the baby book.</Body>
+          <Eyebrow>Your family record</Eyebrow>
+          <Title style={styles.cardTitle}>Nothing here yet.</Title>
+          <Body>Add a photo, note, voice, First, or letter. Review likely photos whenever discovery finds something worth a look.</Body>
         </View>
-        <Ionicons name="book-outline" size={22} color={theme.semantic.primary} />
+        <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
       </View>
       <Button
         size="md"
@@ -1104,7 +1299,7 @@ function LocalCameraRollPanel({
             <View style={styles.resultText}>
               <Eyebrow>Device camera roll</Eyebrow>
               <Title style={styles.cardTitle}>Browse this device when you need one.</Title>
-              <Body>{possessiveName(childName || 'Baby')} book stays in the month-by-month chapters.</Body>
+              <Body>{possessiveName(childName || 'Baby')} world stays in the month-by-month timeline.</Body>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.semantic.textMuted} />
           </View>
@@ -1119,7 +1314,7 @@ function LocalCameraRollPanel({
         <Card>
           <Eyebrow>Photo library</Eyebrow>
           <Title style={styles.cardTitle}>Access is needed to browse.</Title>
-          <Body>Allow photo access to choose local moments for the family baby book.</Body>
+          <Body>Allow photo access to choose local moments for your private family record.</Body>
           <Button style={styles.cardButton} onPress={onGrant}>Grant access</Button>
         </Card>
       ) : null}
@@ -1298,8 +1493,48 @@ function shouldShowPhotoTrustPanel(model) {
   return ['learning', 'auto_save_ready', 'needs_correction_review'].includes(model.state);
 }
 
+function FamilyLibraryPanel({ model, onScan, theme }) {
+  if (!model?.parents?.length) return null;
+  return (
+    <Card variant="muted">
+      <View style={styles.sectionHeader}>
+        <View style={styles.resultText}>
+          <Eyebrow>Family photo sources</Eyebrow>
+          <Title style={styles.cardTitle}>{model.heading}</Title>
+        </View>
+        <Ionicons name="phone-portrait-outline" size={22} color={theme.semantic.primary} />
+      </View>
+      <Body>{model.privacyCopy}</Body>
+      <View style={styles.familyLibraryList}>
+        {model.parents.map((parent) => (
+          <View
+            key={parent.userId}
+            style={[styles.familyLibraryRow, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <View style={[styles.familyLibraryIcon, { backgroundColor: theme.colors.primarySoft }]}>
+              <Ionicons
+                name={parent.status === 'ready' ? 'checkmark' : parent.status === 'scanning' ? 'sync' : 'images-outline'}
+                size={16}
+                color={theme.semantic.primary}
+              />
+            </View>
+            <View style={styles.resultText}>
+              <Caption style={styles.bookEntryDetail}>{parent.title}</Caption>
+              <Caption>{parent.detail}</Caption>
+            </View>
+            {parent.canScan ? (
+              <Button size="sm" variant="quiet" fullWidth={false} onPress={onScan}>
+                Scan
+              </Button>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
 function UploadQueuePanel({ status, repairing, onRepair, theme }) {
-  const [showDetails, setShowDetails] = useState(false);
   if (!status?.total) return null;
   const failed = status.failed || 0;
   const uploading = status.uploading || 0;
@@ -1322,20 +1557,9 @@ function UploadQueuePanel({ status, repairing, onRepair, theme }) {
       <Body>
         {retrySentence} {uploading} uploading · {pending} waiting.
       </Body>
-      {status.lastError ? (
-        <>
-          <Button
-            variant="quiet"
-            size="sm"
-            fullWidth={false}
-            style={styles.detailsButton}
-            onPress={() => setShowDetails((value) => !value)}
-          >
-            Details
-          </Button>
-          {showDetails ? <Caption numberOfLines={3}>{status.lastError}</Caption> : null}
-        </>
-      ) : null}
+      <Caption>
+        We retry quietly when Our World opens. If these are still here, one tap will try again now.
+      </Caption>
       <Button
         size="md"
         fullWidth={false}
@@ -1410,12 +1634,21 @@ const ARCHIVE_FILTERS = [
 ];
 
 function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, stats, onOpen, theme }) {
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const toggleGroup = (key) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   return (
     <View style={styles.searchStack}>
       <Card padding="md" style={styles.searchCard}>
         <View style={styles.searchHeader}>
           <View style={styles.resultText}>
-            <Eyebrow>Book search</Eyebrow>
+            <Eyebrow>Search your world</Eyebrow>
             <Title style={styles.searchTitle}>Find the saved thread.</Title>
           </View>
           <View style={[styles.searchCountBadge, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
@@ -1438,7 +1671,7 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
             <Pressable
               onPress={() => onQueryChange('')}
               accessibilityRole="button"
-              accessibilityLabel="Clear book search"
+              accessibilityLabel="Clear search"
               style={styles.searchClearButton}
             >
               <Ionicons name="close-circle" size={17} color={theme.semantic.textMuted} />
@@ -1460,9 +1693,20 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
         </View>
       </Card>
 
-      {results.length ? results.map((record) => (
-        <ArchiveResultRow key={record.key} record={record} onPress={() => onOpen(record)} theme={theme} />
-      )) : (
+      {results.length ? results.flatMap((group) => {
+        const expanded = expandedGroups.has(group.key);
+        const records = expanded ? group.records : [group.representative];
+        return records.map((record) => (
+          <ArchiveResultRow
+            key={expanded ? record.key : group.key}
+            record={record}
+            onPress={() => onOpen(record)}
+            theme={theme}
+            groupedCount={expanded ? 0 : group.hiddenCount}
+            onToggleGroup={group.hiddenCount ? () => toggleGroup(group.key) : null}
+          />
+        ));
+      }) : (
         <Card variant="ghost">
           <Eyebrow>No matches</Eyebrow>
           <Title style={styles.cardTitle}>Nothing saved under that yet.</Title>
@@ -1526,7 +1770,7 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
         <View style={styles.exportHeader}>
           <View style={styles.resultText}>
             <Eyebrow>Export</Eyebrow>
-            <Title style={styles.cardTitle}>Printable book draft.</Title>
+            <Title style={styles.cardTitle}>Export your family record.</Title>
             <Body>{PRINT_DRAFT_COPY}</Body>
             <Caption style={styles.exportPolicyNote}>
               {EXPORT_POLICY_COPY.alwaysExportable} {EXPORT_POLICY_COPY.exportScope} {EXPORT_POLICY_COPY.privateShare}
@@ -1539,9 +1783,9 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
               fullWidth={false}
               onPress={onBuildFile}
               loading={buildingFile}
-              icon={<Ionicons name="print-outline" size={16} color={theme.semantic.primary} />}
+              icon={<Ionicons name="download-outline" size={16} color={theme.semantic.primary} />}
             >
-              Build draft PDF
+              Build archive PDF
             </Button>
             <Button
               variant="quiet"
@@ -1575,7 +1819,7 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
           <View style={[styles.exportFileBox, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
             <Ionicons name="checkmark-circle-outline" size={18} color={theme.semantic.primary} />
             <View style={styles.resultText}>
-              <Caption>{exportFile.format === 'pdf' ? 'Generated PDF photo book' : 'Generated print-ready HTML preview'}</Caption>
+              <Caption>{exportFile.format === 'pdf' ? 'Generated PDF archive' : 'Generated HTML archive preview'}</Caption>
               <Caption numberOfLines={1}>{exportFile.uri}</Caption>
               {exportFile.htmlUri ? <Caption numberOfLines={1}>HTML companion: {exportFile.htmlUri}</Caption> : null}
             </View>
@@ -1626,13 +1870,13 @@ function ExportPanel({ stats, years, onShare, onBuildFile, buildingFile, exportF
   );
 }
 
-function ArchiveResultRow({ record, onPress, theme }) {
+function ArchiveResultRow({ record, onPress, theme, groupedCount = 0, onToggleGroup = null }) {
   const icon = record.videoCount ? 'play-circle' : record.voiceOnly ? 'mic' : 'image-outline';
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Open book result: ${record.title || 'Untitled moment'}`}
+      accessibilityLabel={`Open saved result: ${record.title || 'Untitled moment'}`}
       style={({ pressed }) => [
         styles.resultRow,
         {
@@ -1654,7 +1898,7 @@ function ArchiveResultRow({ record, onPress, theme }) {
         <Caption numberOfLines={1}>{record.subtitle}</Caption>
         <View style={styles.tagRow}>
           <View style={[styles.smallTag, { backgroundColor: theme.semantic.cardAlt }]}>
-            <Caption style={styles.smallTagText}>{record.bookStatusLabel || 'Saved in archive'}</Caption>
+            <Caption style={styles.smallTagText}>{record.archiveStatusLabel || 'Saved privately'}</Caption>
           </View>
           {record.tags.slice(0, 3).map((tag) => (
             <View key={tag} style={[styles.smallTag, { backgroundColor: theme.semantic.cardAlt }]}>
@@ -1663,6 +1907,20 @@ function ArchiveResultRow({ record, onPress, theme }) {
           ))}
         </View>
       </View>
+      {groupedCount > 0 ? (
+        <Pressable
+          onPress={(event) => {
+            event?.stopPropagation?.();
+            onToggleGroup?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${groupedCount} similar ${groupedCount === 1 ? 'photo' : 'photos'}`}
+          style={[styles.searchGroupButton, { backgroundColor: theme.colors.primarySoft }]}
+        >
+          <Ionicons name="copy-outline" size={13} color={theme.semantic.primary} />
+          <Caption style={{ color: theme.semantic.primary }}>+{groupedCount}</Caption>
+        </Pressable>
+      ) : null}
       <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
     </Pressable>
   );
@@ -1736,6 +1994,23 @@ function archiveStatsCaption(stats) {
   return 'No photos yet';
 }
 
+function limitArchiveSectionsForTimeline(sections, limit) {
+  let remaining = Math.max(0, Number(limit || 0));
+  const out = [];
+  for (const section of sections || []) {
+    if (remaining <= 0) break;
+    const records = (section.records || []).slice(0, remaining);
+    if (!records.length) continue;
+    remaining -= records.length;
+    out.push({
+      ...section,
+      records,
+      presentationGroups: groupArchiveRecordsForPresentation(records),
+    });
+  }
+  return out;
+}
+
 function possessiveName(name) {
   const clean = String(name || '').trim();
   if (!clean) return 'Baby';
@@ -1759,6 +2034,16 @@ function formatBookDateLabel(value) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDailyAlbumDate(value) {
+  if (!value) return '';
+  const raw = String(value);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T12:00:00`)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function countText(value, singular, pluralValue) {
   const count = Number(value || 0);
   return `${count.toLocaleString()} ${countLabel(count, singular, pluralValue)}`;
@@ -1767,6 +2052,25 @@ function countText(value, singular, pluralValue) {
 const styles = StyleSheet.create({
   photoStack: {
     gap: space.md,
+  },
+  familyLibraryList: {
+    gap: space.sm,
+  },
+  familyLibraryRow: {
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  familyLibraryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bookHomeStack: {
     gap: space.md,
@@ -1812,17 +2116,12 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   bookEntryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: space.sm,
   },
   bookEntryPressable: {
-    flexGrow: 1,
-    flexBasis: '46%',
-    minWidth: 150,
+    width: '100%',
   },
   bookEntryCard: {
-    minHeight: 132,
     borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -2145,6 +2444,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.md,
   },
+  searchGroupButton: {
+    minWidth: 44,
+    minHeight: 36,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
   resultThumb: {
     width: 62,
     height: 62,
@@ -2243,6 +2552,53 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space.xs,
     marginTop: space.md,
+  },
+  dailyCountBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  dailyRail: {
+    gap: space.sm,
+    paddingTop: space.lg,
+    paddingRight: space.xs,
+  },
+  dailyTile: {
+    width: 104,
+    height: 132,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  dailyTileScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: glass.mediaScrim,
+  },
+  dailyTileDate: {
+    position: 'absolute',
+    left: space.sm,
+    right: space.sm,
+    bottom: space.sm,
+    color: glass.inverseTextBody,
+    fontWeight: '800',
+    textShadowColor: glass.mediaTextShadow,
+    textShadowRadius: 5,
+  },
+  dailyVideoBadge: {
+    position: 'absolute',
+    top: space.xs,
+    right: space.xs,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: glass.mediaChrome,
+    borderWidth: 1,
+    borderColor: glass.mediaChromeBorder,
   },
   archiveMonthSection: {
     marginTop: space.lg,
@@ -2355,6 +2711,19 @@ const styles = StyleSheet.create({
     backgroundColor: glass.mediaChrome,
     borderWidth: 1,
     borderColor: glass.mediaChromeBorder,
+  },
+  savedEventBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    minWidth: 40,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
   },
   savedCountText: {
     color: glass.inverseTextBody,

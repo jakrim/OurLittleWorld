@@ -26,7 +26,7 @@ export default function LettersScreen() {
   const { family } = useFamily();
   const [letters, setLetters] = useState([]);
   const [members, setMembers] = useState({});
-  const goBackToBook = useCallback(() => {
+  const goBackToWorld = useCallback(() => {
     if (router.canGoBack?.()) {
       router.back();
       return;
@@ -70,10 +70,10 @@ export default function LettersScreen() {
 
   return (
     <AppShell
-      active="book"
+      active="world"
       title="letters for later."
       subtitle={family?.babyName ? `for ${family.babyName}, kept close.` : 'kept with your family story.'}
-      onBack={goBackToBook}
+      onBack={goBackToWorld}
     >
       <Card variant="muted">
         <Body style={[styles.script, { color: theme.semantic.primary }]}>
@@ -82,7 +82,7 @@ export default function LettersScreen() {
         <Title style={styles.heroTitle}>
           {family?.babyName ? `Letters to ${family.babyName}, kept as long as you need.` : 'Letters kept as long as you need.'}
         </Title>
-        <Body>Write the words you want saved with the rest of the baby book.</Body>
+        <Body>Write the words you want kept with the rest of your private family story.</Body>
         <Caption style={styles.nudge}>{nudge}</Caption>
       </Card>
       {childLetters.length ? childLetters.map((letter) => {
@@ -122,7 +122,7 @@ export default function LettersScreen() {
             <Ionicons name="mail-outline" size={18} color={theme.semantic.primary} />
           </View>
           <View style={styles.letterBody}>
-            <Title style={styles.letterTitle}>Write another letter for the book.</Title>
+            <Title style={styles.letterTitle}>Write another letter for their world.</Title>
             <Caption>One small note today can stay with the family story.</Caption>
           </View>
           <Pressable

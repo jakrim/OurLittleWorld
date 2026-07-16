@@ -251,7 +251,7 @@ export default function FirstsScreen() {
       },
     });
   };
-  const goBackToBook = useCallback(() => {
+  const goBackToWorld = useCallback(() => {
     if (router.canGoBack?.()) {
       router.back();
       return;
@@ -261,10 +261,10 @@ export default function FirstsScreen() {
 
   return (
     <AppShell
-      active="book"
+      active="world"
       title="firsts so far."
       subtitle={subtitle}
-      onBack={goBackToBook}
+      onBack={goBackToWorld}
       right={(
         <Pressable
           onPress={() => router.push('/first-compose')}
@@ -280,7 +280,7 @@ export default function FirstsScreen() {
       <Card>
         <Eyebrow>{completedCount} firsts saved</Eyebrow>
         <Title style={styles.heroTitle}>{heroTitleFor(goalProgress)}</Title>
-        <Body>Each one you save becomes part of the book. Starter ideas stay visible, but everything is optional.</Body>
+        <Body>Each one you save becomes part of your family record. Starter ideas stay visible, but everything is optional.</Body>
         <View style={styles.progressSegments}>
           {goalProgress.goals.map((item) => (
             <GoalProgressSegment

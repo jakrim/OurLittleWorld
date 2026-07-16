@@ -37,14 +37,14 @@ export default function PostSaveNudgeSheet({ nudge, theme, onDismiss, onAction, 
 function iconForNudge(kind) {
   if (kind === 'first') return 'flag-outline';
   if (kind === 'letter') return 'mail-outline';
-  if (kind === 'book-ready') return 'book-outline';
+  if (kind === 'book-ready') return 'create-outline';
   return 'mic-outline';
 }
 
 function bodyForNudge(kind) {
   if (kind === 'first') return 'This can link the moment to the family firsts timeline.';
   if (kind === 'letter') return 'A single line is enough; the date and age are already started.';
-  if (kind === 'book-ready') return 'A short parent-written line can make this moment easier to place in the baby book.';
+  if (kind === 'book-ready') return 'A short parent-written line can make this moment easier to remember later.';
   return 'Open the moment now so the voice can stay close to the photos.';
 }
 

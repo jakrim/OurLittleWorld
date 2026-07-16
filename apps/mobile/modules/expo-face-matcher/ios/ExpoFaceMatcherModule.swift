@@ -145,6 +145,8 @@ public class ExpoFaceMatcherModule: Module {
         var yaws = [Double?](repeating: nil, count: n)
         var rolls = [Double?](repeating: nil, count: n)
         var brightnesses = [Double](repeating: 0, count: n)
+        var featureVectors = [[Double]](repeating: [], count: n)
+        var visualFingerprints = [[Double]](repeating: [], count: n)
         let lock = NSLock()
 
         if workers <= 1 {
@@ -159,6 +161,8 @@ public class ExpoFaceMatcherModule: Module {
             yaws[idx] = out.yaw
             rolls[idx] = out.roll
             brightnesses[idx] = out.brightness
+            featureVectors[idx] = out.featureVector
+            visualFingerprints[idx] = out.visualFingerprint
           }
         } else {
           let queue = OperationQueue()
@@ -180,24 +184,34 @@ public class ExpoFaceMatcherModule: Module {
               yaws[index] = out.yaw
               rolls[index] = out.roll
               brightnesses[index] = out.brightness
+              featureVectors[index] = out.featureVector
+              visualFingerprints[index] = out.visualFingerprint
               lock.unlock()
             }
           }
           queue.waitUntilAllOperationsAreFinished()
         }
 
-        let results: [[String: Any]] = (0..<n).map { i in
-          [
-            "assetId": candidates[i]["assetId"] ?? "",
-            "score": scores[i],
-            "faceCount": faceCounts[i],
-            "captureQuality": self.nullableDouble(captureQualities[i]),
-            "faceSizeRatio": faceSizeRatios[i],
-            "sharpness": sharpnesses[i],
-            "yaw": self.nullableDouble(yaws[i]),
-            "roll": self.nullableDouble(rolls[i]),
-            "brightness": brightnesses[i]
-          ]
+        var results = [[String: Any]]()
+        results.reserveCapacity(n)
+        for i in 0..<n {
+          let captureQuality = self.nullableDouble(captureQualities[i])
+          let yaw = self.nullableDouble(yaws[i])
+          let roll = self.nullableDouble(rolls[i])
+          let row: [String: Any] = [
+              "assetId": candidates[i]["assetId"] ?? "",
+              "score": scores[i],
+              "faceCount": faceCounts[i],
+              "captureQuality": captureQuality,
+              "faceSizeRatio": faceSizeRatios[i],
+              "sharpness": sharpnesses[i],
+              "yaw": yaw,
+              "roll": roll,
+              "brightness": brightnesses[i],
+              "featureVector": featureVectors[i],
+              "visualFingerprint": visualFingerprints[i]
+            ]
+          results.append(row)
         }
         promise.resolve(results)
       }
@@ -206,7 +220,7 @@ public class ExpoFaceMatcherModule: Module {
 
   /// Per-candidate scoring: identical pipeline to former serial loop (same load,
   /// detection, crop padding, top-3 faces, embeddings, cosine vs `refVec`).
-  private func scoreCandidate(uri: String, refVec: [Double]) -> (score: Double, faceCount: Int, captureQuality: Double?, faceSizeRatio: Double, sharpness: Double, yaw: Double?, roll: Double?, brightness: Double) {
+  private func scoreCandidate(uri: String, refVec: [Double]) -> (score: Double, faceCount: Int, captureQuality: Double?, faceSizeRatio: Double, sharpness: Double, yaw: Double?, roll: Double?, brightness: Double, featureVector: [Double], visualFingerprint: [Double]) {
     var score = 0.0
     var faceCount = 0
     var bestCaptureQuality: Double?
@@ -215,8 +229,12 @@ public class ExpoFaceMatcherModule: Module {
     var bestYaw: Double?
     var bestRoll: Double?
     var bestBrightness = 0.0
+    var bestFeatureVector: [Double] = []
+    var visualFingerprint: [Double] = []
     do {
       if let cgImage = try loadCGImage(uri: uri) {
+        let wholeImageFingerprint = perceptualFingerprint(cgImage)
+        visualFingerprint = wholeImageFingerprint
         let faces = try detectFaces(in: cgImage)
         faceCount = faces.count
         let qualityFaces = (try? detectFaceCaptureQuality(in: cgImage)) ?? []
@@ -234,6 +252,8 @@ public class ExpoFaceMatcherModule: Module {
             bestYaw = metrics.yaw
             bestRoll = metrics.roll
             bestBrightness = metrics.brightness
+            bestFeatureVector = l2Normalise(emb)
+            visualFingerprint = wholeImageFingerprint + perceptualFingerprint(cropped)
           }
         }
         score = best
@@ -241,7 +261,18 @@ public class ExpoFaceMatcherModule: Module {
     } catch {
       score = 0
     }
-    return (score, faceCount, bestCaptureQuality, bestFaceSizeRatio, bestSharpness, bestYaw, bestRoll, bestBrightness)
+    return (
+      score,
+      faceCount,
+      bestCaptureQuality,
+      bestFaceSizeRatio,
+      bestSharpness,
+      bestYaw,
+      bestRoll,
+      bestBrightness,
+      bestFeatureVector,
+      visualFingerprint
+    )
   }
 
   // MARK: - Vision
@@ -354,6 +385,35 @@ public class ExpoFaceMatcherModule: Module {
     let brightness = pixels.isEmpty ? 0 : brightnessSum / Double(pixels.count)
     if count == 0 { return (0, brightness) }
     return (min(1, sqrt(sum / Double(count)) / 255.0), brightness)
+  }
+
+  /// Cheap whole-image fingerprint for near-duplicate suppression. The face
+  /// feature print remains identity evidence; it must not be used to decide
+  /// that two different photos of the same child are duplicates.
+  private func perceptualFingerprint(_ cgImage: CGImage) -> [Double] {
+    let width = 8
+    let height = 8
+    var pixels = [UInt8](repeating: 0, count: width * height)
+    let colorSpace = CGColorSpaceCreateDeviceGray()
+    let rendered = pixels.withUnsafeMutableBytes { raw in
+      guard let context = CGContext(
+        data: raw.baseAddress,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.none.rawValue
+      ) else {
+        return false
+      }
+      context.interpolationQuality = .medium
+      context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+      return true
+    }
+    guard rendered else { return [] }
+    let mean = Double(pixels.reduce(0) { $0 + Int($1) }) / Double(pixels.count)
+    return pixels.map { Double($0) >= mean ? 1.0 : -1.0 }
   }
 
   private func nullableDouble(_ value: Double?) -> Any {

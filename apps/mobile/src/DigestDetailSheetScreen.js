@@ -25,6 +25,7 @@ import { maybePromptForPushNotifications } from './pushNotifications';
 import { useRitualHomeData } from './useRitualHomeData';
 import { buildPrivateDigestSharePayload } from './privateRecapShareModel';
 import { buildDigestViewStatusLabel } from './secondParentStateModel';
+import { distinctDigestRepresentativeMedia } from './digestModel';
 
 export default function DigestDetailSheetScreen() {
   const router = useRouter();
@@ -80,7 +81,10 @@ export default function DigestDetailSheetScreen() {
     if (digest?.weekStart) params.sourceDigestWeekStart = digest.weekStart;
     router.push({ pathname: '/letter-compose', params });
   };
-  const representativeMedia = (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl);
+  const representativeMedia = distinctDigestRepresentativeMedia(
+    (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
+    { limit: 4 },
+  );
   const digestViewLabel = buildDigestViewStatusLabel({ openedHere: true });
 
   return (
@@ -122,7 +126,7 @@ export default function DigestDetailSheetScreen() {
           <View style={styles.sectionHeader}>
             <View>
               <Eyebrow>Representative moments</Eyebrow>
-              <Title style={styles.sectionTitle}>A small read-only recap.</Title>
+              <Title style={styles.sectionTitle}>One clear photo from each event.</Title>
             </View>
             <Ionicons name="book-outline" size={20} color={theme.semantic.primary} />
           </View>
@@ -189,7 +193,7 @@ export default function DigestDetailSheetScreen() {
         <Card variant="ghost">
           <Eyebrow>Letters</Eyebrow>
           <Body>
-            Save a note from this week with the rest of the baby book.
+            Save a note from this week with the rest of your family record.
           </Body>
           <Button
             size="sm"

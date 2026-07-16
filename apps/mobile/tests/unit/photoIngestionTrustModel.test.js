@@ -63,7 +63,7 @@ test('clean review batch can make auto-save ready without exposing tunables', ()
   assert.equal(model.autoSaveSetting.available, true);
   assert.equal(model.autoSaveSetting.value, AUTO_SAVE_MODE_REVIEW_FIRST);
   assert.match(model.autoSaveSetting.body, /Review first is selected/);
-  assert.match(model.autoSaveSetting.body, /Saved memories stay in Book/);
+  assert.match(model.autoSaveSetting.body, /Saved memories stay in Our World/);
   assert.match(model.autoSaveSetting.footnote, /never deletes saved memories or Photos originals/);
   assert.equal(model.tunables.cleanBatchMin, TRUST_CLEAN_BATCH_MIN);
   assert.equal(model.tunables.highConfidenceScore, TRUST_HIGH_CONFIDENCE_SCORE);

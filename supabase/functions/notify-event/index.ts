@@ -319,6 +319,12 @@ function copyForEvent(event: ReturnType<typeof normalizeEvent>, actorName: strin
   if (event.kind === 'letter_saved' || event.kind === 'letter_sealed') {
     return { title: `${actorName} saved a letter`, body: 'Open Letters.' };
   }
+  if (event.kind === 'moment_reaction') {
+    return { title: `${actorName} reacted to a moment`, body: 'Open the moment.' };
+  }
+  if (event.kind === 'moment_reply') {
+    return { title: `${actorName} replied to a moment`, body: 'Open the moment.' };
+  }
   return { title: event.title, body: event.body };
 }
 

@@ -102,7 +102,7 @@ test('selector returns one gentle Today nudge for a current month that only need
     ],
   });
 
-  assert.equal(nudge.eyebrow, 'Book');
+  assert.equal(nudge.eyebrow, 'Remember');
   assert.equal(nudge.title, 'Add one line to make July easier to remember');
   assert.deepEqual(nudge.route, { pathname: '/moment/[momentId]', params: { momentId: 'newer' } });
 });

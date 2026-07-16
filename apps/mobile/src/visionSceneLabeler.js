@@ -10,6 +10,8 @@
  * swap in true on-device Vision scene classifiers later.
  */
 
+import { collapsePlacePhotosIntoEvents } from './familyPhotoPresentationModel.js';
+
 function rounded(value, places = 3) {
   const p = 10 ** places;
   return Math.round(value * p) / p;
@@ -131,8 +133,16 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
       .map(([label]) => label);
+    const events = collapsePlacePhotosIntoEvents(bucket.photos);
     return {
       ...bucket,
+      sourcePhotoCount: bucket.photos.length,
+      eventCount: events.length,
+      photoEvents: events,
+      photos: events.map((event) => ({
+        ...event.representative,
+        presentationHiddenCount: event.hiddenCount,
+      })),
       topScenes,
     };
   });
@@ -140,7 +150,7 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
   if (!clusters.length) return [];
 
   const homeId = [...clusters]
-    .sort((a, b) => b.photos.length - a.photos.length)[0]?.id;
+    .sort((a, b) => b.sourcePhotoCount - a.sourcePhotoCount)[0]?.id;
 
   return clusters
     .map((cluster) => ({
@@ -154,7 +164,7 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
         isHome: cluster.id === homeId,
       }),
     }))
-    .sort((a, b) => b.photos.length - a.photos.length);
+    .sort((a, b) => b.eventCount - a.eventCount);
 }
 
 function locationForPhoto(photo, meta) {

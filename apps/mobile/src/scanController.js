@@ -36,7 +36,8 @@ import {
   fetchVideoFrameCandidatesPage,
 } from './photos';
 import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
-import { selectScanAutoSaveMatches } from './scanAutoSaveModel';
+import { buildDailyCurationPlan } from './dailyCurationModel';
+import { collapseScoredMediaCandidates } from './scanMediaMatchModel';
 
 const initialState = () => ({
   phase: 'idle',
@@ -395,7 +396,7 @@ export async function start({
           fileName: a.fileName,
         }));
 
-      let scored = candidates.length
+      const scored = candidates.length
         ? await matchAgainstReferenceProfile({
           profile: referenceProfile,
           birthdayISO,
@@ -403,31 +404,10 @@ export async function start({
           candidates,
         })
         : [];
-      if (cutoff != null) scored = scored.filter((s) => s.score >= cutoff);
-
-      const byId = new Map(candidates.map((c) => [c.assetId, c]));
-      const newMatchesRaw = scored.map((s) => {
-        const c = byId.get(s.assetId);
-        return {
-          assetId: c?.sourceAssetId || s.assetId,
-          candidateId: s.assetId,
-          mediaType: c?.mediaType || 'image',
-          score: s.score,
-          faceCount: s.faceCount,
-          captureQuality: s.captureQuality ?? null,
-          faceSizeRatio: s.faceSizeRatio ?? null,
-          sharpness: s.sharpness ?? null,
-          featureVector: s.featureVector || s.embedding || s.featurePrint || null,
-          creationTime: c?.creationTime,
-          uri: c?.previewUri || c?.localUri,
-          localUri: c?.localUri,
-          frameTimeMs: c?.frameTimeMs,
-          duration: c?.duration,
-          videoUri: c?.videoUri,
-          fileName: c?.fileName,
-          accepted: true,
-          saved: false,
-        };
+      const newMatchesRaw = collapseScoredMediaCandidates({
+        candidates,
+        scored,
+        cutoff,
       });
       const seenIds = new Set(state.matches.map((m) => m.assetId));
       const newMatches = [];
@@ -456,23 +436,6 @@ export async function start({
         borderlineCount: state.borderlineCount + addBorder,
       });
 
-      // Auto-queue high-confidence matches for background upload. The
-      // borderline ones still get reviewed manually so the user gets
-      // final say on questionable shots.
-      if (autoSaveFn && newMatches.length) {
-        const autoMatches = selectScanAutoSaveMatches(newMatches, {
-          scoreThreshold: autoSaveThreshold,
-          seenAssetIds: autoSaveSeen,
-        });
-        for (const match of autoMatches) {
-          autoSaveSeen.add(match.assetId);
-        }
-        if (autoMatches.length) {
-          autoSaveQueue.push(...autoMatches);
-          setState({ autoSaveQueueLength: autoSaveQueue.length });
-          pumpAutoSave();
-        }
-      }
     };
 
     if (extraIds.length) {
@@ -514,6 +477,24 @@ export async function start({
         pageSize: VIDEO_PAGE_SIZE,
         createdAfterMs: since,
       });
+    }
+
+    // Curate only after every page and sampled video has been compared.
+    // This prevents an early soft frame from saving before the strongest
+    // daily representative is known.
+    if (!me.aborted && autoSaveFn && state.matches.length) {
+      const autoPlan = buildDailyCurationPlan(state.matches, {
+        minIdentityScore: autoSaveThreshold,
+        autoSaveOnly: true,
+        autoSaveScoreThreshold: autoSaveThreshold,
+      });
+      const autoMatches = autoPlan.selectedMatches.filter((match) => !autoSaveSeen.has(match.assetId));
+      for (const match of autoMatches) autoSaveSeen.add(match.assetId);
+      if (autoMatches.length) {
+        autoSaveQueue.push(...autoMatches);
+        setState({ autoSaveQueueLength: autoSaveQueue.length });
+        pumpAutoSave();
+      }
     }
 
     if (me.aborted) {

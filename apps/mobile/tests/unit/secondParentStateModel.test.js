@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   buildDigestViewStatusLabel,
+  buildMomentPartnerStatus,
   buildPromptAnswerStatusLabel,
 } from '../../src/secondParentStateModel.js';
 
@@ -89,4 +90,20 @@ test('digest view status names viewers only when server-backed state is supplied
   });
 
   assert.equal(label, 'You and Lauren viewed');
+});
+
+test('partner moment status shows attribution, read state, and honest reactions', () => {
+  const status = buildMomentPartnerStatus({
+    userId: 'parent_a',
+    membersById,
+    moment: {
+      author_user_id: 'parent_a',
+      tags: ['parent-note'],
+      views: [{ user_id: 'parent_b' }],
+      reactions: [{ author_user_id: 'parent_b', emoji: 'heart' }],
+      replies: [{ author_user_id: 'parent_b', body: 'I remember this.' }],
+    },
+  });
+
+  assert.deepEqual(status, ['Added by you', 'Read by Lauren', 'Lauren reacted', 'Lauren replied']);
 });

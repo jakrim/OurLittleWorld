@@ -136,7 +136,7 @@ function copyForState({ state, pending, recentCount, babyName, hasDeviceReferenc
         ? `${recentCount} clear ${recentCount === 1 ? 'match was' : 'matches were'} added by the assistant`
         : 'Assistant can save clear matches',
       body: 'Clear matches can save automatically after parent review has built trust.',
-      actionLabel: recentCount ? 'Review recent saves' : 'Open Book',
+      actionLabel: recentCount ? 'Review recent saves' : 'Open Our World',
     };
   }
   if (state === 'auto_save_ready') {
@@ -203,7 +203,7 @@ export function buildAutoSaveSettingModel({
       title: 'Photo saving',
       body: enabled
         ? 'Auto-save clear matches is on. Future scans still use the same review setting and low-quality matches still wait for review.'
-        : 'Review first is selected. Saved memories stay in Book; clear matches wait for review until you turn on auto-save.',
+        : 'Review first is selected. Saved memories stay in Our World; clear matches wait for review until you turn on auto-save.',
       footnote: 'Changing this setting never deletes saved memories or Photos originals.',
     };
   }

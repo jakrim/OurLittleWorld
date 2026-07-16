@@ -60,6 +60,8 @@ const VIDEO_POSTER_QUALITY = 0.8;
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
 
 const signedUrlCache = new Map(); // key -> { url, expiresAt }
+const silentRepairAttemptedAt = new Map();
+const SILENT_REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
 
 function normalizeLocation(location) {
   const latitude = Number(location?.latitude);
@@ -722,7 +724,7 @@ export async function resumePendingUploadJobs({ familyId }) {
       await uploadForTag({
         familyId,
         assetId: job.local_asset_id,
-        videoPosterOnly: job.target_plan_key === 'poster_only' || job.media_type === 'video',
+        videoPosterOnly: job.target_plan_key === 'poster_only',
       });
       resumed += 1;
     } catch (err) {
@@ -731,6 +733,23 @@ export async function resumePendingUploadJobs({ familyId }) {
     }
   }
   return { resumed, failed };
+}
+
+export async function silentlyRepairUploadsForOwner({ familyId, nowMs = Date.now() } = {}) {
+  if (!familyId) return { attempted: false, reason: 'missing-family' };
+  const previous = Number(silentRepairAttemptedAt.get(familyId) || 0);
+  if (nowMs - previous < SILENT_REPAIR_COOLDOWN_MS) {
+    return { attempted: false, reason: 'cooldown' };
+  }
+  silentRepairAttemptedAt.set(familyId, nowMs);
+
+  const local = await resumePendingUploadJobs({ familyId }).catch(() => ({ resumed: 0, failed: 0 }));
+  const remote = await backfillPendingForOwner({ familyId }).catch(() => ({ uploaded: 0, skipped: 0 }));
+  return {
+    attempted: true,
+    repaired: Number(local.resumed || 0) + Number(remote.uploaded || 0),
+    remaining: Number(local.failed || 0) + Number(remote.skipped || 0),
+  };
 }
 
 async function deleteEmptyMoment({ familyId, momentId }) {

@@ -13,10 +13,18 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import BirthDatePicker from './ui/BirthDatePicker';
+import BestPhotoRail from './ui/BestPhotoRail';
 import { Body, Button, Caption, Field, Screen, Title, radius, shadow, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { buildAddMomentState } from './addMomentModel';
+import {
+  ADD_INTENT_MOMENT,
+  ADD_INTENT_OPTIONS,
+  ADD_INTENT_PARTNER_NOTE,
+  buildAddIntentPresentation,
+  normalizeAddIntent,
+} from './addIntentModel';
 import { CONTEXT_DRAFT_LABEL, CONTEXT_DRAFT_USE_LABEL, factsOnlyContextDraft } from './captionTemplateModel.js';
 import { firstHappenedDateCaption } from './firstComposeSeedModel.js';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
@@ -29,12 +37,14 @@ import { buildAddManualQaFixture, buildAddManualQaPostSaveNudge } from './addMan
 import { trackAnalyticsEvent } from './analytics';
 import { bucketCount } from './analyticsEventsModel';
 import { analyticsEnvironment, analyticsPlatform, mediaKindForAssets } from './analyticsProductContext';
+import { notifyPartnerNoteSaved } from './notificationEvents';
+import { loadBestPhotoCandidates } from './bestPhotoCandidates';
+import { candidateId } from './bestPhotoCandidateModel.js';
 
-const SECONDARY_ACTIONS = [
+const MORE_ACTIONS = [
   { icon: 'chatbubble-ellipses-outline', title: "Answer today's prompt", route: '/prompt' },
   { icon: 'flag-outline', title: 'Add a first', route: '/first-compose' },
-  { icon: 'mail-outline', title: 'Write a letter', route: '/letter-compose' },
-  { icon: 'sparkles-outline', title: 'Scan library', route: '/reference' },
+  { icon: 'checkmark-done-outline', title: 'Review found photos', route: '/review' },
 ];
 
 export default function AddSheetScreen() {
@@ -46,6 +56,7 @@ export default function AddSheetScreen() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
 
+  const [intent, setIntent] = useState(() => normalizeAddIntent(params.intent) || (params.qa ? ADD_INTENT_MOMENT : null));
   const [assets, setAssets] = useState([]);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -58,10 +69,21 @@ export default function AddSheetScreen() {
   const [postSaveNudge, setPostSaveNudge] = useState(null);
   const [postSaveDryRun, setPostSaveDryRun] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [bestPhotos, setBestPhotos] = useState({ photos: [], suppressedCount: 0 });
+  const [bestPhotosLoading, setBestPhotosLoading] = useState(false);
   const manualQaFixture = useMemo(
     () => (__DEV__ ? buildAddManualQaFixture(params.qa) : null),
     [params.qa],
   );
+  const intentPresentation = useMemo(
+    () => buildAddIntentPresentation(intent, { babyName: family?.babyName }),
+    [family?.babyName, intent],
+  );
+
+  useEffect(() => {
+    const requested = normalizeAddIntent(params.intent);
+    if (requested) setIntent(requested);
+  }, [params.intent]);
 
   useEffect(() => {
     if (!manualQaFixture) return;
@@ -74,6 +96,32 @@ export default function AddSheetScreen() {
     setVoice(null);
     setContextOpen(false);
   }, [manualQaFixture]);
+
+  useEffect(() => {
+    let alive = true;
+    if (intent !== ADD_INTENT_MOMENT || manualQaFixture || !family?.id || !user?.id) {
+      setBestPhotos({ photos: [], suppressedCount: 0 });
+      setBestPhotosLoading(false);
+      return () => { alive = false; };
+    }
+    setBestPhotosLoading(true);
+    loadBestPhotoCandidates({
+      familyId: family.id,
+      userId: user.id,
+      babyBirthday: family.babyBirthday,
+      limit: 10,
+    })
+      .then((result) => {
+        if (alive) setBestPhotos(result);
+      })
+      .catch(() => {
+        if (alive) setBestPhotos({ photos: [], suppressedCount: 0 });
+      })
+      .finally(() => {
+        if (alive) setBestPhotosLoading(false);
+      });
+    return () => { alive = false; };
+  }, [family?.babyBirthday, family?.id, intent, manualQaFixture, user?.id]);
 
   const tags = useMemo(
     () => tagText.split(',').map((tag) => tag.trim()).filter(Boolean),
@@ -110,7 +158,7 @@ export default function AddSheetScreen() {
   }, [router]);
 
   const openAction = useCallback((action) => {
-    router.push(action.route);
+    router.replace(action.route);
   }, [router]);
 
   const pickMedia = async () => {
@@ -132,6 +180,22 @@ export default function AddSheetScreen() {
   const removeAsset = (index) => {
     setAssets((current) => current.filter((_, i) => i !== index));
   };
+
+  const toggleBestPhoto = useCallback((photo) => {
+    const id = candidateId(photo);
+    if (!id) return;
+    setAssets((current) => {
+      const existingIndex = current.findIndex((asset) => candidateId(asset) === id);
+      if (existingIndex >= 0) return current.filter((_, index) => index !== existingIndex);
+      return [...current, {
+        ...photo,
+        assetId: id,
+        uri: photo.localUri || photo.uri,
+        type: 'image',
+        mediaType: 'image',
+      }].slice(0, 24);
+    });
+  }, []);
 
   const startRecording = async () => {
     setAudioBusy(true);
@@ -201,14 +265,17 @@ export default function AddSheetScreen() {
     setSaving(true);
     try {
       const dryRun = !!manualQaFixture;
+      const savedTitle = title.trim() || intentPresentation.defaultTitle;
       const moment = dryRun
         ? manualQaFixture.moment
         : await createMomentWithMedia({
           familyId: family.id,
-          title,
+          title: savedTitle,
           note,
           placeName: place,
-          tags,
+          tags: intent === ADD_INTENT_PARTNER_NOTE
+            ? Array.from(new Set([...tags, 'parent-note']))
+            : tags,
           assets,
           voice,
           videoPosterOnly,
@@ -231,17 +298,26 @@ export default function AddSheetScreen() {
           platform: analyticsPlatform(Platform.OS),
           environment: analyticsEnvironment(),
         });
+        if (intent === ADD_INTENT_PARTNER_NOTE) {
+          notifyPartnerNoteSaved({
+            familyId: family.id,
+            actorUserId: user?.id,
+            momentId: moment.id,
+          }).catch((error) => console.warn('notify partner note saved', error?.message));
+        }
       }
-      const nudge = dryRun
-        ? buildAddManualQaPostSaveNudge(manualQaFixture, { family, assets, note, voice })
-        : await buildPostSaveNudge({
-          family,
-          user,
-          moment,
-          assets,
-          note,
-          voice,
-        });
+      const nudge = intent === ADD_INTENT_PARTNER_NOTE
+        ? null
+        : dryRun
+          ? buildAddManualQaPostSaveNudge(manualQaFixture, { family, assets, note, voice })
+          : await buildPostSaveNudge({
+            family,
+            user,
+            moment,
+            assets,
+            note,
+            voice,
+          });
       if (nudge) {
         if (!dryRun) await recordPostSaveNudgeShown({ familyId: family.id, userId: user?.id });
         setPostSaveDryRun(dryRun);
@@ -263,8 +339,8 @@ export default function AddSheetScreen() {
     }
   };
 
-  const contextExpanded = addState.canShowContext && (contextOpen || addState.hasContext);
-  const showHappenedDate = addState.hasPrimaryContent || Boolean(happenedDate);
+  const contextExpanded = intentPresentation.showContext && addState.canShowContext && (contextOpen || addState.hasContext);
+  const showHappenedDate = intentPresentation.showDate && (addState.hasPrimaryContent || Boolean(happenedDate));
   const recording = !!recorderState.isRecording;
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
@@ -281,13 +357,43 @@ export default function AddSheetScreen() {
     );
   }
 
+  if (!intent) {
+    return (
+      <AddIntentChooser
+        onClose={close}
+        onSelect={(option) => {
+          if (option.route) openAction(option);
+          else setIntent(option.key);
+        }}
+        onOpenAction={openAction}
+        theme={theme}
+      />
+    );
+  }
+
   return (
     <Screen bare scroll keyboard>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
         <View style={styles.header}>
+          <Pressable
+            onPress={() => setIntent(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Choose another way to add"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.backButton,
+              {
+                backgroundColor: theme.semantic.cardAlt,
+                borderColor: theme.semantic.border,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="chevron-back" size={19} color={theme.semantic.textSoft} />
+          </Pressable>
           <View style={styles.headerText}>
-            <Title style={styles.title}>Save a moment</Title>
-            <Caption>Add a photo, a voice note, or a few words. Context can come later.</Caption>
+            <Title style={styles.title}>{intentPresentation.heading}</Title>
+            <Caption>{intentPresentation.caption}</Caption>
           </View>
           <Pressable
             onPress={close}
@@ -307,15 +413,20 @@ export default function AddSheetScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.primaryActions}>
-          <Button
-            variant="ghost"
-            onPress={pickMedia}
-            testID="add-media-button"
-            icon={<Ionicons name="images-outline" size={17} color={theme.semantic.primary} />}
-          >
-            Add photos or videos
-          </Button>
+        {intentPresentation.showMedia ? (
+          <BestPhotoRail
+            photos={bestPhotos.photos}
+            loading={bestPhotosLoading}
+            selectedIds={new Set(assets.map(candidateId).filter(Boolean))}
+            onToggle={toggleBestPhoto}
+            onOpenPicker={pickMedia}
+            caption={bestPhotoCaption(bestPhotos, bestPhotosLoading)}
+            pickerLabel="Open photo library"
+          />
+        ) : null}
+
+        {intentPresentation.showVoice ? <View style={styles.primaryActions}>
+          {intentPresentation.showVoice ? (
           <Button
             variant={recording ? 'dark' : 'ghost'}
             onPress={recording ? stopRecording : startRecording}
@@ -324,7 +435,8 @@ export default function AddSheetScreen() {
           >
             {recording ? `Stop recording ${audioSeconds}s` : voice ? `Voice note ${audioSeconds}s` : 'Add voice note'}
           </Button>
-        </View>
+          ) : null}
+        </View> : null}
 
         {assets.length ? (
           <View style={styles.mediaStrip}>
@@ -374,8 +486,8 @@ export default function AddSheetScreen() {
           as="textarea"
           value={note}
           onChangeText={setNote}
-          placeholder="Write one line about this moment"
-          caption="A few words are enough, or leave this blank if the media or voice already says it."
+          placeholder={intentPresentation.notePlaceholder}
+          caption={intentPresentation.noteCaption}
         />
         {contextDraft && !note.trim() ? (
           <Pressable
@@ -403,7 +515,7 @@ export default function AddSheetScreen() {
           />
         ) : null}
 
-        {addState.canShowContext ? (
+        {intentPresentation.showContext && addState.canShowContext ? (
           <Pressable
             onPress={() => setContextOpen((value) => !value)}
             accessibilityRole="button"
@@ -424,7 +536,7 @@ export default function AddSheetScreen() {
               <Body style={styles.contextToggleTitle}>
                 {addState.hasContext ? 'Edit context' : 'Add context'}
               </Body>
-              <Caption>Optional title, place, and tags for the book.</Caption>
+              <Caption>Optional title, place, and tags make this easier to find later.</Caption>
             </View>
             <Ionicons
               name={contextExpanded ? 'chevron-up' : 'chevron-down'}
@@ -446,7 +558,7 @@ export default function AddSheetScreen() {
               value={place}
               onChangeText={setPlace}
               placeholder="Place (optional)"
-              caption="Helps the book group memories by where they happened."
+              caption="Helps group memories by where they happened."
             />
             <Field
               value={tagText}
@@ -461,18 +573,49 @@ export default function AddSheetScreen() {
         ) : null}
 
         <Button onPress={saveMoment} loading={saving} disabled={!addState.canSave || saving}>
-          Save moment
+          {intentPresentation.saveLabel}
         </Button>
+      </View>
+    </Screen>
+  );
+}
 
-        <View style={styles.secondaryGrid}>
-          {SECONDARY_ACTIONS.map((action) => (
+function AddIntentChooser({ onClose, onSelect, onOpenAction, theme }) {
+  return (
+    <Screen bare scroll edges={{ top: false, bottom: true }}>
+      <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
+        <View style={styles.header}>
+          <View style={styles.headerText}>
+            <Title style={styles.title}>Add to your world</Title>
+            <Caption>Choose what you want to keep or share. You can add context later.</Caption>
+          </View>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close add menu"
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.closeButton,
+              {
+                backgroundColor: theme.semantic.cardAlt,
+                borderColor: theme.semantic.border,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="close" size={18} color={theme.semantic.textSoft} />
+          </Pressable>
+        </View>
+
+        <View style={styles.intentGrid}>
+          {ADD_INTENT_OPTIONS.map((option) => (
             <Pressable
-              key={action.title}
-              onPress={() => openAction(action)}
+              key={option.key}
+              onPress={() => onSelect(option)}
               accessibilityRole="button"
-              accessibilityLabel={action.title}
+              accessibilityLabel={option.title}
               style={({ pressed }) => [
-                styles.secondaryAction,
+                styles.intentCard,
                 {
                   backgroundColor: theme.semantic.cardAlt,
                   borderColor: theme.semantic.border,
@@ -480,14 +623,52 @@ export default function AddSheetScreen() {
                 },
               ]}
             >
+              <View style={[styles.intentIcon, { backgroundColor: theme.colors.primarySoft }]}>
+                <Ionicons name={option.icon} size={21} color={theme.semantic.primary} />
+              </View>
+              <Body style={styles.intentTitle}>{option.title}</Body>
+              <Caption>{option.body}</Caption>
+              <Ionicons name="arrow-forward" size={17} color={theme.semantic.textMuted} />
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={styles.moreSection}>
+          <Caption style={styles.moreLabel}>More ways to add</Caption>
+          {MORE_ACTIONS.map((action) => (
+            <Pressable
+              key={action.title}
+              onPress={() => onOpenAction(action)}
+              accessibilityRole="button"
+              accessibilityLabel={action.title}
+              style={({ pressed }) => [
+                styles.moreAction,
+                {
+                  borderColor: theme.semantic.border,
+                  opacity: pressed ? 0.72 : 1,
+                },
+              ]}
+            >
               <Ionicons name={action.icon} size={17} color={theme.semantic.primary} />
-              <Body style={styles.secondaryTitle}>{action.title}</Body>
+              <Body style={styles.moreActionTitle}>{action.title}</Body>
+              <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
             </Pressable>
           ))}
         </View>
       </View>
     </Screen>
   );
+}
+
+function bestPhotoCaption(result, loading) {
+  if (loading) return 'Finding clear, distinct recent photos on this device.';
+  if (result?.photos?.length) {
+    const hidden = Number(result.suppressedCount || 0);
+    return hidden
+      ? `${hidden} similar ${hidden === 1 ? 'shot was' : 'shots were'} collapsed. Tap any photo to add it.`
+      : 'Clear, distinct recent photos. Tap any photo to add it.';
+  }
+  return 'Choose any photo or video from the native library.';
 }
 
 function capturedAtFromDate(value) {
@@ -599,6 +780,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   primaryActions: {
     gap: space.sm,
   },
@@ -692,22 +881,42 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  secondaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
+  intentGrid: {
+    gap: space.md,
   },
-  secondaryAction: {
-    width: '48%',
-    minHeight: 54,
-    borderRadius: radius.md,
+  intentCard: {
+    minHeight: 104,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    padding: space.md,
+    padding: space.lg,
+    gap: space.xs,
+  },
+  intentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.xs,
+  },
+  intentTitle: {
+    fontWeight: '800',
+  },
+  moreSection: {
+    gap: space.xs,
+  },
+  moreLabel: {
+    marginBottom: space.xs,
+    fontWeight: '700',
+  },
+  moreAction: {
+    minHeight: 50,
+    borderBottomWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
   },
-  secondaryTitle: {
+  moreActionTitle: {
     flex: 1,
     fontSize: 13,
     lineHeight: 17,

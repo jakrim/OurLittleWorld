@@ -450,7 +450,7 @@ function bodyCopy({ autoSeeding, autoConfirming, restored, babyName }) {
     return `Step 1 of 2: starting from ${babyName || 'your baby'}'s birthday, we check a bounded spread of photos on this device for a face that repeats across time. You will confirm a possible match before review starts.`;
   }
   if (autoConfirming) {
-    return `Step 2 of 2: confirm that this clear representative is ${babyName || 'your baby'}, then review the likely photos before anything reaches the book. ${learningCopy}`;
+    return `Step 2 of 2: confirm that this clear representative is ${babyName || 'your baby'}, then review the likely photos before anything reaches your family world. ${learningCopy}`;
   }
   if (restored) return `This is the saved representative for the local reference set. ${learningCopy} The original stays in Photos.`;
   return `When birthday-first discovery is unavailable or cannot find a likely match, one clear face photo helps this device review likely matches. Scanning stays on your phone; moments you save go to your private family archive.`;

@@ -19,6 +19,7 @@ import {
 import { attachmentTarget } from './mediaAttachmentTarget';
 import { supabase } from './supabase';
 import { normalizeMomentTags } from './tagModel';
+import { archivePageRanges } from './archivePaginationModel';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -692,58 +693,68 @@ export async function deleteLetterAttachments({ familyId, letterId }) {
 
 export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   if (!familyId) return [];
-  const { data, error } = await supabase
-    .from('moments')
-    .select(`
-      id,
-      family_id,
-      author_user_id,
-      title,
-      caption_note,
-      captured_at,
-      place_name,
-      latitude,
-      longitude,
-      shared_with,
-      created_at,
-      moment_media (
+  const safeLimit = Math.max(0, Math.floor(Number(limit || 0)));
+  if (!safeLimit) return [];
+  const rows = [];
+  for (const pageRange of archivePageRanges(safeLimit)) {
+    const { data, error } = await supabase
+      .from('moments')
+      .select(`
         id,
-        media_type,
-        local_identifier,
-        owner_user_id,
-        file_name,
-        mime_type,
-        width,
-        height,
-        duration_sec,
-        metadata,
-        upload_status,
-        quota_class,
-        storage_provider,
-        playback_provider,
-        stream_uid,
-        sort_order
-      ),
-      voice_notes (
-        id,
-        duration_sec,
-        waveform,
-        audio_object,
-        mime_type,
-        upload_status
-      ),
-      moment_tags (tag),
-      moment_reactions (emoji, author_user_id)
-    `)
-    .eq('family_id', familyId)
-    .order('captured_at', { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.warn('listMomentArchive', error.message);
-    return [];
+        family_id,
+        author_user_id,
+        title,
+        caption_note,
+        captured_at,
+        place_name,
+        latitude,
+        longitude,
+        shared_with,
+        created_at,
+        moment_media (
+          id,
+          media_type,
+          local_identifier,
+          owner_user_id,
+          file_name,
+          mime_type,
+          width,
+          height,
+          duration_sec,
+          metadata,
+          upload_status,
+          quota_class,
+          storage_provider,
+          playback_provider,
+          stream_uid,
+          sort_order
+        ),
+        voice_notes (
+          id,
+          duration_sec,
+          waveform,
+          audio_object,
+          mime_type,
+          upload_status
+        ),
+        moment_tags (tag),
+        moment_reactions (emoji, author_user_id)
+      `)
+      .eq('family_id', familyId)
+      .order('captured_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(pageRange.from, pageRange.to);
+    if (error) {
+      console.warn('listMomentArchive', error.message);
+      if (!rows.length) return [];
+      break;
+    }
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageRange.take) break;
   }
 
-  return hydrateMomentRows(familyId, data || []);
+  return hydrateMomentRows(familyId, rows);
 }
 
 export async function getMomentDetail({ familyId, momentId }) {
@@ -827,6 +838,87 @@ export async function toggleMomentReaction({ familyId, momentId, emoji }) {
   });
   if (error) throw error;
   return { active: true };
+}
+
+export async function recordMomentView({ familyId, momentId }) {
+  const userId = await currentUserId();
+  if (!familyId || !momentId || !userId) return null;
+  const { data, error } = await supabase
+    .from('moment_views')
+    .upsert({
+      family_id: familyId,
+      moment_id: momentId,
+      user_id: userId,
+      viewed_at: new Date().toISOString(),
+    }, { onConflict: 'moment_id,user_id' })
+    .select('user_id, viewed_at')
+    .single();
+  if (error) {
+    if (!isMissingMomentViews(error)) console.warn('recordMomentView', error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function listMomentViews({ familyId, momentId }) {
+  if (!familyId || !momentId) return [];
+  const { data, error } = await supabase
+    .from('moment_views')
+    .select('user_id, viewed_at')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId);
+  if (error) {
+    if (!isMissingMomentViews(error)) console.warn('listMomentViews', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+function isMissingMomentViews(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (message.includes('moment_views') && message.includes('schema cache'));
+}
+
+export async function listMomentReplies({ familyId, momentId }) {
+  if (!familyId || !momentId) return [];
+  const { data, error } = await supabase
+    .from('moment_replies')
+    .select('id, author_user_id, body, created_at, updated_at')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    if (!isMissingMomentReplies(error)) console.warn('listMomentReplies', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function addMomentReply({ familyId, momentId, body }) {
+  const userId = await currentUserId();
+  const text = String(body || '').trim();
+  if (!familyId || !momentId || !userId || !text) throw new Error('Write a reply first');
+  const { data, error } = await supabase
+    .from('moment_replies')
+    .insert({
+      family_id: familyId,
+      moment_id: momentId,
+      author_user_id: userId,
+      body: text.slice(0, 1000),
+    })
+    .select('id, author_user_id, body, created_at, updated_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+function isMissingMomentReplies(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (message.includes('moment_replies') && message.includes('schema cache'));
 }
 
 export async function updateMoment({ familyId, momentId, patch = {}, tags }) {

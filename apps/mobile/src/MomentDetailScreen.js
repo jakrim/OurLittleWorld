@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, LayoutAnimation, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, LayoutAnimation, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -18,7 +18,18 @@ import { ageAt, formatAge } from './photos';
 import { CONTEXT_DRAFT_LABEL, CONTEXT_DRAFT_USE_LABEL, factsOnlyContextDraft } from './captionTemplateModel.js';
 import { firstHappenedDateCaption } from './firstComposeSeedModel.js';
 import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
-import { deleteMoment, deleteVoiceNote, getMomentDetail, setMomentSharedWith, toggleMomentReaction, updateMoment } from './moments';
+import {
+  addMomentReply,
+  deleteMoment,
+  deleteVoiceNote,
+  getMomentDetail,
+  listMomentViews,
+  listMomentReplies,
+  recordMomentView,
+  setMomentSharedWith,
+  toggleMomentReaction,
+  updateMoment,
+} from './moments';
 import { uploadForTag } from './photoSync';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
@@ -29,6 +40,8 @@ import { formatTagLabel, normalizeMomentTags } from './tagModel';
 import { buildMomentConnectionChips } from './momentConnectionChips';
 import { buildMomentMilestoneRoute } from './momentMilestoneModel';
 import { buildLibraryManualQaMomentDetail } from './libraryManualQaFixtures';
+import { buildMomentPartnerStatus } from './secondParentStateModel';
+import { notifyPartnerReaction, notifyPartnerReply } from './notificationEvents';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -79,6 +92,9 @@ export default function MomentDetailScreen() {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [promotingVideo, setPromotingVideo] = useState(false);
   const [photoFocused, setPhotoFocused] = useState(false);
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   const voice = moment?.voiceNotes?.find((item) => item.audioUrl) || null;
   const player = useAudioPlayer(voice?.audioUrl ? { uri: voice.audioUrl } : null, { updateInterval: 250 });
@@ -100,16 +116,21 @@ export default function MomentDetailScreen() {
         setMoment(null);
         return;
       }
+      await recordMomentView({ familyId: family.id, momentId }).catch(() => {});
       const linkedFirsts = await Firsts.listForMoment(family.id, momentId);
-      const [linkedLetters, linkedDigest] = await Promise.all([
+      const [linkedLetters, linkedDigest, views, replies] = await Promise.all([
         Letters.listConnectedToMoment(family.id, {
           momentId,
           firstIds: linkedFirsts.map((first) => first.id).filter(Boolean),
         }),
         WeeklyDigests.getForMomentDate(family.id, next.captured_at),
+        listMomentViews({ familyId: family.id, momentId }),
+        listMomentReplies({ familyId: family.id, momentId }),
       ]);
       setMoment({
         ...next,
+        views,
+        replies,
         connectedFirsts: linkedFirsts,
         connectedLetters: linkedLetters,
         connectedDigest: linkedDigest,
@@ -208,6 +229,17 @@ export default function MomentDetailScreen() {
   const sharedWithCircle = sharedWith.includes('circle');
   const canWrite = ['creator', 'partner'].includes(family?.me?.role);
   const isOwner = !!moment?.author_user_id && moment.author_user_id === user?.id;
+  const membersById = useMemo(
+    () => Object.fromEntries(members.map((member) => [member.userId, member.displayName || 'Family'])),
+    [members],
+  );
+  const partnerStatus = useMemo(
+    () => buildMomentPartnerStatus({ moment, membersById, userId: user?.id }),
+    [membersById, moment, user?.id],
+  );
+  const heroActivity = firstMediaAutoSaved
+    ? ['Added by the assistant', ...partnerStatus.slice(1)]
+    : partnerStatus;
   const connectionChips = useMemo(() => buildMomentConnectionChips({
     moment,
     firsts: moment?.connectedFirsts || [],
@@ -264,13 +296,46 @@ export default function MomentDetailScreen() {
     if (!family?.id || !moment?.id || reacting) return;
     setReacting(true);
     try {
-      await toggleMomentReaction({ familyId: family.id, momentId: moment.id, emoji: key });
+      const result = await toggleMomentReaction({ familyId: family.id, momentId: moment.id, emoji: key });
+      if (result?.active) {
+        notifyPartnerReaction({
+          familyId: family.id,
+          actorUserId: user?.id,
+          momentId: moment.id,
+          reaction: key,
+        }).catch(() => {});
+      }
       await load();
       setReactionPickerOpen(false);
     } catch (err) {
       Alert.alert('Could not react', err?.message || String(err));
     } finally {
       setReacting(false);
+    }
+  };
+
+  const sendReply = async () => {
+    if (!family?.id || !moment?.id || !replyText.trim() || sendingReply) return;
+    setSendingReply(true);
+    try {
+      const reply = await addMomentReply({
+        familyId: family.id,
+        momentId: moment.id,
+        body: replyText,
+      });
+      notifyPartnerReply({
+        familyId: family.id,
+        actorUserId: user?.id,
+        momentId: moment.id,
+        replyId: reply?.id,
+      }).catch(() => {});
+      setReplyText('');
+      setReplyOpen(false);
+      await load();
+    } catch (err) {
+      Alert.alert('Could not reply', err?.message || String(err));
+    } finally {
+      setSendingReply(false);
     }
   };
 
@@ -420,7 +485,7 @@ export default function MomentDetailScreen() {
 
   const confirmDelete = () => {
     setMenuVisible(false);
-    Alert.alert('Delete this moment?', 'This removes the saved Moment from the book, including copied media, voice notes, and reactions. Any originals in Photos stay where they are.', [
+    Alert.alert('Delete this moment?', 'This removes the saved moment from your family world, including copied media, voice notes, and reactions. Any originals in Photos stay where they are.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -553,7 +618,7 @@ export default function MomentDetailScreen() {
             {moment.title || 'A little moment'}
           </Title>
           <Caption style={[styles.heroMeta, { color: glass.inverseTextBody }]}>
-            {[firstMediaAutoSaved ? 'Added by the assistant' : null, moment.place_name, capturedLabel].filter(Boolean).join(' · ') || 'Saved moment'}
+            {[...heroActivity, moment.place_name, capturedLabel].filter(Boolean).join(' · ') || 'Saved moment'}
           </Caption>
         </View> : null}
       </View>
@@ -749,6 +814,47 @@ export default function MomentDetailScreen() {
               </View>
             </View>
           ) : null}
+          {moment.replies?.length ? (
+            <View style={[styles.replyList, { borderTopColor: theme.semantic.border }]}>
+              {moment.replies.map((reply) => (
+                <View key={reply.id} style={[styles.replyBubble, { backgroundColor: theme.semantic.card }]}>
+                  <Caption style={{ color: theme.semantic.primary }}>
+                    {reply.author_user_id === user?.id
+                      ? 'You'
+                      : membersById[reply.author_user_id]?.split(/\s+/)[0] || 'Your co-parent'}
+                  </Caption>
+                  <Body>{reply.body}</Body>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {canWrite && replyOpen ? (
+            <View style={[styles.replyComposer, { borderTopColor: theme.semantic.border }]}>
+              <Field
+                as="textarea"
+                value={replyText}
+                onChangeText={setReplyText}
+                placeholder="Write a private reply."
+                caption="Only family writers can see this."
+                maxLength={1000}
+                autoFocus
+              />
+              <View style={styles.replyActions}>
+                <Button variant="ghost" size="sm" fullWidth={false} onPress={() => setReplyOpen(false)}>Cancel</Button>
+                <Button size="sm" fullWidth={false} onPress={sendReply} loading={sendingReply} disabled={!replyText.trim()}>Send reply</Button>
+              </View>
+            </View>
+          ) : canWrite ? (
+            <Button
+              variant="quiet"
+              size="sm"
+              fullWidth={false}
+              onPress={() => setReplyOpen(true)}
+              icon={<Ionicons name="return-up-back-outline" size={15} color={theme.semantic.primary} />}
+            >
+              Reply
+            </Button>
+          ) : null}
           {moment.tags?.length ? (
             <View style={styles.tagRow}>
               {moment.tags.map((tag) => (
@@ -840,6 +946,13 @@ function ConnectionChip({ chip, theme, onPress }) {
 }
 
 function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo, photoFocused = false, onPhotoPress }) {
+  const { width: pageWidth } = useWindowDimensions();
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [media]);
+
   if (!media.length) {
     return (
       <Pressable
@@ -852,52 +965,96 @@ function MediaMosaic({ media, theme, onPromoteVideo, promotingVideo, photoFocuse
       </Pressable>
     );
   }
-  const first = media[0];
+
   return (
     <View style={styles.mediaWrap}>
-      <View style={[styles.heroMedia, { backgroundColor: photoFocused ? glass.photoBackdrop : theme.semantic.cardAlt }]}>
-        {first.media_type === 'video' ? (
-          first.fullUrl
-            ? <VideoPlayerTile media={first} theme={theme} />
-            : (
-              <VideoPlaceholder
-                media={first}
-                theme={theme}
-                large
-                onPromote={onPromoteVideo}
-                promoting={promotingVideo}
-              />
-            )
-        ) : first.fullUrl || first.thumbUrl ? (
-          <Pressable
-            onPress={onPhotoPress}
-            accessibilityRole="button"
-            accessibilityLabel="Show full photo"
-            style={StyleSheet.absoluteFill}
+      <FlatList
+        horizontal
+        pagingEnabled
+        data={media}
+        keyExtractor={(item, index) => String(item.id || item.local_identifier || item.fullUrl || `${item.media_type}-${index}`)}
+        renderItem={({ item, index }) => (
+          <View
+            style={[
+              styles.heroMedia,
+              {
+                width: pageWidth,
+                backgroundColor: photoFocused ? glass.photoBackdrop : theme.semantic.cardAlt,
+              },
+            ]}
           >
-            <Image
-              source={{ uri: first.fullUrl || first.thumbUrl }}
-              style={StyleSheet.absoluteFill}
-              contentFit={photoFocused ? 'contain' : 'cover'}
+            <MediaPage
+              media={item}
+              theme={theme}
+              onPromoteVideo={onPromoteVideo}
+              promotingVideo={promotingVideo}
+              photoFocused={photoFocused}
+              onPhotoPress={onPhotoPress}
+              isActive={index === activeIndex}
             />
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={onPhotoPress}
-            accessibilityRole="button"
-            accessibilityLabel="Show full photo"
-            style={StyleSheet.absoluteFill}
-          >
-            <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-          </Pressable>
+          </View>
         )}
-      </View>
+        showsHorizontalScrollIndicator={false}
+        bounces={media.length > 1}
+        decelerationRate="fast"
+        initialNumToRender={1}
+        windowSize={3}
+        removeClippedSubviews={false}
+        getItemLayout={(_, index) => ({ length: pageWidth, offset: pageWidth * index, index })}
+        onMomentumScrollEnd={(event) => {
+          const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(pageWidth, 1));
+          setActiveIndex(Math.max(0, Math.min(media.length - 1, next)));
+        }}
+        accessibilityLabel={`Swipe through ${media.length} saved ${media.length === 1 ? 'memory' : 'memories'}`}
+      />
       {media.length > 1 ? (
         <View style={styles.mediaCountBadge}>
-          <Caption style={styles.mediaCountText}>+{media.length - 1}</Caption>
+          <Caption style={styles.mediaCountText}>{activeIndex + 1}/{media.length}</Caption>
         </View>
       ) : null}
     </View>
+  );
+}
+
+function MediaPage({
+  media,
+  theme,
+  onPromoteVideo,
+  promotingVideo,
+  photoFocused,
+  onPhotoPress,
+  isActive,
+}) {
+  if (media.media_type === 'video') {
+    return media.fullUrl ? (
+      <VideoPlayerTile media={media} theme={theme} isActive={isActive} />
+    ) : (
+      <VideoPlaceholder
+        media={media}
+        theme={theme}
+        large
+        onPromote={onPromoteVideo}
+        promoting={promotingVideo}
+      />
+    );
+  }
+  return (
+    <Pressable
+      onPress={onPhotoPress}
+      accessibilityRole="button"
+      accessibilityLabel="Show full photo"
+      style={StyleSheet.absoluteFill}
+    >
+      {media.fullUrl || media.thumbUrl ? (
+        <Image
+          source={{ uri: media.fullUrl || media.thumbUrl }}
+          style={StyleSheet.absoluteFill}
+          contentFit={photoFocused ? 'contain' : 'cover'}
+        />
+      ) : (
+        <PhotoPlaceholder style={StyleSheet.absoluteFill} />
+      )}
+    </Pressable>
   );
 }
 
@@ -947,7 +1104,7 @@ function VideoPlaceholder({ media, theme, large = false, onPromote, promoting = 
   );
 }
 
-function VideoPlayerTile({ media, theme }) {
+function VideoPlayerTile({ media, theme, isActive = true }) {
   const [frameReady, setFrameReady] = useState(false);
   const source = useMemo(
     () => ({
@@ -968,12 +1125,16 @@ function VideoPlayerTile({ media, theme }) {
     setFrameReady(false);
   }, [media.fullUrl]);
 
+  useEffect(() => {
+    if (!isActive) player.pause();
+  }, [isActive, player]);
+
   return (
     <View style={styles.videoPlaceholder}>
       <VideoView
         player={player}
         style={StyleSheet.absoluteFill}
-        contentFit="cover"
+        contentFit="contain"
         nativeControls
         fullscreenOptions={{ enable: true, orientation: 'default' }}
         allowsVideoFrameAnalysis={false}
@@ -1339,6 +1500,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
+  },
+  replyList: {
+    borderTopWidth: 1,
+    paddingTop: space.md,
+    gap: space.sm,
+  },
+  replyBubble: {
+    borderRadius: radius.lg,
+    padding: space.md,
+    gap: 3,
+  },
+  replyComposer: {
+    borderTopWidth: 1,
+    paddingTop: space.md,
+    gap: space.sm,
+  },
+  replyActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: space.sm,
   },
   reactionPickerEmoji: {
     fontSize: 20,

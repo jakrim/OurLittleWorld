@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { digestHasContent } from '../../src/digestModel.js';
+import { digestHasContent, distinctDigestRepresentativeMedia } from '../../src/digestModel.js';
 
 test('empty weekly digests are hidden on Today', () => {
   assert.equal(
@@ -22,4 +22,17 @@ test('any digest content keeps the Today digest card visible', () => {
   assert.equal(digestHasContent({ letterCount: 1 }), true);
   assert.equal(digestHasContent({ photoCount: 1 }), true);
   assert.equal(digestHasContent({ firstsCount: 1 }), true);
+});
+
+test('weekly recap keeps one representative per saved event', () => {
+  const media = distinctDigestRepresentativeMedia([
+    { mediaId: 'a', momentId: 'event-1' },
+    { mediaId: 'b', momentId: 'event-1' },
+    { mediaId: 'c', momentId: 'event-2' },
+    { mediaId: 'd', momentId: 'event-3' },
+    { mediaId: 'e', momentId: 'event-4' },
+    { mediaId: 'f', momentId: 'event-5' },
+  ]);
+
+  assert.deepEqual(media.map((item) => item.mediaId), ['a', 'c', 'd', 'e']);
 });

@@ -63,7 +63,7 @@ export function selectPostSaveNudge({
     return {
       kind: 'book-ready',
       momentId,
-      question: 'Add one line to help make this book-ready?',
+      question: 'Add one line while this is still fresh?',
       actionLabel: 'Add one line',
       route: { pathname: '/moment/[momentId]', params: { momentId, sourceMomentId: momentId } },
     };
@@ -270,8 +270,8 @@ function buildLetterContext({ capturedAt, ageDays, babyName }) {
   const pieces = [date, age].filter(Boolean);
   const context = pieces.length ? `On ${pieces.join(', ')}` : 'From a saved moment';
   const body = babyName
-    ? `${context}, this moment was saved for ${babyName}'s book.\n\n`
-    : `${context}, this moment was saved for the book.\n\n`;
+    ? `${context}, this moment was saved in ${babyName}'s family world.\n\n`
+    : `${context}, this moment was saved in your family world.\n\n`;
   return {
     title: date ? `A line from ${date}` : 'A line from today',
     body,

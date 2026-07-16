@@ -14,6 +14,12 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
 
 ## Mobile app conventions
 
+- **Product surfaces:** parent-facing navigation is `Today` → `Add` → `Our World`.
+  `Our World` contains the shared timeline, media, parent notes, voice notes, Firsts,
+  and Letters. Existing `book*` filenames, fields, and analytics values are retained
+  for compatibility; they are not a parent-facing information architecture. Print and
+  photo-book generation are secondary export utilities.
+
 - **Screens:** `apps/mobile/app/*.jsx` are thin expo-router wrappers around
   `apps/mobile/src/*Screen.js` components. Protected routes wrap in `ProtectedRoute`.
 - **Pure model files:** all decision logic lives in `src/*Model.js` files with no RN
@@ -54,8 +60,18 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
 
 - **Scanning:** `scanController.js` pages the photo library (`photos.js`,
   expo-media-library), overlapping page fetch with scoring; video frames sampled at
-  8/35/68%. Checkpoints in Supabase `scan_checkpoints`; background runs via
-  `backgroundAutoIngestTask.js`.
+  8/35/68%. `scanMediaMatchModel.js` collapses those frames back to the source video,
+  keeps the strongest matching frame, and records sampled-frame presence evidence.
+  Daily auto-save selection waits until all photo and video pages finish so scan order
+  cannot choose a weaker daily representative. Checkpoints in Supabase
+  `scan_checkpoints`; background runs via `backgroundAutoIngestTask.js`.
+- **Two-parent libraries:** discovery is intentionally per `(family_id, user_id)`.
+  Each writer has an independent local reference profile, scan checkpoint, Photos
+  permission, trust calibration, and upload repair path. `family_library_connections`
+  is a family-writer-readable aggregate projection used only for connection health;
+  RLS permits each writer to mutate only their own row. It contains no asset ids,
+  face data, visual vectors, candidates, or rejected items. The family archive is the
+  union of uploaded, parent-approved memories rather than either parent's camera roll.
 - **Birthday-first setup:** `referenceAutoSeed.js` builds a maximum 456-candidate
   sample instead of taking the newest 30 in each month. It covers the birth window,
   at most 12 evenly spaced age windows split into four subwindows, both chronological
@@ -88,12 +104,43 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   parent setting is on.
 - **Quality/curation:** `scanQualityModel.js` (auto-save floor 0.25),
   `photoStackModel.js` (session gap 30 min, near-duplicate cosine distance < 0.18,
-  quality cascade `qualityValue`: captureQuality → sharpness → faceSizeRatio).
+  quality cascade `qualityValue`: captureQuality → sharpness → faceSizeRatio), and
+  `bestPhotoCandidates.js`/`bestPhotoCandidateModel.js` (bounded on-device ranking for
+  Add, First, and Letter composers). `dailyCurationModel.js` groups the complete match
+  set by local day, chooses one eligible photo anchor, then retains every visually
+  distinct standout and special video without an arbitrary per-day count cap.
+  Optional smile evidence is accepted only as a future calibrated signal; current
+  production decisions do not claim smile detection. Native match results keep the
+  face-crop feature vector as identity evidence and add a cheap whole-image plus
+  selected-face perceptual fingerprint for true near-duplicate comparison; identity
+  vectors are never accepted as duplicate evidence, so two photos cannot fold merely
+  because they contain the same child. If an older native build has no perceptual
+  fingerprint, only frames within a three-second burst may fold; a whole 30-minute
+  session must never be treated as one lookalike set. Folded frames remain available
+  from review, and every composer keeps the native photo picker as the explicit
+  full-library escape hatch.
+- **Family presentation:** `familyPhotoPresentationModel.js` folds only uncaptioned
+  photo-only records inside the conservative three-second fallback burst, selects the
+  clearest representative, and keeps expansion available in timeline and search.
+  Places collapse media into saved events before rendering. Prompt sheets may show one
+  clear photo already saved on the relevant day. Weekly recap rendering de-duplicates
+  representative media by moment before applying its four-event limit.
+  `buildSavedDailyAlbum` supplies inclusive first-year photo-day coverage and recent
+  day representatives to Our World. `/daily-album` virtualizes every elapsed
+  first-year day, including honest gap rows, and exposes each day's saved moments.
+  Moment detail pages horizontally through every saved photo and video; videos use
+  native controls and full-screen playback. Our World reads the curated archive with
+  stable 500-row pagination rather than silently truncating a power-user family after
+  the first 500 moments; its general timeline renders a bounded recent window while
+  the dedicated day list remains the full first-year browsing surface.
 - **Upload/storage:** `photoSync.js` uploads resized full+thumb JPEGs to the private
   `family-photos` bucket as `photo_tags` rows; moments media in `moment_media`
   (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is
   mediated by `workers/media-gateway` with short-lived session tokens
   (`create-media-session` edge function).
+  Local SQLite upload jobs and the current writer's incomplete `photo_tags` rows retry
+  silently with a five-minute cooldown when Our World opens. Only a parent-safe retry
+  card remains if automatic recovery cannot finish.
 - **Places/scenes:** `visionSceneLabeler.js` clusters by rounded lat/lon and infers
   time-of-day/keyword scene labels.
 
@@ -111,6 +158,11 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   circle sharing remains in the action menu. Tapping the photo or dragging the detail
   handle down minimizes the detail sheet for an uncropped photo view, and dragging the
   handle up restores the scrollable details.
+  `moment_views` records only an explicit family-writer open. Together with existing
+  author, reaction, and `moment_replies` rows it supports Added by, Read/Seen by,
+  reacted, and replied labels. Replies remain attached to the canonical moment,
+  are writer-only, and send content-free partner activity. The app does not infer a
+  read from push delivery or a background fetch.
 - **Daily prompts:** age-banded deterministic pools (`dailyPrompts.js`), responses in
   `daily_prompt_responses`; `missedPromptModel.js` and `DailyPrompts.listMissed`
   provide the 7-day catch-up window, and `/prompt?promptDate=YYYY-MM-DD` saves

@@ -443,7 +443,7 @@ export function buildPrintExportReadiness({
     ? 'Not ready to print yet'
     : state === 'print_ready'
       ? 'Print preview is worth a look'
-      : 'The book is taking shape';
+      : 'Your family world is taking shape';
   const reasons = [];
   if (momentCount) reasons.push(countText(momentCount, 'saved moment'));
   if (chapters.length) reasons.push(countText(chapters.length, 'chapter'));
@@ -517,9 +517,9 @@ export function bookMediaSubtitle(stats, sections) {
   const mediaTotal = photos + videos;
   if (!mediaTotal) return 'Approve a moment to begin';
   if (current) return `Current chapter: ${current}`;
-  if (photos && videos) return `${mediaTotal.toLocaleString()} photos and videos in the book`;
-  if (photos) return `${countText(photos, 'photo')} in the book`;
-  return `${countText(videos, 'video')} in the book`;
+  if (photos && videos) return `${mediaTotal.toLocaleString()} photos and videos in your world`;
+  if (photos) return `${countText(photos, 'photo')} in your world`;
+  return `${countText(videos, 'video')} in your world`;
 }
 
 export function formatBookDateLabel(value) {
@@ -595,7 +595,7 @@ function ensureChapterBucket(buckets, capturedAt, babyBirthday) {
 }
 
 function letterStateCaption(state, letter) {
-  if (state === 'open') return 'Letter open in the book';
+  if (state === 'open') return 'Letter open in your world';
   if (state === 'sealed') {
     const date = formatBookDateLabel(letter?.open_on);
     return date ? `Letter sealed until ${date}` : 'Letter saved for later';

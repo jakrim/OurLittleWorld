@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -19,6 +20,7 @@ import { PROMPT_STARTER_BUTTON_LABEL, promptStarterForToday } from './promptStar
 import { DailyPrompts } from './rituals';
 import { patchCachedPromptState, readCachedPromptState, readCachedSharedPhotos } from './useRitualHomeData';
 import { createMomentWithMedia } from './moments';
+import { bestPromptPhoto } from './familyPhotoPresentationModel';
 
 export default function PromptSheetScreen() {
   const router = useRouter();
@@ -33,6 +35,7 @@ export default function PromptSheetScreen() {
   const [promptText, setPromptText] = useState('');
   const [activePromptDate, setActivePromptDate] = useState(null);
   const [starter, setStarter] = useState('');
+  const [promptPhoto, setPromptPhoto] = useState(null);
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
@@ -65,16 +68,15 @@ export default function PromptSheetScreen() {
             setValue(state?.mine?.response_text || '');
           })
           .catch(() => {});
-        // V1: starter from what was actually saved today (cached archive rows).
-        if (!routePromptDate) {
-          readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
-            .then((photos) => {
-              if (alive) setStarter(promptStarterForToday({ sharedPhotos: photos }));
-            })
-            .catch(() => {});
-        } else {
-          setStarter('');
-        }
+        // Use only an already-saved family photo. This is context, not a claim
+        // that the photo answers the prompt.
+        readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
+          .then((photos) => {
+            if (!alive) return;
+            setPromptPhoto(bestPromptPhoto(photos, { promptDate: routePromptDate }));
+            setStarter(routePromptDate ? '' : promptStarterForToday({ sharedPhotos: photos }));
+          })
+          .catch(() => {});
       }
       return () => {
         alive = false;
@@ -169,6 +171,31 @@ export default function PromptSheetScreen() {
         <Title>{routePromptDate ? 'catch-up note' : "today's note"}</Title>
         {routePromptDate ? <Caption style={styles.promptDate}>From {formatPromptDateLabel(routePromptDate)}</Caption> : null}
         {promptText ? <Body style={styles.prompt}>{promptText}</Body> : null}
+        {promptPhoto?.thumbUrl || promptPhoto?.fullUrl ? (
+          <Pressable
+            onPress={() => {
+              if (promptPhoto.moment_id) {
+                router.push({ pathname: '/moment/[momentId]', params: { momentId: promptPhoto.moment_id } });
+              }
+            }}
+            disabled={!promptPhoto.moment_id}
+            accessibilityRole="button"
+            accessibilityLabel="Open the suggested photo from this day"
+            accessibilityState={{ disabled: !promptPhoto.moment_id }}
+            style={[styles.photoContext, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <Image
+              source={{ uri: promptPhoto.thumbUrl || promptPhoto.fullUrl }}
+              style={styles.photoContextImage}
+              contentFit="cover"
+            />
+            <View style={styles.photoContextText}>
+              <Caption style={{ color: theme.semantic.primary }}>From this day</Caption>
+              <Body numberOfLines={2}>A clear saved photo to write beside, if it helps.</Body>
+            </View>
+            {promptPhoto.moment_id ? <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} /> : null}
+          </Pressable>
+        ) : null}
         <Field
           as="textarea"
           value={value}
@@ -237,6 +264,24 @@ const styles = StyleSheet.create({
   },
   promptDate: {
     marginTop: -space.md,
+  },
+  photoContext: {
+    minHeight: 82,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  photoContextImage: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.md,
+  },
+  photoContextText: {
+    flex: 1,
+    gap: 2,
   },
   voiceCard: {
     borderWidth: 1,

@@ -26,6 +26,8 @@ class ExpoFaceMatcherModule extends NativeModule<ExpoFaceMatcherModuleEvents> {
       yaw: null,
       roll: null,
       brightness: null,
+      featureVector: [],
+      visualFingerprint: [],
     }));
   }
 }

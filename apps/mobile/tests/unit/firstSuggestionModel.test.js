@@ -119,9 +119,9 @@ test('alternates skip near-duplicates by feature distance and time gap', () => {
   const suggestion = buildFirstSuggestion({
     goal: SMILE_GOAL,
     matches: [
-      match({ assetId: 'primary', captureQuality: 0.9, featureVector: vecA, creationTime: base }),
-      match({ assetId: 'dupe', captureQuality: 0.8, featureVector: vecNearA, creationTime: base + 1000 }),
-      match({ assetId: 'different', captureQuality: 0.7, featureVector: vecFar, creationTime: base + 2000 }),
+      match({ assetId: 'primary', captureQuality: 0.9, visualFingerprint: vecA, creationTime: base }),
+      match({ assetId: 'dupe', captureQuality: 0.8, visualFingerprint: vecNearA, creationTime: base + 1000 }),
+      match({ assetId: 'different', captureQuality: 0.7, visualFingerprint: vecFar, creationTime: base + 2000 }),
       match({ assetId: 'no-vector-close', captureQuality: 0.6, creationTime: base + 60 * 1000 }),
       match({ assetId: 'no-vector-far', captureQuality: 0.5, creationTime: base + 60 * 60 * 1000 }),
     ],

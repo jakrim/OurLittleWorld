@@ -74,7 +74,7 @@ export default function LetterDetailSheetScreen() {
       Alert.alert('Cannot delete', 'Only the parent who wrote this letter can delete it.');
       return;
     }
-    Alert.alert('Delete letter?', 'This letter will be removed from the baby book.', [
+    Alert.alert('Delete letter?', 'This letter will be removed from your family world.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

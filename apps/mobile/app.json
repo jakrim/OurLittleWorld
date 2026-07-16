@@ -23,7 +23,7 @@
     "ios": {
       "icon": "./assets/brand/our-little-world.icon",
       "bundleIdentifier": "com.jessekrim.ourlittleworld",
-      "buildNumber": "1.1.3",
+      "buildNumber": "1.1.5",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Our Little World uses photo access for optional on-device discovery. Photos and videos you save are uploaded to your private family archive.",
@@ -127,7 +127,7 @@
       "expo-iap",
       "expo-video"
     ],
-    "owner": "jakrim",
+    "owner": "our-little-world",
     "extra": {
       "router": {},
       "eas": {
