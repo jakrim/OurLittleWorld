@@ -554,11 +554,19 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
 - Replaced the narrow reference reset with `Restart photo discovery`, which resets
   local references, calibration, scan progress, in-memory results, recent automatic
   saves, and the current parent's aggregate device status while preserving saved
-  family moments. For `jesse.krim@gmail.com`, production reset only the calibration,
-  checkpoint, and library-connection rows; 68 saved media rows, 70 authored moments,
-  and 68 moment-media rows were verified unchanged.
+  family moments. For `jesse.krim@gmail.com`, production reset the calibration,
+  checkpoint, and library-connection rows. A follow-up provenance audit found 47
+  context-free media/moment rows created automatically by the affected matcher; all
+  47 and their 94 private storage objects were removed so the corrected scan can
+  reassess them. The 21 parent-reviewed media rows and 23 remaining family moments
+  were verified preserved, with no automatic-match media left in the archive.
 - Verification: `pnpm --filter @ourlittleworld/mobile test -- --runInBand` passed
   TypeScript plus all 317 unit tests; `CI=true pnpm --filter @ourlittleworld/mobile
   exec expo lint` passed; and the scoped `git diff --check` passed. Physical-device
   before/after validation requires a new native build because build 1.1.6 still
   contains the old matcher and local AsyncStorage profile.
+- Corrective EAS production build `f730684b-990a-4626-a781-fbc5df8c4b53`
+  completed successfully as app version 1.1.0, build 1.1.7, from isolated commit
+  `e60c983`. Submission `bca8b377-b6d3-4f55-bdb9-86b0c7991497` was scheduled
+  for App Store Connect and remained in the error-free EAS submit queue at the last
+  check; Apple/TestFlight processing is not yet claimed complete.
