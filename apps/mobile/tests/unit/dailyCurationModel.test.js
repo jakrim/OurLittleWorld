@@ -50,6 +50,15 @@ test('a weak eligible day still gets one anchor instead of disappearing', () => 
   assert.equal(plan.selectedMatches[0].curation.role, 'daily-anchor');
 });
 
+test('review curation does not preselect an uncertain identity', () => {
+  const plan = buildDailyCurationPlan([
+    photo('uncertain', '2026-07-16', 0.9, { score: 0.79 }),
+    photo('clear', '2026-07-17', 0.7, { score: 0.8 }),
+  ], { minIdentityScore: 0.8 });
+
+  assert.deepEqual(plan.selectedMatches.map((match) => match.assetId), ['clear']);
+});
+
 test('all distinct standout and likely-smile photos survive on the same day without an arbitrary cap', () => {
   const matches = Array.from({ length: 30 }, (_, index) => photo(
     `smile-${index}`,

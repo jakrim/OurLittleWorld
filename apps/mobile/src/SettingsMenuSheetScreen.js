@@ -38,6 +38,10 @@ import {
 import { Family } from './families';
 import { ageAt, formatAge } from './photos';
 import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
+import { clearImportCalibration } from './recognitionTrust';
+import { clearScanCheckpoint } from './scanCheckpoints';
+import { resetFamilyLibraryConnection } from './familyLibrarySync';
+import * as Scan from './scanController';
 import {
   NOTIFICATION_CATEGORIES,
   TRANSACTIONAL_NOTIFICATION_CATEGORY,
@@ -254,8 +258,8 @@ export default function SettingsMenuSheetScreen() {
   const resetReferenceProfile = () => {
     if (!family?.id || !user?.id || clearingReferences) return;
     Alert.alert(
-      'Reset local references?',
-      'This clears the reference photos stored on this device. Saved moments stay in the archive.',
+      'Restart photo discovery?',
+      'This clears this device’s face references, review learning, and scan progress. Saved family moments stay in the archive.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -264,7 +268,13 @@ export default function SettingsMenuSheetScreen() {
           onPress: async () => {
             setClearingReferences(true);
             try {
-              await clearReferenceProfile({ familyId: family.id, userId: user.id });
+              Scan.reset();
+              await Promise.all([
+                clearReferenceProfile({ familyId: family.id, userId: user.id }),
+                clearImportCalibration({ familyId: family.id, userId: user.id }),
+                clearScanCheckpoint({ familyId: family.id, userId: user.id }),
+                resetFamilyLibraryConnection({ familyId: family.id, userId: user.id }),
+              ]);
               setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
               setActiveEditor(null);
               router.replace('/reference');
@@ -1049,12 +1059,12 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
           onPress={onReset}
           disabled={clearing}
           accessibilityRole="button"
-          accessibilityLabel="Reset local references and re-enroll"
+          accessibilityLabel="Restart photo discovery"
           accessibilityState={{ disabled: clearing }}
           style={styles.referenceReset}
         >
           <Caption style={[styles.referenceResetText, { color: theme.semantic.textMuted }]}>
-            {clearing ? 'Resetting...' : 'Reset local references and re-enroll'}
+            {clearing ? 'Restarting...' : 'Restart photo discovery'}
           </Caption>
         </Pressable>
       ) : null}

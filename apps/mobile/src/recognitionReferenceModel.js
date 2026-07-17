@@ -1,8 +1,12 @@
 import { autoSeedQualityScore } from './referenceAutoSeedModel.js';
 
-export const REFERENCE_PROFILE_VERSION = 'v1';
+export const REFERENCE_PROFILE_VERSION = 'v2';
 export const MAX_REFERENCES = 12;
 export const MAX_SCORING_REFERENCES = 4;
+export const REFERENCE_SUPPORT_SCORE = 0.68;
+export const SINGLE_CONFIRMED_REFERENCE_SCORE = 0.7;
+export const SINGLE_UNCONFIRMED_REFERENCE_SCORE = 0.84;
+export const STRONG_REPRESENTATIVE_SCORE = 0.86;
 
 export function ageDaysAt(birthdayISO, capturedAtMs) {
   if (!birthdayISO || !capturedAtMs) return null;
@@ -139,6 +143,82 @@ export function selectReferencesForCandidates(
   return selected;
 }
 
+/**
+ * Turn per-reference face scores into one conservative identity decision.
+ *
+ * A single learned reference is never allowed to admit a candidate on its
+ * own unless it is the photo a parent explicitly confirmed (or is an
+ * exceptionally strong match). With multiple references, at least two must
+ * agree. This prevents one polluted reference or an age/quality boost from
+ * turning an unrelated face into a surfaced family memory.
+ */
+export function aggregateReferenceMatches({
+  entries = [],
+  representativeReferenceId = null,
+} = {}) {
+  const rows = entries
+    .filter((entry) => entry?.reference && entry?.result)
+    .map((entry) => ({
+      ...entry,
+      rawScore: clamp(Number(entry.result.score || 0), 0, 1),
+    }));
+  if (!rows.length) return rejectedReferenceMatch();
+
+  const representative = rows.find(
+    (entry) => entry.reference.id === representativeReferenceId,
+  ) || null;
+  const confirmedRepresentative = representative?.reference?.parentConfirmed
+    ? representative
+    : null;
+
+  if (rows.length === 1) {
+    const [only] = rows;
+    const minimum = only.reference.parentConfirmed
+      ? SINGLE_CONFIRMED_REFERENCE_SCORE
+      : SINGLE_UNCONFIRMED_REFERENCE_SCORE;
+    if (only.rawScore < minimum) return rejectedReferenceMatch(only);
+    return acceptedReferenceMatch([only], only);
+  }
+
+  const support = rows
+    .filter((entry) => entry.rawScore >= REFERENCE_SUPPORT_SCORE)
+    .sort(compareReferenceMatch);
+
+  if (confirmedRepresentative) {
+    const otherSupport = support.filter(
+      (entry) => entry.reference.id !== confirmedRepresentative.reference.id,
+    );
+    const representativeIsStrongEnough = confirmedRepresentative.rawScore >= REFERENCE_SUPPORT_SCORE;
+    const representativeCanStandAlone = confirmedRepresentative.rawScore >= STRONG_REPRESENTATIVE_SCORE;
+    if (!representativeIsStrongEnough || (!otherSupport.length && !representativeCanStandAlone)) {
+      return rejectedReferenceMatch(confirmedRepresentative);
+    }
+    const agreeing = otherSupport.length
+      ? [confirmedRepresentative, otherSupport[0]]
+      : [confirmedRepresentative];
+    return acceptedReferenceMatch(agreeing, [...rows].sort(compareReferenceMatch)[0]);
+  }
+
+  if (support.length < 2) return rejectedReferenceMatch(support[0] || [...rows].sort(compareReferenceMatch)[0]);
+  return acceptedReferenceMatch(support.slice(0, 2), [...rows].sort(compareReferenceMatch)[0]);
+}
+
+export function selectExplicitReferenceLearningCandidates(
+  matches = [],
+  explicitlyConfirmedAssetIds = new Set(),
+  { minimumScore = 0.82 } = {},
+) {
+  const confirmed = explicitlyConfirmedAssetIds instanceof Set
+    ? explicitlyConfirmedAssetIds
+    : new Set(explicitlyConfirmedAssetIds || []);
+  return (matches || []).filter((match) => (
+    confirmed.has(match?.assetId)
+    && Number(match?.score || 0) >= minimumScore
+    && Number(match?.faceCount || 0) > 0
+    && Boolean(match?.localUri || match?.uri)
+  ));
+}
+
 export function referenceSelectionScore(reference, targetAge, selected = []) {
   const refAge = finite(reference?.ageAtCaptureDays);
   const ageScore = Number.isFinite(refAge) && Number.isFinite(targetAge)
@@ -241,6 +321,32 @@ function sourceTrust(source) {
   if (source === 'seed' || source === 'legacy-reference' || source === 'existing-reference') return 0.7;
   if (source === 'auto-seed') return 0.35;
   return 0.5;
+}
+
+function acceptedReferenceMatch(agreeing, best) {
+  const score = agreeing.reduce((sum, entry) => sum + entry.rawScore, 0) / agreeing.length;
+  return {
+    passed: true,
+    score,
+    supportCount: agreeing.length,
+    bestEntry: best || agreeing[0] || null,
+    rawScores: agreeing.map((entry) => entry.rawScore),
+  };
+}
+
+function rejectedReferenceMatch(bestEntry = null) {
+  return {
+    passed: false,
+    score: 0,
+    supportCount: 0,
+    bestEntry,
+    rawScores: [],
+  };
+}
+
+function compareReferenceMatch(a, b) {
+  return b.rawScore - a.rawScore
+    || stableReferenceKey(a.reference).localeCompare(stableReferenceKey(b.reference));
 }
 
 function ageAffinityForDistance(diff) {

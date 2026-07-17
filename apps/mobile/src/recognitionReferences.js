@@ -31,36 +31,6 @@ function normalizeProfile(profile) {
   return normalizeReferenceProfile(profile, { makeId: uuid });
 }
 
-async function readLegacyReference({ familyId, userId }) {
-  const raw = await AsyncStorage.getItem(referenceStorageKey({ familyId, userId }));
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed?.embedding?.length && !parsed?.uri) return null;
-    return {
-      version: REFERENCE_PROFILE_VERSION,
-      references: [{
-        id: uuid(),
-        uri: parsed.uri || null,
-        assetId: parsed.assetId || null,
-        embedding: parsed.embedding || null,
-        faceCount: parsed.faceCount || 1,
-        capturedAt: parsed.capturedAt || Date.now(),
-        ageAtCaptureDays: parsed.ageAtCaptureDays ?? null,
-        source: 'legacy-reference',
-        weight: 1,
-        confirmedKeeps: 0,
-        confirmedSkips: 0,
-      }],
-      negativeExamples: [],
-      trust: {},
-      updatedAt: Date.now(),
-    };
-  } catch {
-    return null;
-  }
-}
-
 export async function readReferenceProfile({ familyId, userId }) {
   if (!familyId || !userId) return normalizeProfile(null);
   const raw = await AsyncStorage.getItem(referenceSetStorageKey({ familyId, userId }));
@@ -74,10 +44,11 @@ export async function readReferenceProfile({ familyId, userId }) {
       return normalized;
     } catch {}
   }
-  const legacy = await readLegacyReference({ familyId, userId });
-  if (!legacy) return normalizeProfile(null);
-  await writeReferenceProfile({ familyId, userId, profile: legacy });
-  return normalizeProfile(legacy);
+  // v2 intentionally does not migrate the legacy single-reference key. The
+  // old matcher could learn from an automatically selected false positive;
+  // silently carrying that reference forward would preserve the exact trust
+  // failure this profile version is designed to remove.
+  return normalizeProfile(null);
 }
 
 export async function writeReferenceProfile({ familyId, userId, profile }) {
@@ -252,6 +223,7 @@ export async function clearReferenceProfile({ familyId, userId }) {
   await AsyncStorage.multiRemove([
     referenceStorageKey({ familyId, userId }),
     referenceSetStorageKey({ familyId, userId }),
+    `olw:reference-set:v1:${familyId}:${userId}`,
   ]);
 }
 

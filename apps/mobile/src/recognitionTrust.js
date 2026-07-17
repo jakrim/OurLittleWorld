@@ -4,11 +4,11 @@ import { hasEarnedAutoSaveTrust } from './photoIngestionTrustModel';
 import { buildScanAutoSaveGate } from './scanAutoSaveModel';
 import { supabase } from './supabase';
 
-export const REVIEW_THRESHOLD = 0.65;
-export const HIGH_CONFIDENCE_THRESHOLD = 0.75;
+export const REVIEW_THRESHOLD = 0.68;
+export const HIGH_CONFIDENCE_THRESHOLD = 0.8;
 export const DEFAULT_AUTO_SAVE_THRESHOLD = 0.9;
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const RECENT_AUTO_SAVE_LIMIT = 40;
 
 export function calibrationStorageKey({ familyId, userId }) {
@@ -17,6 +17,25 @@ export function calibrationStorageKey({ familyId, userId }) {
 
 export function recentAutoSavesStorageKey({ familyId, userId }) {
   return `olw:media-import-recent-auto-saves:${VERSION}:${familyId}:${userId}`;
+}
+
+export async function clearImportCalibration({ familyId, userId }) {
+  if (!familyId || !userId) return;
+  await AsyncStorage.multiRemove([
+    calibrationStorageKey({ familyId, userId }),
+    recentAutoSavesStorageKey({ familyId, userId }),
+    `olw:media-import-calibration:v1:${familyId}:${userId}`,
+    `olw:media-import-recent-auto-saves:v1:${familyId}:${userId}`,
+  ]);
+  try {
+    await supabase
+      .from('media_import_calibrations')
+      .delete()
+      .eq('family_id', familyId)
+      .eq('user_id', userId);
+  } catch {
+    // A local reset is still enough to prevent reuse on this device.
+  }
 }
 
 function normalizeCalibration(raw) {

@@ -2,11 +2,28 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from './supabase';
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const INCREMENTAL_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
 
 export function scanCheckpointStorageKey({ familyId, userId }) {
   return `olw:scan-checkpoint:${VERSION}:${familyId}:${userId}`;
+}
+
+export async function clearScanCheckpoint({ familyId, userId }) {
+  if (!familyId || !userId) return;
+  await AsyncStorage.multiRemove([
+    scanCheckpointStorageKey({ familyId, userId }),
+    `olw:scan-checkpoint:v1:${familyId}:${userId}`,
+  ]);
+  try {
+    await supabase
+      .from('scan_checkpoints')
+      .delete()
+      .eq('family_id', familyId)
+      .eq('user_id', userId);
+  } catch {
+    // Local state controls the next scan when the network is unavailable.
+  }
 }
 
 function normalize(row) {

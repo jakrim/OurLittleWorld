@@ -16,6 +16,7 @@
 
 import { countPhotosInWindow, fetchPhotosPage } from './photos';
 import {
+  aggregateReferenceMatches,
   ageDaysForCandidate,
   referenceWeightForCandidate,
   selectReferencesForCandidates,
@@ -114,12 +115,9 @@ export async function matchAgainstReferenceProfile({
   const refs = selectReferencesForCandidates(profile, { birthdayISO, candidates, limit: referenceLimit });
   const references = refs.length ? refs : (fallbackReference ? [fallbackReference] : []);
   if (!references.length) return matchAgainst({ reference: null, candidates });
-  if (references.length === 1) {
-    return matchAgainst({ reference: references[0], candidates });
-  }
 
   const byCandidate = new Map(candidates.map((candidate) => [candidate.assetId, candidate]));
-  const bestById = new Map();
+  const entriesById = new Map(candidates.map((candidate) => [candidate.assetId, []]));
 
   for (const reference of references) {
     const scored = await matchAgainst({ reference, candidates });
@@ -130,22 +128,31 @@ export async function matchAgainstReferenceProfile({
         creationTime: candidate?.creationTime,
       });
       const weight = referenceWeightForCandidate(reference, candidateAge);
-      const weightedScore = Math.min(1, Number(result.score || 0) * weight);
-      const previous = bestById.get(result.assetId);
-      if (!previous || weightedScore > previous.score) {
-        bestById.set(result.assetId, {
-          ...result,
-          rawScore: result.score,
-          score: weightedScore,
-          referenceId: reference.id || null,
-          referenceSource: reference.source || null,
-          ageWeight: weight,
-        });
-      }
+      entriesById.get(result.assetId)?.push({ reference, result, ageWeight: weight });
     }
   }
 
-  return Array.from(bestById.values()).sort((a, b) => b.score - a.score);
+  const representativeReferenceId = profile?.representativeReferenceId
+    || references.find((reference) => reference.parentConfirmed)?.id
+    || references[0]?.id
+    || null;
+  return candidates.map((candidate) => {
+    const consensus = aggregateReferenceMatches({
+      entries: entriesById.get(candidate.assetId),
+      representativeReferenceId,
+    });
+    const best = consensus.bestEntry;
+    return {
+      ...(best?.result || { assetId: candidate.assetId, faceCount: 0 }),
+      rawScore: best?.rawScore ?? Number(best?.result?.score || 0),
+      score: consensus.score,
+      identityConsensusPassed: consensus.passed,
+      identitySupportCount: consensus.supportCount,
+      referenceId: best?.reference?.id || null,
+      referenceSource: best?.reference?.source || null,
+      ageWeight: best?.ageWeight ?? 1,
+    };
+  }).sort((a, b) => b.score - a.score);
 }
 
 /**

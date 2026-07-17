@@ -38,6 +38,7 @@ import {
 import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
 import { buildDailyCurationPlan } from './dailyCurationModel';
 import { collapseScoredMediaCandidates } from './scanMediaMatchModel';
+import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
 
 const initialState = () => ({
   phase: 'idle',
@@ -61,7 +62,7 @@ const initialState = () => ({
   scanKey: null,
 });
 
-const HIGH_THRESHOLD = 0.75;
+const HIGH_THRESHOLD = HIGH_CONFIDENCE_THRESHOLD;
 const AUTO_SAVE_THRESHOLD_DEFAULT = 0.9;
 const AUTO_SAVE_CONCURRENCY = 3;
 const PAGE_SIZE = 60;

@@ -45,6 +45,16 @@ export async function publishFamilyLibraryConnection({
   return data;
 }
 
+export async function resetFamilyLibraryConnection({ familyId, userId } = {}) {
+  if (!familyId || !userId) return;
+  const { error } = await supabase
+    .from('family_library_connections')
+    .delete()
+    .eq('family_id', familyId)
+    .eq('user_id', userId);
+  if (error && !isMissingTable(error)) throw error;
+}
+
 function isMissingTable(error) {
   const message = String(error?.message || '').toLowerCase();
   return error?.code === '42P01'

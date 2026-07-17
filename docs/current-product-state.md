@@ -1,6 +1,6 @@
 # Our Little World — Current Product State
 
-Last updated: July 16, 2026
+Last updated: July 17, 2026
 
 ## Product Thesis
 
@@ -26,6 +26,10 @@ Our Little World is the private digital place where parents keep the life they a
 - Discovery separates likely-child identity, age-diverse recognition references, and
   the parent-confirmed representative photo; neither recency nor array order may stand
   in for face quality or matching trust.
+- Identity admission is consensus-first: one learned reference cannot surface an
+  unrelated face, score boosts cannot turn a weak resemblance into a clear match,
+  and only a photo the parent deliberately keeps may become a future reference.
+  Uncertain candidates remain optional and are never part of the default daily save.
 - Photo-heavy choices are best-photo-first: likely-child candidates are ranked on
   device, true lookalike bursts default to one clear frame, the other originals remain
   recoverable, and the native library picker is always available when a parent wants
@@ -66,6 +70,8 @@ Our Little World is the private digital place where parents keep the life they a
   saved-day coverage from both parents.
 - Let both parents independently contribute from their own phone without turning
   either person's private camera roll into shared family data.
+- Let either parent restart only their device's photo-discovery profile without
+  deleting the family's already-saved moments, notes, or shared media.
 - Keep gift purchase, redemption, subscription, export, and deletion behavior consistent across mobile and web without allowing monetization or print output to dominate daily use.
 
 ## Verification Personas

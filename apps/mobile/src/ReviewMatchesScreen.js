@@ -12,7 +12,8 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { embedFace, isNative } from './faceMatcher';
 import { addTrustedReferenceImage } from './recognitionReferences';
-import { recordCalibrationReview } from './recognitionTrust';
+import { selectExplicitReferenceLearningCandidates } from './recognitionReferenceModel';
+import { HIGH_CONFIDENCE_THRESHOLD, recordCalibrationReview } from './recognitionTrust';
 import {
   assetIdsForReviewAction,
   buildReviewStacks,
@@ -41,7 +42,7 @@ export default function ReviewMatchesScreen() {
   const { user } = useAuth();
   const scan = Scan.useScanState();
 
-  const [filter, setFilter] = useState('all');     // 'all' | 'high' | 'borderline'
+  const [filter, setFilter] = useState('high');    // 'all' | 'high' | 'borderline'
   const [columns, setColumns] = useState(3);       // 1 .. 5
   const [topDate, setTopDate] = useState(null);    // creationTime ms of first visible
   const [savingCount, setSavingCount] = useState(0);
@@ -68,8 +69,8 @@ export default function ReviewMatchesScreen() {
   // we filter once per (matches reference || filter) change.
   const filteredMatches = useMemo(() => {
     const out = [];
-    const min = filter === 'high' ? 0.75 : 0;
-    const max = filter === 'high' ? 1.01 : 0.75;
+    const min = filter === 'high' ? HIGH_CONFIDENCE_THRESHOLD : 0;
+    const max = filter === 'high' ? 1.01 : HIGH_CONFIDENCE_THRESHOLD;
     for (const match of unsavedMatches) {
       if (filter !== 'all') {
         const score = match.score ?? 0;
@@ -82,7 +83,9 @@ export default function ReviewMatchesScreen() {
 
   const reviewItems = useMemo(() => buildReviewStacks(filteredMatches), [filteredMatches]);
   const displayItems = useMemo(() => expandReviewItems(reviewItems, expandedStackIds), [expandedStackIds, reviewItems]);
-  const curationPlan = useMemo(() => buildDailyCurationPlan(unsavedMatches), [unsavedMatches]);
+  const curationPlan = useMemo(() => buildDailyCurationPlan(unsavedMatches, {
+    minIdentityScore: HIGH_CONFIDENCE_THRESHOLD,
+  }), [unsavedMatches]);
   const selectedAssetIds = useMemo(() => {
     const selected = new Set(curationPlan.selectedAssetIds);
     for (const id of promotedFoldedIds) selected.add(id);
@@ -213,6 +216,7 @@ export default function ReviewMatchesScreen() {
       family,
       user,
       matches: savedMatches,
+      explicitlyConfirmedAssetIds: promotedFoldedIds,
     }).catch((err) => console.warn('refreshTrustedReferences', err?.message));
     await recordCalibrationReview({
       familyId: family.id,
@@ -413,7 +417,7 @@ export default function ReviewMatchesScreen() {
                       Clear matches · {counts.high.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'borderline'} onPress={() => setFilter('borderline')}>
-                      Double-check these · {counts.borderline.toLocaleString()}
+                      Optional checks · {counts.borderline.toLocaleString()}
                     </Chip>
                   </View>
                 </View>
@@ -497,11 +501,10 @@ export default function ReviewMatchesScreen() {
   );
 }
 
-async function refreshTrustedReferences({ family, user, matches }) {
+async function refreshTrustedReferences({ family, user, matches, explicitlyConfirmedAssetIds }) {
   if (!isNative || !family?.id || !user?.id || !matches?.length) return;
   const usedAgeBuckets = new Set();
-  const candidates = matches
-    .filter((match) => Number(match.score || 0) >= 0.82 && match.faceCount > 0 && (match.localUri || match.uri))
+  const candidates = selectExplicitReferenceLearningCandidates(matches, explicitlyConfirmedAssetIds)
     .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
   let added = 0;
   for (const match of candidates) {

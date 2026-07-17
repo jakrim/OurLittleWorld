@@ -533,3 +533,32 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   release unit tests, Expo lint, public Expo configuration, and the production iOS
   build. Apple distribution credentials and the push-enabled App Store provisioning
   profile were validated by EAS.
+
+### Physical-device child-identity correction (2026-07-17)
+
+- Diagnosed build 1.1.6 screenshots that showed unrelated adults, an app screenshot,
+  and illustrated babies in Reuben's scan review. These were current device-library
+  candidates, not records pulled from the shared family archive. The shipped matcher
+  admitted the maximum score from any selected reference and then applied an
+  age/quality boost, so one stale or polluted learned reference could create a false
+  positive and even label it a clear match.
+- Replaced max-of-references admission with conservative raw-score consensus. A
+  parent-confirmed representative and another age-diverse reference must agree;
+  single-reference enrollment uses a stricter raw gate; and score boosts no longer
+  determine identity admission. The v2 reference profile intentionally does not
+  migrate the old learned profile.
+- Review opens on clear matches, preselects daily anchors only from clear identity
+  matches, and keeps uncertain candidates optional. Daily defaults and automatic
+  saves can no longer teach the reference profile; only an explicit parent keep can.
+  Automatic saving no longer grows identity references without parent confirmation.
+- Replaced the narrow reference reset with `Restart photo discovery`, which resets
+  local references, calibration, scan progress, in-memory results, recent automatic
+  saves, and the current parent's aggregate device status while preserving saved
+  family moments. For `jesse.krim@gmail.com`, production reset only the calibration,
+  checkpoint, and library-connection rows; 68 saved media rows, 70 authored moments,
+  and 68 moment-media rows were verified unchanged.
+- Verification: `pnpm --filter @ourlittleworld/mobile test -- --runInBand` passed
+  TypeScript plus all 317 unit tests; `CI=true pnpm --filter @ourlittleworld/mobile
+  exec expo lint` passed; and the scoped `git diff --check` passed. Physical-device
+  before/after validation requires a new native build because build 1.1.6 still
+  contains the old matcher and local AsyncStorage profile.

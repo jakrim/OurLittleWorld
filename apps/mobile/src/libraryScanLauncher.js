@@ -1,9 +1,9 @@
-import { embedFace, isNative } from './faceMatcher';
+import { isNative } from './faceMatcher';
 import { readPendingMediaLibraryChange, clearPendingMediaLibraryChange } from './mediaLibraryChanges';
 import { listSavedAssetIds, markLocalAssetsDeleted } from './photoSync';
 import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
 import * as Scan from './scanController';
-import { addTrustedReferenceImage, readReferenceProfile, representativeReference } from './recognitionReferences';
+import { readReferenceProfile, representativeReference } from './recognitionReferences';
 import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
 import { Tags } from './storage';
 import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iCloudRetryQueue';
@@ -80,7 +80,6 @@ export async function startLibraryScan({
     ownerUserId: user.id,
   }).catch(() => new Set());
 
-  let trustedRefreshCount = 0;
   const autoSaveConfig = await getAutoSaveConfig({
     familyId: family.id,
     userId: user.id,
@@ -114,30 +113,6 @@ export async function startLibraryScan({
           userId: user.id,
           match: match || { assetId },
         });
-        if (
-          trustedRefreshCount < 2
-          && isNative
-          && match?.assetId
-          && Number(match.score || 0) >= 0.9
-          && (match.localUri || match.uri)
-        ) {
-          trustedRefreshCount += 1;
-          try {
-            const embedding = await embedFace(match.localUri || match.uri);
-            if (embedding?.embedding?.length) {
-              await addTrustedReferenceImage({
-                familyId: family.id,
-                userId: user.id,
-                birthdayISO: family.babyBirthday,
-                match,
-                embedding: embedding.embedding,
-                faceCount: embedding.faceCount || match.faceCount || 1,
-              });
-            }
-          } catch (err) {
-            console.warn('auto-save trusted reference refresh', err?.message);
-          }
-        }
       },
     }
     : null;
