@@ -567,6 +567,23 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   contains the old matcher and local AsyncStorage profile.
 - Corrective EAS production build `f730684b-990a-4626-a781-fbc5df8c4b53`
   completed successfully as app version 1.1.0, build 1.1.7, from isolated commit
-  `e60c983`. Submission `bca8b377-b6d3-4f55-bdb9-86b0c7991497` was scheduled
-  for App Store Connect and remained in the error-free EAS submit queue at the last
-  check; Apple/TestFlight processing is not yet claimed complete.
+  `e60c983`. Submission `bca8b377-b6d3-4f55-bdb9-86b0c7991497` completed
+  successfully; App Store Connect may still need to finish normal TestFlight
+  processing before the build appears to testers.
+
+### Jesse production account fresh-test reset (2026-07-17)
+
+- At the explicit request to clear all data for `jesse.krim@gmail.com`, deleted the
+  account's single-member Reuben family and every family-scoped row through database
+  cascades. No partner account or partner-owned record existed in that family.
+- Removed all 124 objects under the family's production `family-photos` storage
+  prefix. The family had no Cloudflare Stream media requiring a separate deletion.
+- Removed the one Codex-created QA gift purchase, redemption, and billing event,
+  all explicitly labeled `reset_for_gift_flow_test`. No real purchase record was
+  deleted. Historical legacy tables referenced by old migrations are absent from
+  the current production schema and therefore contained no remaining rows to clear.
+- Preserved the confirmed authentication identity so Jesse can sign in with the same
+  email. Post-reset verification returned zero family memberships, families created,
+  notifications, billing events, gift redemptions, partner grants, and partner-code
+  redemptions for the user. A delete-and-reinstall of build 1.1.7 is still recommended
+  before the physical-device test so iOS also clears the prior install's local cache.
