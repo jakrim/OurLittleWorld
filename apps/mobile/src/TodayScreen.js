@@ -49,6 +49,9 @@ import { useICloudRetryCount } from './iCloudRetryQueue';
 import { formatMilestoneDisplayTitle } from './milestoneTitleModel';
 import * as Scan from './scanController';
 import { ensureNightlySession, getTonightSummary } from './candidateLedgerStore';
+import { getNotificationPreferences } from './notificationSettings';
+import { getFamilyRitualSettings } from './ritualSettings';
+import { maybeScheduleTonightNotification } from './tonightNotifications';
 
 const EMPTY_UPLOAD_QUEUE = { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null };
 const EMPTY_PHOTO_TRUST_INPUTS = { calibration: null, recentAutoSaves: [] };
@@ -212,14 +215,29 @@ export default function TodayScreen() {
       return undefined;
     }
     try {
-      ensureNightlySession({ familyId: family.id, userId: user.id });
+      const session = ensureNightlySession({ familyId: family.id, userId: user.id });
       setTonightSummary(getTonightSummary({ familyId: family.id, userId: user.id }));
+      if (session?.status === 'active' && !session.completed) {
+        Promise.all([
+          getNotificationPreferences({ familyId: family.id, userId: user.id }),
+          getFamilyRitualSettings({ familyId: family.id, family }),
+        ]).then(([preferences, ritualSettings]) => maybeScheduleTonightNotification({
+          familyId: family.id,
+          userId: user.id,
+          session,
+          preferences,
+          role: family.me.role,
+          entitlementActive: entitlement.isActive,
+          timezone: session.timezone || ritualSettings.timezone,
+          targetTime: ritualSettings.dailyPromptTime,
+        })).catch(() => {});
+      }
     } catch {
       console.warn('tonight queue summary unavailable');
       setTonightSummary(null);
     }
     return undefined;
-  }, [billingLoading, entitlement?.isActive, family?.id, family?.me?.role, user?.id]));
+  }, [billingLoading, entitlement?.isActive, family, user?.id]));
   useFocusEffect(useCallback(() => {
     let alive = true;
     if (!family?.id || !user?.id) {

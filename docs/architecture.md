@@ -133,13 +133,22 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   capture, quality, identity, availability, cluster, scorer-version, and reason
   evidence into explicit lifecycle states. `nightlyQueueModel.js` deterministically
   selects zero to seven quality-bounded cards, mixing recent and historical coverage
-  and retaining qualifying video without quota padding. SQLite persists ordered
-  session items, reason codes, position, shown/decision state, retry state, and a
-  280-character draft. An unfinished session resumes until completed; one active
+  and retaining qualifying video without quota padding. SQLite schema version 2
+  persists ordered session items plus a separately constrained
+  `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
+  selected burst alternate, stable retry/canonical identities, per-step commit state,
+  and private-file cleanup state. The item row retains the 280-character text draft.
+  An unfinished session resumes until completed; one active
   session is enforced per family/parent, and a completed session suppresses another
   queue on the same local day. `/tonight` keeps through the canonical
-  `Tags.setBaby`/`Memories.setMine` path, skips locally, recovers unavailable iCloud
-  originals, exposes the native picker, and leaves `/review` as the advanced grid.
+  `Tags.setBaby`/`Memories.setMine` path and reuses canonical voice-note and reaction
+  services with stable identities across retries. A partial canonical write blocks
+  Skip or replacement until resolved. Skips clean local drafts, unavailable iCloud
+  originals remain recoverable, best-of-burst queries return at most 12 eligible
+  members, the native picker remains available, and `/review` stays the advanced grid.
+  `tonightNotifications.js` schedules locally only for a real queue after writer,
+  entitlement, preference, quiet-hour, timezone, duplicate, completion, and daily-cap
+  checks; notification data is limited to coarse queue state/count/date and `/tonight`.
   A lapsed family remains read-only and Circle members cannot read private discovery.
 - **Family presentation:** `familyPhotoPresentationModel.js` folds only uncaptioned
   photo-only records inside the conservative three-second fallback burst, selects the

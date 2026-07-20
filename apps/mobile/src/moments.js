@@ -431,16 +431,41 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
   }
 }
 
-async function uploadVoiceNote({ familyId, momentId = null, letterId = null, userId, voice }) {
+async function uploadVoiceNote({
+  familyId,
+  momentId = null,
+  letterId = null,
+  userId,
+  voice,
+  noteId: suppliedNoteId = null,
+  audioId: suppliedAudioId = null,
+}) {
   if (!voice?.uri) return null;
   const target = attachmentTarget({ familyId, momentId, letterId });
-  const noteId = uuid();
-  const audioId = uuid();
+  const noteId = suppliedNoteId || uuid();
+  const audioId = suppliedAudioId || uuid();
   const ext = extensionFor({ mimeType: voice.mimeType, fileName: voice.fileName, fallback: 'm4a' });
   const mimeType = voice.mimeType || 'audio/mp4';
   const audioPath = `${target.basePath}/voice/${audioId}.${ext}`;
 
-  const { error: insertErr } = await supabase.from('voice_notes').insert({
+  const { data: existing, error: existingErr } = await supabase
+    .from('voice_notes')
+    .select('id, family_id, moment_id, letter_id, author_user_id, audio_object, upload_status')
+    .eq('id', noteId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+  if (existing && (
+    existing.family_id !== familyId
+    || existing.author_user_id !== userId
+    || (momentId && existing.moment_id !== momentId)
+    || (letterId && existing.letter_id !== letterId)
+    || existing.audio_object !== audioId
+  )) {
+    throw new Error('Voice retry identity does not match this memory');
+  }
+  if (existing?.upload_status === 'ready') return { id: noteId, audioPath, alreadyReady: true };
+
+  const { error: insertErr } = await supabase.from('voice_notes').upsert({
     id: noteId,
     family_id: familyId,
     ...target.columns,
@@ -450,7 +475,8 @@ async function uploadVoiceNote({ familyId, momentId = null, letterId = null, use
     audio_object: audioId,
     mime_type: mimeType,
     upload_status: 'uploading',
-  });
+    upload_error: null,
+  }, { onConflict: 'id' });
   if (insertErr) throw insertErr;
 
   try {
@@ -472,6 +498,27 @@ async function uploadVoiceNote({ familyId, momentId = null, letterId = null, use
       .eq('id', noteId);
     throw err;
   }
+}
+
+export async function ensureMomentVoiceNote({
+  familyId,
+  momentId,
+  voice,
+  voiceNoteId,
+  voiceObjectId,
+}) {
+  if (!familyId || !momentId || !voice?.uri || !voiceNoteId || !voiceObjectId) {
+    throw new Error('Missing voice note retry target');
+  }
+  const userId = await currentUserId();
+  return uploadVoiceNote({
+    familyId,
+    momentId,
+    userId,
+    voice,
+    noteId: voiceNoteId,
+    audioId: voiceObjectId,
+  });
 }
 
 export async function createMomentWithMedia({
@@ -838,6 +885,29 @@ export async function toggleMomentReaction({ familyId, momentId, emoji }) {
   });
   if (error) throw error;
   return { active: true };
+}
+
+export async function ensureMomentReaction({ familyId, momentId, emoji }) {
+  const userId = await currentUserId();
+  if (!familyId || !momentId || !emoji) throw new Error('Missing reaction target');
+  const { data: existing, error: findErr } = await supabase
+    .from('moment_reactions')
+    .select('id')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId)
+    .eq('author_user_id', userId)
+    .eq('emoji', emoji)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  if (existing?.id) return { active: true, id: existing.id, alreadySaved: true };
+  const { data, error } = await supabase.from('moment_reactions').insert({
+    family_id: familyId,
+    moment_id: momentId,
+    author_user_id: userId,
+    emoji,
+  }).select('id').single();
+  if (error && error.code !== '23505') throw error;
+  return { active: true, id: data?.id || null, alreadySaved: error?.code === '23505' };
 }
 
 export async function recordMomentView({ familyId, momentId }) {

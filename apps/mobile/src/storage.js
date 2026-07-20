@@ -50,6 +50,20 @@ export const Tags = {
     return `${ownerUserId}:${assetId}`;
   },
 
+  async savedTarget({ familyId, assetId, ownerUserId = null }) {
+    const userId = ownerUserId || await currentUserId();
+    if (!familyId || !assetId || !userId) return null;
+    const { data, error } = await supabase
+      .from('photo_tags')
+      .select('moment_id, moment_media_id, upload_status')
+      .eq('family_id', familyId)
+      .eq('asset_owner_user_id', userId)
+      .eq('asset_id', assetId)
+      .maybeSingle();
+    if (error) throw error;
+    return data || null;
+  },
+
   /**
    * Tag or untag a photo as the baby. Tagging also resizes + uploads
    * thumbnail and full-res to Supabase Storage so partner devices can

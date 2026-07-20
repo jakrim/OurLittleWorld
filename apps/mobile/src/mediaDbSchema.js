@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 1;
+export const MEDIA_DB_SCHEMA_VERSION = 2;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -135,6 +135,45 @@ export const CANDIDATE_LEDGER_MIGRATION_SQL = `
     on nightly_review_items (session_id, item_state, position);
 `;
 
+export const TONIGHT_ENRICHMENT_MIGRATION_SQL = `
+  create table if not exists nightly_review_enrichment (
+    session_id text not null,
+    position integer not null check (position >= 0),
+    family_id text not null,
+    user_id text not null,
+    selected_asset_id text,
+    draft_voice_uri text,
+    draft_voice_duration_sec real,
+    draft_voice_mime_type text,
+    draft_voice_waveform_json text,
+    draft_favorite integer not null default 0 check (draft_favorite in (0, 1)),
+    draft_reaction_code text check (draft_reaction_code is null or draft_reaction_code in ('spark', 'seen')),
+    retry_id text,
+    canonical_moment_id text,
+    canonical_voice_note_id text,
+    canonical_voice_object_id text,
+    media_commit_state text not null default 'idle'
+      check (media_commit_state in ('idle', 'saving', 'saved', 'failed')),
+    text_commit_state text not null default 'idle'
+      check (text_commit_state in ('idle', 'saving', 'saved', 'failed', 'skipped')),
+    voice_commit_state text not null default 'idle'
+      check (voice_commit_state in ('idle', 'saving', 'saved', 'failed', 'skipped')),
+    reaction_commit_state text not null default 'idle'
+      check (reaction_commit_state in ('idle', 'saving', 'saved', 'failed', 'skipped')),
+    temp_cleanup_state text not null default 'idle'
+      check (temp_cleanup_state in ('idle', 'pending', 'done', 'failed')),
+    updated_at text not null,
+    primary key (session_id, position),
+    foreign key (session_id, position)
+      references nightly_review_items (session_id, position) on delete cascade,
+    foreign key (family_id, user_id, selected_asset_id)
+      references discovery_candidates (family_id, user_id, asset_id) on delete restrict
+  );
+
+  create index if not exists nightly_review_enrichment_scope_idx
+    on nightly_review_enrichment (family_id, user_id, session_id, position);
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -142,6 +181,18 @@ export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'lifecycle_state',
   'scorer_version',
   'last_analyzed_at',
+]);
+
+export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
+  'family_id',
+  'user_id',
+  'selected_asset_id',
+  'draft_voice_uri',
+  'draft_favorite',
+  'retry_id',
+  'canonical_moment_id',
+  'media_commit_state',
+  'voice_commit_state',
 ]);
 
 export function applyMediaDbMigrations(database) {
@@ -161,6 +212,16 @@ export function applyMediaDbMigrations(database) {
       throw new Error(`Local candidate ledger migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
+  if (currentVersion < 2) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(TONIGHT_ENRICHMENT_MIGRATION_SQL);
+        database.execSync('pragma user_version = 2;');
+      });
+    } catch (error) {
+      throw new Error(`Local Tonight enrichment migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
   assertCandidateLedgerSchema(database);
   return MEDIA_DB_SCHEMA_VERSION;
 }
@@ -171,5 +232,11 @@ export function assertCandidateLedgerSchema(database) {
   const missing = MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS.filter((column) => !columns.has(column));
   if (missing.length) {
     throw new Error(`Local candidate ledger is incomplete; missing columns: ${missing.join(', ')}. Restart the app after freeing device storage.`);
+  }
+  const enrichmentRows = database.getAllSync('pragma table_info(nightly_review_enrichment)');
+  const enrichmentColumns = new Set((enrichmentRows || []).map((row) => row.name));
+  const missingEnrichment = MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS.filter((column) => !enrichmentColumns.has(column));
+  if (missingEnrichment.length) {
+    throw new Error(`Local Tonight enrichment store is incomplete; missing columns: ${missingEnrichment.join(', ')}. Restart the app after freeing device storage.`);
   }
 }

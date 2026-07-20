@@ -1,8 +1,29 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Keyboard,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -11,23 +32,44 @@ import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
 import { ageAt, formatAge } from './ageModel';
 import {
-  beginTonightKeep,
+  clearTonightVoiceDraft,
+  completeTonightTempCleanup,
   ensureNightlySession,
   failTonightKeep,
   finishTonightKeep,
+  listTonightBurstAlternates,
   markTonightItemShown,
   markCandidatesUnavailable,
   readTonightSession,
   replaceTonightItemWithParentPick,
   restoreCandidateMedia,
   saveTonightDraft,
+  saveTonightReactionDraft,
+  saveTonightVoiceDraft,
+  selectTonightBurstAlternate,
   skipTonightItem,
 } from './candidateLedgerStore';
 import { parentReasonLabel } from './nightlyQueueModel';
 import { getAssetDetails } from './photos';
-import { isMediaPolicyError } from './mediaPolicy';
-import { Memories, Tags } from './storage';
+import { commitTonightMemory } from './tonightCommit';
+import {
+  summarizeTonightCompletion,
+  TONIGHT_REACTION_OPTIONS,
+} from './tonightEnrichmentModel.js';
+import {
+  cleanupOrphanedTonightVoiceDrafts,
+  deleteTonightVoiceDraft,
+  persistTonightVoiceDraft,
+} from './tonightVoiceDrafts';
+import { cancelTonightNotificationForSession } from './tonightNotifications';
 import { Body, Button, Caption, Eyebrow, Field, Hero, Screen, Spacer, space, useTheme } from './ui';
+
+const SAVE_STEP_LABELS = {
+  media: 'Saving this memory…',
+  text: 'Adding your words…',
+  voice: 'Uploading your voice note…',
+  reaction: 'Adding your favorite…',
+};
 
 export default function TonightScreen() {
   const router = useRouter();
@@ -37,11 +79,18 @@ export default function TonightScreen() {
   const { entitlement, loading: billingLoading } = useBilling();
   const writer = ['creator', 'partner'].includes(family?.me?.role);
   const canCurate = writer && entitlement?.isActive === true;
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 200);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [audioBusy, setAudioBusy] = useState(false);
   const [error, setError] = useState('');
+  const [audioNotice, setAudioNotice] = useState('');
   const [draft, setDraft] = useState('');
+  const [burstOpen, setBurstOpen] = useState(false);
+  const [saveStep, setSaveStep] = useState(null);
+  const detailsScrollRef = useRef(null);
 
   const load = useCallback(() => {
     if (billingLoading) return;
@@ -54,6 +103,9 @@ export default function TonightScreen() {
         || ensureNightlySession({ familyId: family.id, userId: user.id });
       setSession(next);
       setError('');
+      cleanupOrphanedTonightVoiceDrafts(
+        (next?.items || []).map((item) => item.draftVoice?.uri).filter(Boolean),
+      ).catch(() => {});
     } catch (loadError) {
       setError(parentError(loadError, 'Tonight could not load on this device.'));
     } finally {
@@ -73,19 +125,48 @@ export default function TonightScreen() {
   }, [session]);
   const keepNeedsRetry = ['saving', 'failed'].includes(activeItem?.commitState)
     && activeItem?.lastErrorCode !== 'asset_unavailable';
+  const activePosition = activeItem?.position;
+  const activeDraftText = activeItem?.draftText || '';
 
   useEffect(() => {
-    setDraft(activeItem?.draftText || '');
-    if (!activeItem || !session?.sessionId || !family?.id || !user?.id) return;
+    setBurstOpen(false);
+    Keyboard.dismiss();
+    detailsScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [activeItem?.assetId, activeItem?.position]);
+  const recording = Boolean(recorderState.isRecording);
+  const audioSeconds = recording
+    ? Math.round((recorderState.durationMillis || 0) / 1000)
+    : Math.round(activeItem?.draftVoice?.durationSec || 0);
+
+  const burstAlternates = useMemo(() => {
+    if (activeItem?.reasonCode !== 'best_burst' || !session?.sessionId || !family?.id || !user?.id) return [];
+    try {
+      return listTonightBurstAlternates({
+        sessionId: session.sessionId,
+        familyId: family.id,
+        userId: user.id,
+        position: activeItem.position,
+      });
+    } catch {
+      return [];
+    }
+  }, [activeItem, family?.id, session?.sessionId, user?.id]);
+
+  useEffect(() => {
+    setDraft(activeDraftText);
+    setBurstOpen(false);
+    setAudioNotice('');
+    if (activePosition == null || !session?.sessionId || !family?.id || !user?.id) return;
     markTonightItemShown({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
-      position: activeItem.position,
+      position: activePosition,
     });
-  }, [activeItem, family?.id, session?.sessionId, user?.id]);
+  }, [activeDraftText, activePosition, family?.id, session?.sessionId, user?.id]);
 
   const changeDraft = useCallback((text) => {
+    if (keepNeedsRetry) return;
     setDraft(text);
     if (!activeItem || !session?.sessionId || !family?.id || !user?.id) return;
     saveTonightDraft({
@@ -95,58 +176,70 @@ export default function TonightScreen() {
       position: activeItem.position,
       text,
     });
-  }, [activeItem, family?.id, session?.sessionId, user?.id]);
+  }, [activeItem, family?.id, keepNeedsRetry, session?.sessionId, user?.id]);
 
-  const refreshAfterDecision = useCallback((next) => {
+  const refreshAfterDecision = useCallback((next, decision, committedItem = null) => {
     if (next?.completed) {
-      setSession({ ...session, completed: true, status: 'completed', items: session?.items || [] });
+      cancelTonightNotificationForSession({
+        familyId: family.id,
+        userId: user.id,
+        session,
+      }).catch(() => {});
+      setSession((current) => ({
+        ...current,
+        completed: true,
+        status: 'completed',
+        currentPosition: current?.itemCount || 0,
+        items: (current?.items || []).map((item) => (
+          item.position === activeItem?.position
+            ? { ...(committedItem || item), state: decision, commitState: 'done', draftText: '', draftVoice: null }
+            : item
+        )),
+      }));
     } else {
       setSession(readTonightSession({ familyId: family.id, userId: user.id }) || next);
     }
     setDraft('');
     setError('');
-  }, [family?.id, session, user?.id]);
+    setSaveStep(null);
+  }, [activeItem?.position, family?.id, session, user?.id]);
 
   const keep = async () => {
-    if (!activeItem || busy) return;
+    if (!activeItem || busy || recording) return;
     setBusy(true);
     setError('');
+    setSaveStep(keepNeedsRetry ? 'retry' : 'media');
     try {
-      const prepared = beginTonightKeep({
+      const committed = await commitTonightMemory({
         sessionId: session.sessionId,
         familyId: family.id,
         userId: user.id,
         position: activeItem.position,
+        item: activeItem,
+        match: matchFromItem(activeItem),
+        onStep: (step, state) => {
+          if (state === 'saving') setSaveStep(step);
+        },
       });
-      if (!prepared.alreadyComplete) {
-        const match = matchFromItem(activeItem);
+      if (committed?.draftVoice?.uri) {
         try {
-          await Tags.setBaby({
+          await deleteTonightVoiceDraft(committed.draftVoice.uri);
+          completeTonightTempCleanup({
+            sessionId: session.sessionId,
             familyId: family.id,
-            assetId: activeItem.assetId,
-            isBaby: true,
-            match,
-            videoPosterOnly: false,
-            source: 'tonight-curation',
+            userId: user.id,
+            position: activeItem.position,
+            success: true,
           });
-        } catch (saveError) {
-          if (activeItem.mediaType !== 'video' || !isMediaPolicyError(saveError)) throw saveError;
-          await Tags.setBaby({
+        } catch {
+          completeTonightTempCleanup({
+            sessionId: session.sessionId,
             familyId: family.id,
-            assetId: activeItem.assetId,
-            isBaby: true,
-            match,
-            videoPosterOnly: true,
-            source: 'tonight-curation',
+            userId: user.id,
+            position: activeItem.position,
+            success: false,
           });
-        }
-        if (draft.trim()) {
-          await Memories.setMine({
-            familyId: family.id,
-            ownerUserId: user.id,
-            assetId: activeItem.assetId,
-            note: draft,
-          });
+          throw new Error('The private recording still needs local cleanup');
         }
       }
       const next = finishTonightKeep({
@@ -155,7 +248,7 @@ export default function TonightScreen() {
         userId: user.id,
         position: activeItem.position,
       });
-      refreshAfterDecision(next);
+      refreshAfterDecision(next, 'kept', committed);
     } catch (saveError) {
       const unavailableFailure = isUnavailableError(saveError);
       failTonightKeep({
@@ -172,27 +265,29 @@ export default function TonightScreen() {
           assetIds: [activeItem.assetId],
           reason: 'The original is waiting in iCloud.',
         });
-        setSession(readTonightSession({ familyId: family.id, userId: user.id }));
       }
-      setError(parentError(saveError, 'This memory did not finish saving. It is safe to try again.'));
+      setSession(readTonightSession({ familyId: family.id, userId: user.id }));
+      setError(parentError(saveError, 'This memory did not finish saving. Your draft is safe; try Keep again.'));
     } finally {
       setBusy(false);
+      setSaveStep(null);
     }
   };
 
-  const skip = () => {
-    if (!activeItem || busy || keepNeedsRetry) return;
+  const skip = async () => {
+    if (!activeItem || busy || keepNeedsRetry || recording) return;
     const next = skipTonightItem({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
       position: activeItem.position,
     });
-    refreshAfterDecision(next);
+    if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
+    refreshAfterDecision(next, 'skipped');
   };
 
   const chooseAnother = async () => {
-    if (!activeItem || busy || keepNeedsRetry) return;
+    if (!activeItem || busy || keepNeedsRetry || recording) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: false,
@@ -218,7 +313,129 @@ export default function TonightScreen() {
       position: activeItem.position,
       asset: picked,
     });
+    if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
     setSession(next);
+  };
+
+  const selectBurstPhoto = (assetId) => {
+    if (busy || keepNeedsRetry || recording) return;
+    const next = selectTonightBurstAlternate({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+      assetId,
+    });
+    setSession(next);
+  };
+
+  const toggleFavorite = () => {
+    if (busy || keepNeedsRetry) return;
+    const next = saveTonightReactionDraft({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+      favorite: !activeItem.favorite,
+      reactionCode: activeItem.reactionCode,
+    });
+    setSession(next);
+  };
+
+  const chooseReaction = (reactionCode) => {
+    if (busy || keepNeedsRetry) return;
+    const next = saveTonightReactionDraft({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+      favorite: activeItem.favorite,
+      reactionCode: activeItem.reactionCode === reactionCode ? null : reactionCode,
+    });
+    setSession(next);
+  };
+
+  const startRecording = async () => {
+    if (audioBusy || busy || keepNeedsRetry) return;
+    setAudioBusy(true);
+    setAudioNotice('');
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Microphone access needed', 'Allow microphone access to add your voice to this memory.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]);
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setAudioNotice('Recording… tap Stop when you are done.');
+    } catch {
+      setAudioNotice('Recording could not start. Try once more.');
+    } finally {
+      setAudioBusy(false);
+    }
+  };
+
+  const stopRecording = useCallback(async ({ interrupted = false } = {}) => {
+    if (!recorderState.isRecording || audioBusy || !activeItem || !session?.sessionId) return;
+    setAudioBusy(true);
+    try {
+      await recorder.stop();
+      if (!recorder.uri) throw new Error('Recording did not produce an audio file');
+      const durableUri = await persistTonightVoiceDraft({
+        sourceUri: recorder.uri,
+        sessionId: session.sessionId,
+        position: activeItem.position,
+      });
+      const durationSec = recorder.currentTime
+        || (recorderState.durationMillis ? recorderState.durationMillis / 1000 : null);
+      const previousUri = activeItem.draftVoice?.uri;
+      const next = saveTonightVoiceDraft({
+        sessionId: session.sessionId,
+        familyId: family.id,
+        userId: user.id,
+        position: activeItem.position,
+        voice: {
+          uri: durableUri,
+          durationSec,
+          mimeType: 'audio/mp4',
+          waveform: buildWaveform(durationSec || 8),
+        },
+      });
+      setSession(next);
+      if (previousUri && previousUri !== durableUri) await deleteTonightVoiceDraft(previousUri).catch(() => {});
+      setAudioNotice(interrupted
+        ? 'Recording stopped when the app left the foreground. Your voice draft is safe.'
+        : 'Voice draft saved on this device.');
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    } catch {
+      setAudioNotice('That recording did not finish. Your other draft choices are still safe.');
+    } finally {
+      setAudioBusy(false);
+    }
+  }, [activeItem, audioBusy, family?.id, recorder, recorderState.durationMillis, recorderState.isRecording, session?.sessionId, user?.id]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' && recorderState.isRecording) stopRecording({ interrupted: true });
+    });
+    return () => subscription.remove();
+  }, [recorderState.isRecording, stopRecording]);
+
+  const removeVoice = async () => {
+    if (!activeItem?.draftVoice?.uri || audioBusy || keepNeedsRetry) return;
+    const cleared = clearTonightVoiceDraft({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+    });
+    await deleteTonightVoiceDraft(cleared.discardedVoiceUri).catch(() => {});
+    setSession(cleared.session);
+    setAudioNotice('Voice draft removed.');
   };
 
   const retryAvailability = async () => {
@@ -229,12 +446,7 @@ export default function TonightScreen() {
       const info = await getAssetDetails(activeItem.assetId, { downloadFromNetwork: true });
       const localUri = info?.localUri || info?.uri;
       if (!localUri) throw new Error(info?.downloadError || 'The original is still waiting in iCloud.');
-      restoreCandidateMedia({
-        familyId: family.id,
-        userId: user.id,
-        assetId: activeItem.assetId,
-        localUri,
-      });
+      restoreCandidateMedia({ familyId: family.id, userId: user.id, assetId: activeItem.assetId, localUri });
       load();
     } catch (availabilityError) {
       setError(parentError(availabilityError, 'The original is still unavailable. Open Photos once, then try again.'));
@@ -243,40 +455,24 @@ export default function TonightScreen() {
     }
   };
 
-  if (!writer) {
-    return (
-      <Screen variant="warm" contentStyle={styles.centered}>
-        <Eyebrow>Private discovery</Eyebrow>
-        <Hero style={styles.centerTitle}>Tonight belongs to the parents.</Hero>
-        <Body align="center">Circle members can enjoy memories after a parent keeps them in Our World.</Body>
-        <Spacer h={space.xl} />
-        <Button variant="ghost" onPress={() => router.replace('/timeline')}>Back to Our World</Button>
-      </Screen>
-    );
-  }
-
+  if (!writer) return <TonightDenied router={router} kind="circle" />;
   if (loading || billingLoading) {
     return <Screen variant="warm" contentStyle={styles.centered}><ActivityIndicator color={theme.semantic.primary} /></Screen>;
   }
-
-  if (!canCurate) {
-    return (
-      <Screen variant="warm" contentStyle={styles.centered}>
-        <Eyebrow>Tonight is paused</Eyebrow>
-        <Hero style={styles.centerTitle}>Your saved family world is still here.</Hero>
-        <Body align="center">When the family plan is active, private photo discovery and new Tonight decisions can continue.</Body>
-        <Spacer h={space.xl} />
-        <Button variant="ghost" onPress={() => router.replace('/timeline')}>Back to Our World</Button>
-      </Screen>
-    );
-  }
+  if (!canCurate) return <TonightDenied router={router} kind="lapsed" />;
 
   if (session?.completed) {
+    const summary = summarizeTonightCompletion(session.items);
+    const enrichment = summary.withText + summary.withVoice + summary.withReaction;
     return (
       <Screen variant="warm" contentStyle={styles.centered}>
         <Eyebrow>That's tonight</Eyebrow>
-        <Hero style={styles.centerTitle}>The memories you chose are safe in your world.</Hero>
-        <Body align="center">Come back tomorrow. There is no catching up you need to finish tonight.</Body>
+        <Hero style={styles.centerTitle}>{completionTitle(summary)}</Hero>
+        <Body align="center">
+          {enrichment
+            ? completionContext(summary)
+            : 'The choices are saved. There is nothing else you need to finish tonight.'}
+        </Body>
         <Spacer h={space.xl} />
         <Button onPress={() => router.replace('/timeline')} testID="tonight-complete">Back to Today</Button>
       </Screen>
@@ -302,6 +498,7 @@ export default function TonightScreen() {
     : '';
   const unavailable = activeItem.availability !== 'available' || !activeItem.localUri;
   const remaining = session.items.filter((item) => ['queued', 'shown', 'unavailable'].includes(item.state)).length;
+  const statusCopy = saveStep ? (saveStep === 'retry' ? 'Retrying the same safe save…' : SAVE_STEP_LABELS[saveStep]) : '';
 
   return (
     <Screen bare edges={{ top: true, bottom: true }}>
@@ -327,6 +524,8 @@ export default function TonightScreen() {
         </View>
 
         <ScrollView
+          key={`${session.sessionId}:${activeItem.position}:${activeItem.assetId}`}
+          ref={detailsScrollRef}
           style={styles.detailsScroll}
           contentContainerStyle={styles.details}
           keyboardShouldPersistTaps="handled"
@@ -336,25 +535,98 @@ export default function TonightScreen() {
           <Eyebrow maxFontSizeMultiplier={1.6}>{parentReasonLabel(activeItem.reasonCode)}</Eyebrow>
           <Hero maxFontSizeMultiplier={1.8} style={styles.dateTitle}>{captureDate ? formatCaptureDate(captureDate) : 'A memory worth a look'}</Hero>
           {age ? <Caption maxFontSizeMultiplier={1.8}>{age}</Caption> : null}
+
+          {burstAlternates.length > 1 ? (
+            <BurstChooser
+              open={burstOpen}
+              onToggle={() => setBurstOpen((value) => !value)}
+              alternates={burstAlternates}
+              onSelect={selectBurstPhoto}
+              disabled={busy || keepNeedsRetry || recording}
+              theme={theme}
+            />
+          ) : null}
+
           <Spacer h={space.md} />
           <Field
             label="Add one line (optional)"
             value={draft}
             onChangeText={changeDraft}
             placeholder="What do you want to remember?"
-            inputProps={{ maxLength: 280, returnKeyType: 'done', maxFontSizeMultiplier: 1.8 }}
+            inputProps={{
+              maxLength: 280,
+              returnKeyType: 'done',
+              blurOnSubmit: true,
+              onSubmitEditing: Keyboard.dismiss,
+              maxFontSizeMultiplier: 1.8,
+              editable: !busy && !keepNeedsRetry,
+            }}
             testID="tonight-draft"
           />
-          {error || keepNeedsRetry ? (
-            <Caption style={[styles.error, { color: theme.colors.danger }]}>
-              {error || 'Keep did not finish yet. Try Keep again before moving on.'}
+
+          <View style={styles.enrichmentRow}>
+            <Pressable
+              onPress={toggleFavorite}
+              disabled={busy || keepNeedsRetry}
+              accessibilityRole="button"
+              accessibilityLabel={activeItem.favorite ? 'Remove favorite' : 'Favorite this memory'}
+              accessibilityState={{ selected: activeItem.favorite }}
+              style={[
+                styles.enrichmentButton,
+                { borderColor: theme.semantic.border, backgroundColor: activeItem.favorite ? theme.colors.primarySoft : theme.semantic.cardAlt },
+              ]}
+              testID="tonight-favorite"
+            >
+              <Ionicons name={activeItem.favorite ? 'heart' : 'heart-outline'} size={19} color={theme.semantic.primary} />
+              <Caption maxFontSizeMultiplier={1.5}>{activeItem.favorite ? 'Favorited' : 'Favorite'}</Caption>
+            </Pressable>
+            {TONIGHT_REACTION_OPTIONS.map((option) => {
+              const selected = activeItem.reactionCode === option.code;
+              return (
+                <Pressable
+                  key={option.code}
+                  onPress={() => chooseReaction(option.code)}
+                  disabled={busy || keepNeedsRetry}
+                  accessibilityRole="button"
+                  accessibilityLabel={selected ? `Remove reaction ${option.label}` : option.label}
+                  accessibilityState={{ selected }}
+                  style={[
+                    styles.emojiButton,
+                    { borderColor: selected ? theme.semantic.primary : theme.semantic.border, backgroundColor: theme.semantic.cardAlt },
+                  ]}
+                  testID={`tonight-reaction-${option.code}`}
+                >
+                  <Caption maxFontSizeMultiplier={1.4} style={styles.emoji}>{option.emoji}</Caption>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <VoiceDraftCard
+            voice={activeItem.draftVoice}
+            recording={recording}
+            seconds={audioSeconds}
+            busy={audioBusy}
+            disabled={busy || keepNeedsRetry}
+            notice={audioNotice}
+            onStart={startRecording}
+            onStop={() => stopRecording()}
+            onRemove={removeVoice}
+            theme={theme}
+          />
+
+          {statusCopy || error || keepNeedsRetry ? (
+            <Caption style={[styles.error, { color: error ? theme.colors.danger : theme.semantic.muted }]}>
+              {statusCopy || error || 'Keep paused before completion. Retry the same Keep before moving on.'}
             </Caption>
           ) : null}
           <View style={styles.actions}>
-            <Button fullWidth={false} style={styles.action} variant="ghost" onPress={skip} disabled={busy || keepNeedsRetry} testID="tonight-skip">Skip</Button>
-            <Button fullWidth={false} style={styles.action} onPress={keep} loading={busy} disabled={unavailable} testID="tonight-keep">Keep</Button>
+            <Button fullWidth={false} style={styles.action} variant="ghost" onPress={skip} disabled={busy || keepNeedsRetry || recording} testID="tonight-skip">Skip</Button>
+            <Button fullWidth={false} style={styles.action} onPress={keep} loading={busy} disabled={unavailable || recording} testID="tonight-keep">
+              {keepNeedsRetry ? 'Retry Keep' : 'Keep'}
+            </Button>
           </View>
-          <Pressable onPress={chooseAnother} disabled={busy || keepNeedsRetry} accessibilityRole="button" style={styles.secondaryAction} testID="tonight-picker">
+          <Pressable onPress={chooseAnother} disabled={busy || keepNeedsRetry || recording} accessibilityRole="button" style={styles.secondaryAction} testID="tonight-picker">
             <Ionicons name="images-outline" size={18} color={theme.semantic.primary} />
             <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>Choose another from Photos</Caption>
           </Pressable>
@@ -363,6 +635,23 @@ export default function TonightScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+    </Screen>
+  );
+}
+
+function TonightDenied({ router, kind }) {
+  const circle = kind === 'circle';
+  return (
+    <Screen variant="warm" contentStyle={styles.centered}>
+      <Eyebrow maxFontSizeMultiplier={1.4}>{circle ? 'Private discovery' : 'Tonight is paused'}</Eyebrow>
+      <Hero maxFontSizeMultiplier={1.4} style={styles.centerTitle}>{circle ? 'Tonight belongs to the parents.' : 'Your saved family world is still here.'}</Hero>
+      <Body maxFontSizeMultiplier={1.5} align="center">
+        {circle
+          ? 'Circle members can enjoy memories after a parent keeps them in Our World.'
+          : 'When the family plan is active, private photo discovery and new Tonight decisions can continue.'}
+      </Body>
+      <Spacer h={space.xl} />
+      <Button size="md" variant="ghost" onPress={() => router.replace('/timeline')}>Back to Our World</Button>
     </Screen>
   );
 }
@@ -390,16 +679,122 @@ function TonightVideo({ uri, posterUri, theme }) {
   );
 }
 
+function VoiceDraftCard({ voice, recording, seconds, busy, disabled, notice, onStart, onStop, onRemove, theme }) {
+  return (
+    <View style={[styles.voiceCard, { borderColor: theme.semantic.border, backgroundColor: theme.semantic.cardAlt }]}>
+      <View style={styles.voiceHeader}>
+        <View style={styles.voiceTitle}>
+          <Ionicons name="mic-outline" size={18} color={theme.semantic.primary} />
+          <Caption>{recording ? `Recording · ${seconds}s` : voice ? `Voice note · ${seconds}s` : 'Add a voice note'}</Caption>
+        </View>
+        {voice && !recording ? (
+          <Pressable onPress={onRemove} disabled={busy || disabled} accessibilityRole="button" accessibilityLabel="Remove voice draft" testID="tonight-voice-delete">
+            <Ionicons name="trash-outline" size={19} color={theme.colors.danger} />
+          </Pressable>
+        ) : null}
+      </View>
+      {recording ? <Waveform values={buildWaveform(Math.max(2, seconds))} color={theme.semantic.primary} /> : null}
+      {voice?.uri && !recording ? <VoiceDraftPlayer voice={voice} theme={theme} /> : null}
+      <Button
+        size="sm"
+        variant={recording ? 'dark' : 'ghost'}
+        onPress={recording ? onStop : onStart}
+        loading={busy}
+        disabled={disabled}
+        testID={recording ? 'tonight-voice-stop' : 'tonight-voice-record'}
+      >
+        {recording ? 'Stop recording' : voice ? 'Record again' : 'Record voice'}
+      </Button>
+      {notice ? <Caption style={styles.voiceNotice}>{notice}</Caption> : null}
+    </View>
+  );
+}
+
+function VoiceDraftPlayer({ voice, theme }) {
+  const player = useAudioPlayer({ uri: voice.uri }, { updateInterval: 200 });
+  const status = useAudioPlayerStatus(player);
+  const toggle = () => {
+    if (status.playing) player.pause();
+    else player.play();
+  };
+  return (
+    <View style={styles.voicePlayback}>
+      <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={status.playing ? 'Pause voice draft' : 'Play voice draft'} style={styles.voicePlayButton} testID="tonight-voice-play">
+        <Ionicons name={status.playing ? 'pause-circle' : 'play-circle'} size={34} color={theme.semantic.primary} />
+      </Pressable>
+      <View style={styles.voiceWaveform}><Waveform values={voice.waveform} color={theme.semantic.primary} /></View>
+    </View>
+  );
+}
+
+function BurstChooser({ open, onToggle, alternates, onSelect, disabled, theme }) {
+  const selected = alternates.find((item) => item.selected);
+  return (
+    <View style={[styles.burstCard, { borderColor: theme.semantic.border }]} testID="tonight-burst">
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityLabel="Review similar photos"
+        accessibilityState={{ expanded: open }}
+        style={styles.burstHeader}
+        testID="tonight-burst-toggle"
+      >
+        <View style={styles.burstCopy}>
+          <Caption style={{ fontWeight: '700' }}>Best of {alternates.length} similar photos</Caption>
+          <Caption>{selected?.recommended ? 'Our clearest pick is selected.' : 'You chose another photo from this burst.'}</Caption>
+        </View>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={theme.semantic.primary} />
+      </Pressable>
+      {open ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.burstList}>
+          {alternates.map((alternate) => (
+            <Pressable
+              key={alternate.assetId}
+              onPress={() => onSelect(alternate.assetId)}
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={`${alternate.recommended ? 'Recommended photo. ' : ''}${alternate.selected ? 'Selected' : 'Choose this photo'}`}
+              accessibilityState={{ selected: alternate.selected }}
+              style={[styles.burstThumb, { borderColor: alternate.selected ? theme.semantic.primary : theme.semantic.border }]}
+              testID={`tonight-burst-${alternate.assetId}`}
+            >
+              <Image source={{ uri: alternate.previewUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              {alternate.selected ? <View style={[styles.burstCheck, { backgroundColor: theme.semantic.primary }]}><Ionicons name="checkmark" size={13} color={theme.colors.onPrimary} /></View> : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 function UnavailableCard({ onRetry, busy, theme }) {
   return (
     <View style={styles.unavailable}>
-      <Ionicons name="cloud-download-outline" size={46} color={theme.semantic.primary} />
-      <Hero style={styles.unavailableTitle}>The original is waiting.</Hero>
-      <Body align="center">Open it once in Photos if iCloud needs a moment, then try again.</Body>
-      <Spacer h={space.lg} />
+      <Ionicons name="cloud-download-outline" size={38} color={theme.semantic.primary} />
+      <Hero maxFontSizeMultiplier={1.25} style={styles.unavailableTitle}>The original is waiting.</Hero>
+      <Body maxFontSizeMultiplier={1.3} align="center">Open it once in Photos if iCloud needs a moment, then try again.</Body>
+      <Spacer h={space.sm} />
       <Button size="md" variant="ghost" onPress={onRetry} loading={busy}>Try original again</Button>
     </View>
   );
+}
+
+function Waveform({ values = [], color }) {
+  const bars = values.length ? values : buildWaveform(8);
+  return (
+    <View style={styles.waveform} accessibilityElementsHidden>
+      {bars.slice(0, 28).map((value, index) => (
+        <View key={`${index}-${value}`} style={[styles.waveBar, { height: 5 + Number(value || 0) * 18, backgroundColor: color }]} />
+      ))}
+    </View>
+  );
+}
+
+function buildWaveform(durationSec) {
+  const count = 28;
+  const seed = Math.max(1, Math.round(Number(durationSec || 1) * 10));
+  return Array.from({ length: count }, (_, index) => 0.22 + (((seed * (index + 7) * 17) % 73) / 100));
 }
 
 function matchFromItem(item) {
@@ -429,15 +824,29 @@ function parentError(error, fallback) {
   return fallback;
 }
 
+function completionTitle(summary) {
+  if (!summary.kept) return 'You looked through tonight’s set.';
+  if (summary.kept === 1) return 'One memory kept close.';
+  return `${summary.kept} memories kept close.`;
+}
+
+function completionContext(summary) {
+  const details = [];
+  if (summary.withText) details.push(`${summary.withText} with your words`);
+  if (summary.withVoice) details.push(`${summary.withVoice} with your voice`);
+  if (summary.withReaction) details.push(`${summary.withReaction} favorited or reacted to`);
+  return `${details.join(' · ')}. Everything confirmed is now in your shared family world.`;
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
   centerTitle: { textAlign: 'center', marginVertical: space.md, fontSize: 34, lineHeight: 40 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, minHeight: 52 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  mediaFrame: { flex: 1, minHeight: 220, overflow: 'hidden' },
-  detailsScroll: { flexGrow: 0, maxHeight: '55%' },
-  details: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.sm },
+  mediaFrame: { flex: 1, minHeight: 290, overflow: 'hidden' },
+  detailsScroll: { flexGrow: 0, maxHeight: '54%' },
+  details: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.lg },
   dateTitle: { fontSize: 29, lineHeight: 34, marginTop: 3 },
   actions: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
   action: { flex: 1 },
@@ -446,4 +855,23 @@ const styles = StyleSheet.create({
   playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   unavailable: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
   unavailableTitle: { fontSize: 28, lineHeight: 34, textAlign: 'center', marginTop: space.md, marginBottom: space.sm },
+  enrichmentRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: space.sm },
+  enrichmentButton: { minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  emojiButton: { width: 42, height: 42, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  emoji: { fontSize: 20, lineHeight: 25 },
+  voiceCard: { borderWidth: 1, borderRadius: 16, padding: space.md, marginTop: space.md, gap: space.sm },
+  voiceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  voiceTitle: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  voiceNotice: { textAlign: 'center' },
+  voicePlayback: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  voicePlayButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  voiceWaveform: { flex: 1 },
+  waveform: { minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: 2, overflow: 'hidden' },
+  waveBar: { width: 3, minHeight: 5, borderRadius: 2, opacity: 0.72 },
+  burstCard: { borderWidth: 1, borderRadius: 16, marginTop: space.md, overflow: 'hidden' },
+  burstHeader: { minHeight: 54, paddingHorizontal: space.md, paddingVertical: space.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  burstCopy: { flex: 1, gap: 2 },
+  burstList: { paddingHorizontal: space.md, paddingBottom: space.md, gap: space.sm },
+  burstThumb: { width: 82, height: 82, borderRadius: 12, borderWidth: 2, overflow: 'hidden' },
+  burstCheck: { position: 'absolute', right: 4, top: 4, width: 21, height: 21, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
 });

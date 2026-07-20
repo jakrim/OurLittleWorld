@@ -1,7 +1,7 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Release 0 durable-ledger and Tonight foundation implemented locally; later enrichment slices remain planned
+Status: Releases 0 and 1 implemented and verified locally; Release 2 historical catch-up remains planned
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
 
 ## Executive decision
@@ -504,6 +504,11 @@ Acceptance:
 ### Release 1 — Tonight's memories MVP
 
 Goal: deliver the parent experience in the user's description.
+
+Status: complete locally on July 20, 2026. Inline text, voice, favorite/reaction,
+bounded best-of-burst correction, draft-safe idempotent Keep, queue-aware local
+notification readiness, and the full completion/resume flow are implemented. No
+remote migration, production notification, deploy, push, or store submission occurred.
 
 Build:
 

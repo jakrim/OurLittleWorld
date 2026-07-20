@@ -9,6 +9,11 @@ import { buildNightlyQueue, NIGHTLY_QUEUE_GENERATION_VERSION } from './nightlyQu
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
+export const NIGHTLY_BURST_ALTERNATE_LIMIT = 12;
+export const NIGHTLY_BURST_ALTERNATE_MIN_QUALITY = 0.55;
+export const TONIGHT_REACTION_CODES = Object.freeze(['spark', 'seen']);
+export const TONIGHT_COMMIT_STEPS = Object.freeze(['media', 'text', 'voice', 'reaction']);
+export const TONIGHT_COMMIT_STEP_STATES = Object.freeze(['idle', 'saving', 'saved', 'failed', 'skipped']);
 
 export function listCachedAnalysisAssetIds({
   familyId,
@@ -241,12 +246,158 @@ export function markTonightItemShown({ sessionId, familyId, userId, position }) 
 export function saveTonightDraft({ sessionId, familyId, userId, position, text }) {
   assertScope(familyId, userId);
   const safeText = String(text || '').slice(0, NIGHTLY_DRAFT_MAX_LENGTH);
-  getMediaDatabase().runSync(
+  const database = getMediaDatabase();
+  assertMutableItem(database, { sessionId, familyId, userId, position });
+  database.runSync(
     `update nightly_review_items set draft_text = ?, updated_at = ?
      where session_id = ? and family_id = ? and user_id = ? and position = ?`,
     [safeText, new Date().toISOString(), sessionId, familyId, userId, position],
   );
   return safeText;
+}
+
+export function saveTonightVoiceDraft({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  voice = null,
+}) {
+  assertScope(familyId, userId);
+  const database = getMediaDatabase();
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    assertMutableItem(database, { sessionId, familyId, userId, position });
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    database.runSync(
+      `update nightly_review_enrichment set
+         draft_voice_uri = ?, draft_voice_duration_sec = ?, draft_voice_mime_type = ?,
+         draft_voice_waveform_json = ?, voice_commit_state = 'idle',
+         canonical_voice_note_id = null, canonical_voice_object_id = null,
+         retry_id = null, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [voice?.uri || null, voice?.durationSec || null, voice?.mimeType || null,
+        voice?.waveform ? JSON.stringify(voice.waveform) : null, stamp,
+        sessionId, position, familyId, userId],
+    );
+  });
+  return readTonightSession({ familyId, userId });
+}
+
+export function saveTonightReactionDraft({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  favorite = false,
+  reactionCode = null,
+}) {
+  assertScope(familyId, userId);
+  const normalizedReaction = reactionCode == null ? null : String(reactionCode);
+  if (normalizedReaction && !TONIGHT_REACTION_CODES.includes(normalizedReaction)) {
+    throw new Error('That reaction is not available in Tonight');
+  }
+  const database = getMediaDatabase();
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    assertMutableItem(database, { sessionId, familyId, userId, position });
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    database.runSync(
+      `update nightly_review_enrichment set draft_favorite = ?, draft_reaction_code = ?,
+         reaction_commit_state = 'idle', retry_id = null, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [favorite ? 1 : 0, normalizedReaction, stamp, sessionId, position, familyId, userId],
+    );
+  });
+  return readTonightSession({ familyId, userId });
+}
+
+export function clearTonightVoiceDraft({ sessionId, familyId, userId, position }) {
+  assertScope(familyId, userId);
+  const database = getMediaDatabase();
+  const current = scopedEnrichment(database, { sessionId, familyId, userId, position });
+  if (!current) return { discardedVoiceUri: null, session: readTonightSession({ familyId, userId }) };
+  assertMutableItem(database, { sessionId, familyId, userId, position });
+  database.runSync(
+    `update nightly_review_enrichment set draft_voice_uri = null, draft_voice_duration_sec = null,
+       draft_voice_mime_type = null, draft_voice_waveform_json = null,
+       voice_commit_state = 'idle', canonical_voice_note_id = null,
+       canonical_voice_object_id = null, retry_id = null, updated_at = ?
+     where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+    [new Date().toISOString(), sessionId, position, familyId, userId],
+  );
+  return {
+    discardedVoiceUri: current.draft_voice_uri || null,
+    session: readTonightSession({ familyId, userId }),
+  };
+}
+
+export function listTonightBurstAlternates({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  limit = NIGHTLY_BURST_ALTERNATE_LIMIT,
+}) {
+  assertScope(familyId, userId);
+  const database = getMediaDatabase();
+  const item = scopedItem(database, { sessionId, familyId, userId, position });
+  if (!item || item.reason_code !== 'best_burst') return [];
+  const cluster = database.getFirstSync(
+    `select event_cluster_key from discovery_candidates
+     where family_id = ? and user_id = ? and asset_id = ?`,
+    [familyId, userId, item.asset_id],
+  );
+  if (!cluster?.event_cluster_key) return [];
+  const boundedLimit = Math.max(1, Math.min(NIGHTLY_BURST_ALTERNATE_LIMIT, Number(limit || NIGHTLY_BURST_ALTERNATE_LIMIT)));
+  const rows = database.getAllSync(
+    `select c.asset_id, c.local_uri, c.preview_uri, c.capture_time_ms, c.width, c.height,
+       c.capture_quality, c.identity_score, c.lifecycle_state,
+       case when c.asset_id = cc.representative_asset_id then 1 else 0 end as is_recommended
+     from candidate_cluster_members m
+     join candidate_clusters cc on cc.family_id = m.family_id and cc.user_id = m.user_id and cc.cluster_id = m.cluster_id
+     join discovery_candidates c on c.family_id = m.family_id and c.user_id = m.user_id and c.asset_id = m.asset_id
+     where m.family_id = ? and m.user_id = ? and m.cluster_id = ?
+       and c.media_type = 'image' and c.availability = 'available' and c.local_uri is not null
+       and c.identity_band = 'clear' and c.capture_quality >= ?
+       and c.lifecycle_state not in ('kept', 'skipped', 'rejected', 'unavailable')
+     order by is_recommended desc, c.capture_quality desc, c.identity_score desc,
+       c.capture_time_ms desc, c.asset_id asc limit ?`,
+    [familyId, userId, cluster.event_cluster_key, NIGHTLY_BURST_ALTERNATE_MIN_QUALITY, boundedLimit],
+  );
+  return rows.map((row) => ({
+    assetId: row.asset_id,
+    localUri: row.local_uri,
+    previewUri: row.preview_uri || row.local_uri,
+    captureTimeMs: Number(row.capture_time_ms || 0) || null,
+    width: Number(row.width || 0) || null,
+    height: Number(row.height || 0) || null,
+    recommended: Number(row.is_recommended || 0) === 1,
+    selected: (item.selected_asset_id || item.asset_id) === row.asset_id,
+  }));
+}
+
+export function selectTonightBurstAlternate({ sessionId, familyId, userId, position, assetId }) {
+  assertScope(familyId, userId);
+  const allowed = listTonightBurstAlternates({ sessionId, familyId, userId, position });
+  if (!allowed.some((candidate) => candidate.assetId === assetId)) {
+    throw new Error('That burst photo is no longer eligible');
+  }
+  const database = getMediaDatabase();
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    assertMutableItem(database, { sessionId, familyId, userId, position });
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    database.runSync(
+      `update nightly_review_enrichment set selected_asset_id = ?, retry_id = null,
+         media_commit_state = 'idle', text_commit_state = 'idle', voice_commit_state = 'idle',
+         reaction_commit_state = 'idle', canonical_moment_id = null,
+         canonical_voice_note_id = null, canonical_voice_object_id = null, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [assetId, stamp, sessionId, position, familyId, userId],
+    );
+  });
+  return readTonightSession({ familyId, userId });
 }
 
 export function beginTonightKeep({ sessionId, familyId, userId, position }) {
@@ -255,12 +406,74 @@ export function beginTonightKeep({ sessionId, familyId, userId, position }) {
   const item = scopedItem(database, { sessionId, familyId, userId, position });
   if (!item) throw new Error('Tonight memory is no longer available');
   if (item.item_state === 'kept') return { alreadyComplete: true, item: mapSessionItem(item) };
-  database.runSync(
-    `update nightly_review_items set commit_state = 'saving', last_error_code = null, updated_at = ?
-     where session_id = ? and position = ? and item_state in ('queued', 'shown')`,
-    [new Date().toISOString(), sessionId, position],
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    const enrichment = scopedEnrichment(database, { sessionId, familyId, userId, position });
+    const hasVoice = Boolean(enrichment?.draft_voice_uri);
+    database.runSync(
+      `update nightly_review_enrichment set retry_id = coalesce(retry_id, ?),
+         canonical_voice_note_id = case when ? then coalesce(canonical_voice_note_id, ?) else null end,
+         canonical_voice_object_id = case when ? then coalesce(canonical_voice_object_id, ?) else null end,
+         temp_cleanup_state = case when ? then 'pending' else temp_cleanup_state end,
+         updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [uuid(), hasVoice ? 1 : 0, uuid(), hasVoice ? 1 : 0, uuid(), hasVoice ? 1 : 0,
+        stamp, sessionId, position, familyId, userId],
+    );
+    database.runSync(
+      `update nightly_review_items set commit_state = 'saving', last_error_code = null, updated_at = ?
+       where session_id = ? and position = ? and item_state in ('queued', 'shown')`,
+      [stamp, sessionId, position],
+    );
+  });
+  return {
+    alreadyComplete: false,
+    item: readTonightItem({ sessionId, familyId, userId, position }),
+  };
+}
+
+export function markTonightCommitStep({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  step,
+  state,
+  canonicalMomentId = undefined,
+}) {
+  assertScope(familyId, userId);
+  if (!TONIGHT_COMMIT_STEPS.includes(step)) throw new Error('Unknown Tonight commit step');
+  if (!TONIGHT_COMMIT_STEP_STATES.includes(state)) throw new Error('Unknown Tonight commit state');
+  const column = `${step}_commit_state`;
+  const database = getMediaDatabase();
+  const stamp = new Date().toISOString();
+  ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+  if (canonicalMomentId !== undefined) {
+    database.runSync(
+      `update nightly_review_enrichment set ${column} = ?, canonical_moment_id = ?, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [state, canonicalMomentId || null, stamp, sessionId, position, familyId, userId],
+    );
+  } else {
+    database.runSync(
+      `update nightly_review_enrichment set ${column} = ?, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [state, stamp, sessionId, position, familyId, userId],
+    );
+  }
+  return readTonightItem({ sessionId, familyId, userId, position });
+}
+
+export function completeTonightTempCleanup({ sessionId, familyId, userId, position, success = true }) {
+  assertScope(familyId, userId);
+  getMediaDatabase().runSync(
+    `update nightly_review_enrichment set draft_voice_uri = null,
+       draft_voice_duration_sec = null, draft_voice_mime_type = null,
+       draft_voice_waveform_json = null, temp_cleanup_state = ?, updated_at = ?
+     where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+    [success ? 'done' : 'failed', new Date().toISOString(), sessionId, position, familyId, userId],
   );
-  return { alreadyComplete: false, item: mapSessionItem(scopedItem(database, { sessionId, familyId, userId, position })) };
 }
 
 export function failTonightKeep({ sessionId, familyId, userId, position, errorCode = 'save_failed' }) {
@@ -298,6 +511,7 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
     parentPinned: true,
   }, { scanKey: 'parent-picker', now });
   const database = getMediaDatabase();
+  let discardedVoiceUri = null;
   database.withTransactionSync(() => {
     upsertCandidate(database, familyId, userId, candidate);
     const current = scopedItem(database, { sessionId, familyId, userId, position });
@@ -305,6 +519,9 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
     if (['saving', 'failed'].includes(current.commit_state) && current.last_error_code !== 'asset_unavailable') {
       throw new Error('Finish retrying this Keep before choosing another memory');
     }
+    discardedVoiceUri = scopedEnrichment(database, {
+      sessionId, familyId, userId, position,
+    })?.draft_voice_uri || null;
     updateCandidateDecision(database, {
       familyId,
       userId,
@@ -323,14 +540,23 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
        where session_id = ? and position = ?`,
       [assetId, now.toISOString(), now.toISOString(), sessionId, position],
     );
+    database.runSync(
+      `delete from nightly_review_enrichment
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [sessionId, position, familyId, userId],
+    );
   });
-  return hydrateSession(database, readActiveSession(database, familyId, userId));
+  return {
+    ...hydrateSession(database, readActiveSession(database, familyId, userId)),
+    discardedVoiceUri,
+  };
 }
 
 function finishDecision({ sessionId, familyId, userId, position, decision }) {
   assertScope(familyId, userId);
   const database = getMediaDatabase();
   const stamp = new Date().toISOString();
+  let discardedVoiceUri = null;
   database.withTransactionSync(() => {
     const item = scopedItem(database, { sessionId, familyId, userId, position });
     if (!item) throw new Error('Tonight memory is no longer available');
@@ -340,12 +566,23 @@ function finishDecision({ sessionId, familyId, userId, position, decision }) {
       && item.last_error_code !== 'asset_unavailable') {
       throw new Error('Finish retrying this Keep before skipping the memory');
     }
+    const enrichment = scopedEnrichment(database, { sessionId, familyId, userId, position });
+    const decidedAssetId = enrichment?.selected_asset_id || item.asset_id;
+    discardedVoiceUri = decision === 'skipped' ? enrichment?.draft_voice_uri || null : null;
     database.runSync(
-      `update nightly_review_items set item_state = ?, commit_state = 'done', decided_at = ?, updated_at = ?
+      `update nightly_review_items set item_state = ?, commit_state = 'done', draft_text = null,
+         decided_at = ?, updated_at = ?
        where session_id = ? and position = ?`,
       [decision, stamp, stamp, sessionId, position],
     );
-    updateCandidateDecision(database, { familyId, userId, assetId: item.asset_id, state: decision, stamp });
+    updateCandidateDecision(database, { familyId, userId, assetId: decidedAssetId, state: decision, stamp });
+    if (decision === 'skipped') {
+      database.runSync(
+        `delete from nightly_review_enrichment
+         where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+        [sessionId, position, familyId, userId],
+      );
+    }
     const nextPosition = Math.min(Number(position) + 1, Number(item.item_count || position + 1));
     const remaining = database.getFirstSync(
       `select count(*) as count from nightly_review_items
@@ -360,7 +597,8 @@ function finishDecision({ sessionId, familyId, userId, position, decision }) {
     );
   });
   const active = readActiveSession(database, familyId, userId);
-  return active ? hydrateSession(database, active) : { completed: true, items: [] };
+  const result = active ? hydrateSession(database, active) : { completed: true, items: [] };
+  return { ...result, discardedVoiceUri };
 }
 
 function listEligibleCandidates(database, familyId, userId) {
@@ -408,11 +646,32 @@ function readCompletedSessionForDay(database, familyId, userId, day) {
 function hydrateSession(database, session) {
   if (!session) return null;
   const rows = database.getAllSync(
-    `select i.*, c.media_type, c.local_uri, c.preview_uri, c.availability, c.capture_time_ms,
-       c.local_day, c.duration_sec, c.width, c.height, c.identity_score, c.capture_quality,
-       c.video_presence_ratio, c.unavailable_reason, c.event_cluster_key, c.cluster_member_count
+    `select i.*, i.asset_id as queue_asset_id,
+       coalesce(e.selected_asset_id, i.asset_id) as effective_asset_id,
+       coalesce(sc.media_type, c.media_type) as media_type,
+       coalesce(sc.local_uri, c.local_uri) as local_uri,
+       coalesce(sc.preview_uri, c.preview_uri) as preview_uri,
+       coalesce(sc.availability, c.availability) as availability,
+       coalesce(sc.capture_time_ms, c.capture_time_ms) as capture_time_ms,
+       coalesce(sc.local_day, c.local_day) as local_day,
+       coalesce(sc.duration_sec, c.duration_sec) as duration_sec,
+       coalesce(sc.width, c.width) as width,
+       coalesce(sc.height, c.height) as height,
+       coalesce(sc.identity_score, c.identity_score) as identity_score,
+       coalesce(sc.capture_quality, c.capture_quality) as capture_quality,
+       coalesce(sc.video_presence_ratio, c.video_presence_ratio) as video_presence_ratio,
+       coalesce(sc.unavailable_reason, c.unavailable_reason) as unavailable_reason,
+       c.event_cluster_key, c.cluster_member_count,
+       e.draft_voice_uri, e.draft_voice_duration_sec, e.draft_voice_mime_type,
+       e.draft_voice_waveform_json, e.draft_favorite, e.draft_reaction_code,
+       e.retry_id, e.canonical_moment_id, e.canonical_voice_note_id,
+       e.canonical_voice_object_id, e.media_commit_state, e.text_commit_state,
+       e.voice_commit_state, e.reaction_commit_state, e.temp_cleanup_state
      from nightly_review_items i
      join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id and c.asset_id = i.asset_id
+     left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
+     left join discovery_candidates sc on sc.family_id = i.family_id and sc.user_id = i.user_id
+       and sc.asset_id = e.selected_asset_id
      where i.session_id = ? order by i.position asc`,
     [session.session_id],
   );
@@ -432,22 +691,76 @@ function hydrateSession(database, session) {
 
 function scopedItem(database, { sessionId, familyId, userId, position }) {
   return database.getFirstSync(
-    `select i.*, s.item_count from nightly_review_items i
+    `select i.*, s.item_count, e.selected_asset_id from nightly_review_items i
      join nightly_review_sessions s on s.session_id = i.session_id
+     left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
      where i.session_id = ? and i.position = ? and i.family_id = ? and i.user_id = ?`,
     [sessionId, position, familyId, userId],
   );
+}
+
+function scopedEnrichment(database, { sessionId, familyId, userId, position }) {
+  return database.getFirstSync(
+    `select * from nightly_review_enrichment
+     where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+    [sessionId, position, familyId, userId],
+  );
+}
+
+function ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp = new Date().toISOString() }) {
+  database.runSync(
+    `insert into nightly_review_enrichment (
+       session_id, position, family_id, user_id, updated_at
+     ) values (?, ?, ?, ?, ?)
+     on conflict(session_id, position) do nothing`,
+    [sessionId, position, familyId, userId, stamp],
+  );
+}
+
+function assertMutableItem(database, scope) {
+  const item = scopedItem(database, scope);
+  if (!item) throw new Error('Tonight memory is no longer available');
+  if (['kept', 'skipped'].includes(item.item_state)) throw new Error('This Tonight memory is already finished');
+  if (['saving', 'failed'].includes(item.commit_state) && item.last_error_code !== 'asset_unavailable') {
+    throw new Error('Finish retrying this Keep before changing its context');
+  }
+  return item;
+}
+
+function readTonightItem({ sessionId, familyId, userId, position }) {
+  const session = readTonightSession({ familyId, userId });
+  return session?.items?.find((item) => item.sessionId === sessionId && item.position === position) || null;
 }
 
 function mapSessionItem(row) {
   return {
     sessionId: row.session_id,
     position: Number(row.position || 0),
-    assetId: row.asset_id,
+    assetId: row.effective_asset_id || row.selected_asset_id || row.asset_id,
+    queueAssetId: row.queue_asset_id || row.asset_id,
     reasonCode: row.reason_code,
     state: row.item_state,
     commitState: row.commit_state,
     draftText: row.draft_text || '',
+    draftVoice: row.draft_voice_uri ? {
+      uri: row.draft_voice_uri,
+      durationSec: Number(row.draft_voice_duration_sec || 0) || null,
+      mimeType: row.draft_voice_mime_type || 'audio/mp4',
+      waveform: parseJsonArray(row.draft_voice_waveform_json),
+    } : null,
+    favorite: Number(row.draft_favorite || 0) === 1,
+    reactionCode: row.draft_reaction_code || null,
+    retryId: row.retry_id || null,
+    canonicalMomentId: row.canonical_moment_id || null,
+    canonicalVoiceNoteId: row.canonical_voice_note_id || null,
+    canonicalVoiceObjectId: row.canonical_voice_object_id || null,
+    commitSteps: {
+      media: row.media_commit_state || 'idle',
+      text: row.text_commit_state || 'idle',
+      voice: row.voice_commit_state || 'idle',
+      reaction: row.reaction_commit_state || 'idle',
+    },
+    tempCleanupState: row.temp_cleanup_state || 'idle',
     lastErrorCode: row.last_error_code || null,
     mediaType: row.media_type || 'image',
     localUri: row.local_uri || row.preview_uri || null,
@@ -479,6 +792,16 @@ function mapCandidateRow(row) {
     lifecycleState: row.lifecycle_state,
     selectionReasonCode: row.selection_reason_code,
   };
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function upsertCandidate(database, familyId, userId, candidate) {

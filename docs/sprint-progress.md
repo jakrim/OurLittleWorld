@@ -138,6 +138,137 @@ top of the now-stable candidate/session foundation. Keep every suggestion option
 source-aware, and local until the parent confirms the memory; do not add automatic
 milestone or developmental claims.
 
+## Curated Memory Library Release 1 — Tonight's memories MVP (2026-07-20)
+
+Status: implemented and verified locally on `polish-sprints` from Release 0 commit
+`b70ecc5`. No push, deploy, remote migration, production notification, App Store,
+TestFlight, signing, or production-data action was performed.
+
+### Product and durable contracts
+
+- Tonight is now a complete inline ritual. Each photo or video card supports the
+  existing one-line draft plus voice record/stop/play/delete/re-record, explicit
+  favorite, two restrained reactions, factual date/age/reason, Keep, Skip, native
+  Photos replacement, and the secondary advanced Review grid. A best-of-burst card
+  can expand up to 12 eligible local alternates and keeps the recommended frame
+  selected until the parent chooses another.
+- Local SQLite schema version `2` adds `nightly_review_enrichment`, keyed and
+  constrained by session position plus family/parent scope. It persists the selected
+  burst asset, private voice URI/metadata, favorite/reaction, stable retry and
+  canonical moment/voice identities, media/text/voice/reaction commit states, and
+  temporary-file cleanup state. The version-1 item order, decisions, text drafts,
+  uploads, saved media, mappings, and scan checkpoints remain intact.
+- Text, voice, favorite/reaction, and alternate selection remain private until Keep.
+  The current writer owns new context. Keep continues through `Tags.setBaby`,
+  `Memories.setMine`, the established voice-note uploader, and `moment_reactions`;
+  it does not introduce another moment, upload, or remote candidate model. Stable
+  identities and per-step states make repeated Keep safe after media, voice, or
+  reaction partial success. Once any shared write starts, Skip and replacement stay
+  locked until that transaction resolves. Skip before a shared write removes only
+  the private draft and temporary recording.
+- Voice files are copied into the app's private document area for relaunch safety.
+  Delete/re-record/Skip cleans only that temporary file; successful Keep cleans it
+  after the canonical voice step. App backgrounding stops an active recording and
+  preserves the completed local draft. Microphone denial offers Settings without
+  weakening the permission boundary.
+- A real active non-empty queue drives local Tonight notification readiness. The
+  scheduler observes category preference, family-local ritual time and timezone,
+  quiet hours, the device's daily scheduled-notification cap, duplicate queue/date,
+  writer role, active entitlement, and completion/expiry state. Payload data contains
+  only `/tonight`, category, coarse ready state/count, and local queue date; it has no
+  session ID, asset ID, draft, face, fingerprint, or score.
+- Today still gives repair, permission, billing, and trust-safety work priority. When
+  none owns the primary slot, the real queue count supplies Tonight's action; an empty
+  queue produces no ritual card. Circle and lapsed users cannot read or mutate the
+  private ledger.
+
+### Scoped implementation
+
+- Ledger and migration: `apps/mobile/src/mediaDbSchema.js`,
+  `candidateLedgerStore.js`.
+- Canonical commit and enrichment: `TonightScreen.js`, `tonightCommit.js`,
+  `tonightCommitModel.js`, `tonightEnrichmentModel.js`, `tonightVoiceDrafts.js`,
+  `moments.js`, and `storage.js`.
+- Queue-aware entry and privacy: `TodayScreen.js`, `tonightNotificationModel.js`,
+  `tonightNotifications.js`, and `analyticsEventsModel.js`.
+- Proof: `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
+  `tonightCommitModel.test.js`, `tonightEnrichmentModel.test.js`,
+  `tonightNotificationModel.test.js`, and `curatedMemoryContracts.test.js`.
+- Durable state: `docs/current-product-state.md`, `docs/architecture.md`,
+  `docs/curated-memory-library-plan.md`, and this log.
+
+### Performance and tunables
+
+Measured with deterministic non-personal fixtures on the local development Mac:
+
+- schema v2 migration: `6.9 ms`;
+- 5,000-row ingestion in production-sized 80-row transactions: `283.4 ms`
+  (`17,643 rows/sec`);
+- 5,000-row bounded coverage query: `6.6 ms` under the `900`-row cap;
+- deterministic queue generation from 5,000 candidates: `12.0 ms`, seven results;
+- process-style database reopen/resume test: `24.3 ms` including a separate SQLite
+  process and transactional decision update;
+- compact 5,000-row database: `2,453,504 bytes` (`2.340 MiB`).
+
+The existing bounds remain candidate batch `80`, live JS matches `600`, queue query
+`900`, queue size `0–7`, and text draft `280` characters. Release 1 adds burst
+alternates `12`, waveform bars `28`, and one active session per family/parent. No
+screen loads the full 5,000-item candidate set.
+
+### Verification and native evidence
+
+- Final `pnpm test`: both packages succeeded; mobile TypeScript plus `363/363` unit
+  tests passed and web typecheck passed.
+- `pnpm lint`: `2/2` packages passed. `pnpm typecheck`: `2/2` packages passed.
+  `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed.
+- `deno check supabase/functions/notify-event/index.ts` passed and
+  `deno test supabase/functions/notify-event/cadence_test.ts` passed `3/3`.
+- The focused migration/queue/notification run passed `24/24` and saved its timing
+  output as `performance-and-model-tests.txt`. `git diff --check`, scoped privacy,
+  secret/generated-output, and staged-diff checks are recorded at commit time.
+- A production build was not run because this release changes only mobile runtime
+  behavior and no shared package, native module, web bundle, or release artifact.
+- Expo MCP tools were not exposed in this agent session. Verification used the
+  isolated iPhone 16e simulator on iOS 26.0, local Metro, Maestro, `simctl`, synthetic
+  media, and a disposable local-only Supabase family; the other project's simulator
+  and Metro were not interrupted.
+- The five-card walkthrough covered photo text, video playback, voice lifecycle,
+  favorite/reaction, best-of-burst inspection and alternate choice, keyboard,
+  microphone denial, background/resume, forced termination/relaunch with mixed
+  drafts, successful image plus enrichment Keep, same-identity video retry failure,
+  Skip cleanup, unavailable/iCloud, completion, native picker, advanced Review,
+  honest no-queue, local notification delivery, dark appearance, accessibility-large
+  text, Reduce Motion, Circle denial, and lapsed denial. Layout defects found in the
+  unavailable card and card-to-card scroll restoration were fixed and rechecked.
+- Ignored evidence root:
+  `tmp/evidence/curated-memory-library-release1-2026-07-20/`. Key files include
+  `tonight-enriched-alternate.png`, `tonight-voice-termination-resume.png`,
+  `tonight-microphone-denied.png`, `tonight-video-playing.png`,
+  `tonight-video-retry-safe.png`, `tonight-completion.png`,
+  `tonight-local-notification-banner-2.png`, `tonight-native-picker.png`,
+  `tonight-unavailable-icloud.png`, `tonight-dark-accessibility-large-final.png`,
+  `tonight-circle-denied.png`, `tonight-lapsed-denied.png`, and
+  `tonight-no-queue.png`.
+
+### Known verification gaps and next slice
+
+- The disposable local Edge runtime has no Cloudflare video-upload credentials.
+  Video playback, local voice lifecycle, stable transaction identity, parent-safe
+  failure, retry locking, and duplicate prevention were verified, while a successful
+  video-plus-voice provider commit remains a signed-runtime integration check. Image
+  plus text/favorite/reaction committed successfully through the canonical local
+  Supabase path with writer attribution.
+- Local notification banners and Notification Center delivery were verified. Maestro
+  could select the grouped iOS notification but did not dismiss Notification Center,
+  so the OS response-tap itself is not claimed as automated runtime proof. The app's
+  `/tonight` deep link and current resumable queue were separately exercised, and the
+  notification route/metadata/queue gates are deterministic tests.
+
+Before Release 2, run one narrow signed production-runtime proof on a non-personal
+test family: successful video plus voice upload/retry against configured Cloudflare,
+and one physical-device notification tap into the current queue. If those pass,
+Release 2 historical catch-up pacing is the next product slice.
+
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 
 Source of truth: `docs/assistant-curated-baby-book-prd.md`.

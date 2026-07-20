@@ -1,6 +1,6 @@
 # Our Little World — Current Product State
 
-Last updated: July 18, 2026
+Last updated: July 20, 2026
 
 ## Product Thesis
 
@@ -8,7 +8,7 @@ Our Little World is the private digital place where parents keep the life they a
 
 ## Current Product Loop
 
-`Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos, with Keep, Skip, or an optional one-line note. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
+`Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos with Keep, Skip, one-line context, voice, favorite/reaction, and a bounded best-of-burst choice in the same pager. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
 
 ## Current Architecture
 
@@ -55,6 +55,15 @@ Our Little World is the private digital place where parents keep the life they a
   termination. Candidate identity evidence, fingerprints, selection reasons, drafts,
   rejects, and unavailable items never cross into Supabase or analytics. Only Keep
   enters the existing shared moment/upload path.
+- Tonight enrichment is private and writer-scoped until Keep. Local text, voice-file,
+  favorite/reaction, selected burst member, retry identities, and per-step commit state
+  survive termination. Keep reuses the canonical moment, voice, reaction, and upload
+  paths; a partial shared write locks Skip/replacement until the same idempotent
+  transaction finishes. Skipping removes private drafts without uploading them.
+- A nightly notification is eligible only for a real non-empty writer queue and obeys
+  the family-local time, quiet hours, category preference, daily cap, role, entitlement,
+  completion, and duplicate-schedule gates. Its metadata contains only coarse queue
+  state/count/date and routes to the current `/tonight` session.
 - Timeline and search fold only uncaptioned same-time bursts, Places and weekly recaps
   lead with one representative per event, and parent-authored context remains visible.
 - Moment views are recorded only on an explicit open and support honest Added by,

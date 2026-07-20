@@ -18,6 +18,8 @@ test('5,000-item library creates a bounded deterministic recent and historical q
   const durationMs = performance.now() - started;
   const second = buildNightlyQueue(candidates, { nowMs: NOW, seed: '2026-07-18' });
 
+  console.info(`release1-performance queue_5000_ms=${durationMs.toFixed(1)} queue_size=${first.length}`);
+
   assert.deepEqual(second, first);
   assert.ok(first.length >= 3 && first.length <= NIGHTLY_QUEUE_MAX);
   assert.ok(first.some((item) => candidates.find((candidate) => candidate.assetId === item.assetId).captureTimeMs >= NOW - (48 * 3600000)));
