@@ -6,6 +6,7 @@ import { Screen, Button, Hero, Caption, Eyebrow, Spacer, BrandMark, colors, spac
 import useReducedMotion from './ui/useReducedMotion';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { startLibraryScan } from './libraryScanLauncher';
 import * as Scan from './scanController';
 
@@ -20,8 +21,11 @@ export default function ScanProgressScreen() {
   const router = useRouter();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const scan = Scan.useScanState();
   const reducedMotion = useReducedMotion();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canScan = writer && entitlement?.isActive === true;
 
   const pulse1 = useRef(new Animated.Value(0)).current;
   const pulse2 = useRef(new Animated.Value(0)).current;
@@ -50,14 +54,19 @@ export default function ScanProgressScreen() {
   // Kick off the scan once we have everything we need.
   useEffect(() => {
     if (fired.current) return;
-    if (!family || !user) return;
+    if (!family || !user || billingLoading || !canScan) return;
     if (Scan.isRunning()) { fired.current = true; return; }
 
     fired.current = true;
     (async () => {
-      await startLibraryScan({ family, user, requestPhotoPermission: true });
+      await startLibraryScan({
+        family,
+        user,
+        requestPhotoPermission: true,
+        entitlementActive: true,
+      });
     })();
-  }, [family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [billingLoading, canScan, family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hand off to timeline once scanning has begun. Auto-save + ScanBanner
   // do the rest in the background.
@@ -79,6 +88,29 @@ export default function ScanProgressScreen() {
     ],
     opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }),
   });
+
+  if (!billingLoading && !canScan) {
+    return (
+      <Screen variant="dawn">
+        <View style={styles.root}>
+          <Spacer h={space.xxxl} />
+          <Eyebrow align="center">Private discovery</Eyebrow>
+          <Spacer h={space.sm} />
+          <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
+            {writer ? 'Scanning is paused.' : 'Only parents scan this library.'}
+          </Hero>
+          <Spacer h={space.md} />
+          <Caption align="center">
+            {writer
+              ? 'Your saved family memories remain available. Resume curation when your family plan is active.'
+              : 'Circle members only see memories after a parent keeps them in Our World.'}
+          </Caption>
+          <Spacer h={space.xxl} />
+          <Button onPress={() => router.replace('/timeline')}>Back to Our World</Button>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen variant="dawn">

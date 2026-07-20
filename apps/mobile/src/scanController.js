@@ -39,6 +39,7 @@ import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
 import { buildDailyCurationPlan } from './dailyCurationModel';
 import { collapseScoredMediaCandidates } from './scanMediaMatchModel';
 import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
+import { CANDIDATE_LIVE_MATCH_LIMIT } from './candidateLedgerModel';
 
 const initialState = () => ({
   phase: 'idle',
@@ -60,6 +61,7 @@ const initialState = () => ({
   startedAt: null,
   finishedAt: null,
   scanKey: null,
+  totalMatchCount: 0,
 });
 
 const HIGH_THRESHOLD = HIGH_CONFIDENCE_THRESHOLD;
@@ -88,6 +90,7 @@ let autoSaveQueue = [];
 let autoSaveSeen = new Set();
 let autoSaveFn = null;
 let autoSaveActiveWorkers = 0;
+let autoSavePlanMatches = [];
 const AUTO_SAVE_GLOBAL_CONCURRENCY = AUTO_SAVE_CONCURRENCY;
 
 // Throttled broadcaster. The native scan can land 60-photo batches in
@@ -160,6 +163,7 @@ export function reset() {
   autoSaveQueue = [];
   autoSaveSeen = new Set();
   autoSaveFn = null;
+  autoSavePlanMatches = [];
   notify({ immediate: true });
 }
 
@@ -189,8 +193,8 @@ async function runAutoSaveWorker() {
       // Mark as saved (this also bumps savedCount + drops acceptedCount)
       markSaved([assetId]);
       setState({ autoSavedCount: state.autoSavedCount + 1 });
-    } catch (e) {
-      console.warn('auto-save failed', assetId, e?.message);
+    } catch {
+      console.warn('auto-save failed', { mediaType: item?.mediaType === 'video' ? 'video' : 'image' });
       setState({ autoSaveErrors: state.autoSaveErrors + 1 });
     }
   }
@@ -280,6 +284,7 @@ export function markSaved(ids) {
  *     onComplete: async (finalState) => {},
  *     onICloudWait: async ({ assetIds }) => {},
  *     onICloudReady: async ({ assetIds }) => {},
+ *     onCandidates: async ({ matches, scanKey }) => {},
  *   })
  *
  *   reference: { embedding: number[] }  – the baby's face embedding
@@ -304,6 +309,7 @@ export async function start({
   onComplete,
   onICloudWait,
   onICloudReady,
+  onCandidates,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -316,6 +322,7 @@ export async function start({
   // explicitly if they want to flush a stale backlog.
   autoSaveQueue = [];
   autoSaveSeen = new Set();
+  autoSavePlanMatches = [];
   autoSaveFn = autoSave?.save || null;
   const autoSaveThreshold = autoSave?.threshold ?? AUTO_SAVE_THRESHOLD_DEFAULT;
   const skipSet = excludeIds instanceof Set
@@ -366,8 +373,8 @@ export async function start({
       try {
         if (ready.length) await onICloudReady?.({ assetIds: ready });
         if (waiting.length) await onICloudWait?.({ assetIds: waiting });
-      } catch (err) {
-        console.warn('scan iCloud retry queue', err?.message);
+      } catch {
+        console.warn('scan iCloud retry queue failed');
       }
     };
 
@@ -420,6 +427,13 @@ export async function start({
 
       if (me.aborted) return;
 
+      // The durable private ledger owns the historical backlog. Awaiting this
+      // bounded batch before continuing means cancellation or termination can
+      // lose at most the native analysis currently in flight, never prior pages.
+      if (newMatches.length) {
+        await onCandidates?.({ matches: newMatches, scanKey });
+      }
+
       // Update incremental counters so React screens don't have to.
       let addHigh = 0; let addBorder = 0;
       for (const m of newMatches) {
@@ -429,13 +443,24 @@ export async function start({
       // Append in scan order (newest creationTime first), so the grid
       // grows naturally as the user scrolls.
       const seenSourceIds = new Set(freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean));
+      const liveMatches = state.matches.concat(newMatches).slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
       setState({
         seen: state.seen + seenSourceIds.size,
-        matches: state.matches.concat(newMatches),
+        matches: liveMatches,
+        totalMatchCount: state.totalMatchCount + newMatches.length,
         acceptedCount: state.acceptedCount + newMatches.length,
         highCount: state.highCount + addHigh,
         borderlineCount: state.borderlineCount + addBorder,
       });
+
+      if (autoSaveFn && newMatches.length) {
+        const rollingPlan = buildDailyCurationPlan(autoSavePlanMatches.concat(newMatches), {
+          minIdentityScore: autoSaveThreshold,
+          autoSaveOnly: true,
+          autoSaveScoreThreshold: autoSaveThreshold,
+        });
+        autoSavePlanMatches = rollingPlan.selectedMatches.slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
+      }
 
     };
 
@@ -483,8 +508,8 @@ export async function start({
     // Curate only after every page and sampled video has been compared.
     // This prevents an early soft frame from saving before the strongest
     // daily representative is known.
-    if (!me.aborted && autoSaveFn && state.matches.length) {
-      const autoPlan = buildDailyCurationPlan(state.matches, {
+    if (!me.aborted && autoSaveFn && autoSavePlanMatches.length) {
+      const autoPlan = buildDailyCurationPlan(autoSavePlanMatches, {
         minIdentityScore: autoSaveThreshold,
         autoSaveOnly: true,
         autoSaveScoreThreshold: autoSaveThreshold,
@@ -509,8 +534,8 @@ export async function start({
 
   try {
     await onComplete?.(state);
-  } catch (e) {
-    console.warn('scan onComplete failed', e?.message);
+  } catch {
+    console.warn('scan completion callback failed');
   }
 
   return scanKey;

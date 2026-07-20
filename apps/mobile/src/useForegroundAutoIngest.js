@@ -3,6 +3,7 @@ import { AppState, NativeModules } from 'react-native';
 
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { useBilling } from './BillingContext';
 import { getLibraryPermissionStatus } from './photos';
 import { readPendingMediaLibraryChange } from './mediaLibraryChanges';
 import { readScanCheckpoint } from './scanCheckpoints';
@@ -17,11 +18,14 @@ const AUTO_INGEST_ATTEMPT_DEBOUNCE_MS = 15000;
 export default function useForegroundAutoIngest({ enabled = true } = {}) {
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const runningRef = useRef(false);
   const lastAttemptRef = useRef(0);
 
   const maybeStart = useCallback(async () => {
-    if (!enabled || !family?.id || !family?.babyBirthday || !user?.id) return;
+    const writer = ['creator', 'partner'].includes(family?.me?.role);
+    if (!enabled || billingLoading || !entitlement?.isActive || !writer
+      || !family?.id || !family?.babyBirthday || !user?.id) return;
     if (runningRef.current || Scan.isRunning()) return;
     const nowMs = Date.now();
     if (nowMs - lastAttemptRef.current < AUTO_INGEST_ATTEMPT_DEBOUNCE_MS) return;
@@ -46,22 +50,25 @@ export default function useForegroundAutoIngest({ enabled = true } = {}) {
         user,
         pendingLibraryChange: pendingChange,
         allowWithoutReference: false,
+        entitlementActive: true,
       });
-    } catch (err) {
-      console.warn('foreground auto-ingest', err?.message);
+    } catch {
+      console.warn('foreground auto-ingest failed');
     } finally {
       runningRef.current = false;
     }
-  }, [enabled, family, user]);
+  }, [billingLoading, enabled, entitlement?.isActive, family, user]);
 
   useEffect(() => {
-    registerBackgroundAutoIngestTask();
+    if (enabled && entitlement?.isActive && ['creator', 'partner'].includes(family?.me?.role)) {
+      registerBackgroundAutoIngestTask();
+    }
     maybeStart();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') maybeStart();
     });
     return () => sub.remove();
-  }, [maybeStart]);
+  }, [enabled, entitlement?.isActive, family?.me?.role, maybeStart]);
 }
 
 async function isLowPowerModeEnabled() {

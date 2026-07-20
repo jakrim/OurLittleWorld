@@ -11,6 +11,7 @@ import {
 import { startLibraryScan } from './libraryScanLauncher';
 import * as Scan from './scanController';
 import { supabase } from './supabase';
+import { getFamilyEntitlement } from './billing';
 
 export const BACKGROUND_AUTO_INGEST_TASK = 'olw-background-auto-ingest';
 
@@ -25,10 +26,10 @@ function loadNativeBackgroundModules() {
       BackgroundTask: require('expo-background-task'),
       TaskManager: require('expo-task-manager'),
     };
-  } catch (err) {
+  } catch {
     nativeModules = null;
     if (__DEV__) {
-      console.warn('background auto-ingest native module unavailable', err?.message);
+      console.warn('background auto-ingest native module unavailable');
     }
   }
   return nativeModules;
@@ -42,8 +43,8 @@ function defineBackgroundTask(modules) {
     try {
       await runBackgroundAutoIngest();
       return modules.BackgroundTask.BackgroundTaskResult.Success;
-    } catch (err) {
-      console.warn('background auto-ingest failed', err?.message);
+    } catch {
+      console.warn('background auto-ingest failed');
       return modules.BackgroundTask.BackgroundTaskResult.Failed;
     }
   });
@@ -84,9 +85,9 @@ export async function registerBackgroundAutoIngestTask() {
       });
       const registered = await modules.TaskManager.isTaskRegisteredAsync(BACKGROUND_AUTO_INGEST_TASK);
       return { registered, reason: registered ? null : 'registration-skipped' };
-    } catch (err) {
+    } catch {
       registrationPromise = null;
-      console.warn('background auto-ingest registration', err?.message);
+      console.warn('background auto-ingest registration failed');
       return { registered: false, reason: 'registration-error' };
     }
   })();
@@ -102,6 +103,14 @@ export async function runBackgroundAutoIngest({ nowMs = Date.now() } = {}) {
 
   const family = await Family.current();
   if (!family?.id || !family?.babyBirthday) return { started: false, reason: 'missing-family' };
+  if (!['creator', 'partner'].includes(family?.me?.role)) {
+    return { started: false, reason: 'role-cannot-scan' };
+  }
+
+  // Entitlement is checked before Photos permission or any library read. A
+  // lapsed family remains a read-only archive and discovery stays paused.
+  const entitlement = await getFamilyEntitlement(family.id);
+  if (!entitlement?.isActive) return { started: false, reason: 'inactive-entitlement' };
 
   const permission = await getLibraryPermissionStatus();
   if (!permission.granted) return { started: false, reason: 'missing-photo-permission' };
@@ -123,5 +132,6 @@ export async function runBackgroundAutoIngest({ nowMs = Date.now() } = {}) {
     pendingLibraryChange: pendingChange,
     allowWithoutReference: false,
     waitForCompletion: true,
+    entitlementActive: true,
   });
 }

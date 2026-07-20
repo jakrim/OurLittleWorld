@@ -29,7 +29,11 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
 - **Local persistence:** AsyncStorage stores wrap the pure models
   (`postSaveNudgeStore`, `catchupDismissals`, `firstSuggestionStore`,
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
-  queue. Server state is Supabase via `rituals.js`, `moments.js`, `photoSync.js`.
+  queue and owns the private discovery-candidate ledger plus nightly review sessions.
+  `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations;
+  `candidateLedgerStore.js` scopes every row by family and parent and never imports a
+  remote or analytics transport. Server state is Supabase via `rituals.js`,
+  `moments.js`, `photoSync.js`.
 - **Contexts:** `AuthContext`, `FamilyContext`, `BillingContext`. Aggregated Today
   data via `useRitualHomeData` (cached, 30 s TTL).
 - **Multi-child readiness:** the production schema is still single-child until
@@ -65,6 +69,12 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   Daily auto-save selection waits until all photo and video pages finish so scan order
   cannot choose a weaker daily representative. Checkpoints in Supabase
   `scan_checkpoints`; background runs via `backgroundAutoIngestTask.js`.
+  Each analyzed page is committed to the local candidate ledger before live UI state
+  advances. Candidate and cluster writes use bounded 80-row transactions, live JS
+  media state is capped at 600, and current scorer-version rows are reused on later
+  scans. Checkpoint advancement still occurs only after a completed scan and never
+  consumes or hides the independent historical review backlog. Creator/partner role
+  and active entitlement checks happen before Photos permission or reads.
 - **Two-parent libraries:** discovery is intentionally per `(family_id, user_id)`.
   Each writer has an independent local reference profile, scan checkpoint, Photos
   permission, trust calibration, and upload repair path. `family_library_connections`
@@ -119,6 +129,18 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   session must never be treated as one lookalike set. Folded frames remain available
   from review, and every composer keeps the native photo picker as the explicit
   full-library escape hatch.
+- **Private backlog and Tonight:** `candidateLedgerModel.js` normalizes local-only
+  capture, quality, identity, availability, cluster, scorer-version, and reason
+  evidence into explicit lifecycle states. `nightlyQueueModel.js` deterministically
+  selects zero to seven quality-bounded cards, mixing recent and historical coverage
+  and retaining qualifying video without quota padding. SQLite persists ordered
+  session items, reason codes, position, shown/decision state, retry state, and a
+  280-character draft. An unfinished session resumes until completed; one active
+  session is enforced per family/parent, and a completed session suppresses another
+  queue on the same local day. `/tonight` keeps through the canonical
+  `Tags.setBaby`/`Memories.setMine` path, skips locally, recovers unavailable iCloud
+  originals, exposes the native picker, and leaves `/review` as the advanced grid.
+  A lapsed family remains read-only and Circle members cannot read private discovery.
 - **Family presentation:** `familyPhotoPresentationModel.js` folds only uncaptioned
   photo-only records inside the conservative three-second fallback burst, selects the
   clearest representative, and keeps expansion available in timeline and search.

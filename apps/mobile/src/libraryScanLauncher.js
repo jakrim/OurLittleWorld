@@ -10,6 +10,12 @@ import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iClou
 import { publishFamilyLibraryConnection } from './familyLibrarySync';
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
 import { isMediaPolicyError } from './mediaPolicy';
+import {
+  markCandidatesUnavailable,
+  listCachedAnalysisAssetIds,
+  persistScanCandidates,
+  restoreCandidatesAvailable,
+} from './candidateLedgerStore';
 
 export async function startLibraryScan({
   family,
@@ -18,8 +24,13 @@ export async function startLibraryScan({
   allowWithoutReference = true,
   waitForCompletion = false,
   requestPhotoPermission = false,
+  entitlementActive = false,
 } = {}) {
   if (!family?.id || !user?.id) return { started: false, reason: 'missing-context' };
+  if (!['creator', 'partner'].includes(family?.me?.role)) {
+    return { started: false, reason: 'role-cannot-scan' };
+  }
+  if (entitlementActive !== true) return { started: false, reason: 'inactive-entitlement' };
   if (Scan.isRunning()) return { started: false, reason: 'already-running' };
   const permission = requestPhotoPermission
     ? await ensureLibraryPermission()
@@ -45,8 +56,8 @@ export async function startLibraryScan({
         assetIds: change.deletedAssetIds,
         deletedAt: change.changedAt,
       });
-    } catch (err) {
-      console.warn('deleted local asset reconciliation', err?.message);
+    } catch {
+      console.warn('deleted local asset reconciliation failed');
     }
   }
 
@@ -79,6 +90,12 @@ export async function startLibraryScan({
     familyId: family.id,
     ownerUserId: user.id,
   }).catch(() => new Set());
+  const cachedAnalysisIds = listCachedAnalysisAssetIds({
+    familyId: family.id,
+    userId: user.id,
+    sinceMs,
+  });
+  for (const assetId of cachedAnalysisIds) skip.add(assetId);
 
   const autoSaveConfig = await getAutoSaveConfig({
     familyId: family.id,
@@ -139,11 +156,22 @@ export async function startLibraryScan({
       assetIds,
       source: 'scan',
       reason: 'Waiting for the original to download from iCloud.',
-    }),
-    onICloudReady: ({ assetIds }) => clearICloudWait({
+    }).then(() => markCandidatesUnavailable({
       familyId: family.id,
       userId: user.id,
       assetIds,
+      reason: 'Waiting for the original to download from iCloud.',
+    })),
+    onICloudReady: ({ assetIds }) => Promise.all([
+      clearICloudWait({ familyId: family.id, userId: user.id, assetIds }),
+      Promise.resolve(restoreCandidatesAvailable({ familyId: family.id, userId: user.id, assetIds })),
+    ]),
+    onCandidates: ({ matches, scanKey }) => persistScanCandidates({
+      familyId: family.id,
+      userId: user.id,
+      scanKey,
+      matches,
+      birthdayISO: family.babyBirthday,
     }),
     onComplete: async (finalState) => {
       if (finalState?.phase !== 'done') return;
@@ -170,7 +198,7 @@ export async function startLibraryScan({
         familyId: family.id,
         userId: user.id,
         status: 'ready',
-        surfacedCount: finalState.matches?.length || finalState.acceptedCount || 0,
+        surfacedCount: finalState.totalMatchCount || finalState.acceptedCount || 0,
         savedCount: finalState.autoSavedCount || 0,
         completedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
       }).catch(() => {});
@@ -186,7 +214,7 @@ export async function startLibraryScan({
         userId: user.id,
         status: 'error',
       }).catch(() => {});
-      console.warn('library scan start failed', err?.message);
+      console.warn('library scan start failed');
       throw err;
     }
     const finalState = Scan.getState();
@@ -205,7 +233,7 @@ export async function startLibraryScan({
       userId: user.id,
       status: 'error',
     }).catch(() => {});
-    console.warn('library scan start failed', err?.message);
+    console.warn('library scan start failed');
   });
 
   return { started: true, scanKey };

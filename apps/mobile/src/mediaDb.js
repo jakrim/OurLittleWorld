@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { applyMediaDbMigrations } from './mediaDbSchema';
 
 /**
  * Local media index (plan: "Local SQLite Media Index").
@@ -16,6 +17,7 @@ function getDb() {
   db = SQLite.openDatabaseSync('olw-media.db');
   db.execSync(`
     pragma journal_mode = WAL;
+    pragma foreign_keys = on;
 
     create table if not exists media_items (
       media_id text primary key,
@@ -84,7 +86,13 @@ function getDb() {
       primary key (family_id, owner_user_id, asset_id)
     );
   `);
+  applyMediaDbMigrations(db);
   return db;
+}
+
+/** Internal local-only database handle for scoped ledger stores. */
+export function getMediaDatabase() {
+  return getDb();
 }
 
 function nowIso() {
@@ -199,6 +207,10 @@ export function clearFamilyCache(familyId) {
   database.runSync('delete from media_sync_cursors where family_id = ?', [familyId]);
   database.runSync('delete from upload_jobs where family_id = ?', [familyId]);
   database.runSync('delete from local_asset_mappings where family_id = ?', [familyId]);
+  database.runSync('delete from nightly_review_sessions where family_id = ?', [familyId]);
+  database.runSync('delete from candidate_cluster_members where family_id = ?', [familyId]);
+  database.runSync('delete from candidate_clusters where family_id = ?', [familyId]);
+  database.runSync('delete from discovery_candidates where family_id = ?', [familyId]);
 }
 
 // ─── Sync cursors ────────────────────────────────────────────────────────────

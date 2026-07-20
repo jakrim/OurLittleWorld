@@ -10,6 +10,7 @@ import { Screen, Button, Hero, Body, Caption, Eyebrow, Spacer, semantic, colors,
 import { Tags } from './storage';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { embedFace, isNative } from './faceMatcher';
 import { addTrustedReferenceImage } from './recognitionReferences';
 import { selectExplicitReferenceLearningCandidates } from './recognitionReferenceModel';
@@ -23,6 +24,7 @@ import { maybePromptForPushNotifications } from './pushNotifications';
 import * as Scan from './scanController';
 import { buildDailyCurationPlan, curationDayKey } from './dailyCurationModel';
 import { isMediaPolicyError } from './mediaPolicy';
+import { markCandidateDecisions } from './candidateLedgerStore';
 
 /**
  * Live review grid.
@@ -40,7 +42,10 @@ export default function ReviewMatchesScreen() {
   const router = useRouter();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const scan = Scan.useScanState();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canCurate = writer && entitlement?.isActive === true;
 
   const [filter, setFilter] = useState('high');    // 'all' | 'high' | 'borderline'
   const [columns, setColumns] = useState(3);       // 1 .. 5
@@ -143,7 +148,7 @@ export default function ReviewMatchesScreen() {
   }, []);
 
   const onSave = async () => {
-    if (!family) return;
+    if (!family || !canCurate) return;
     const accepted = matches
       .filter((m) => selectedAssetIds.has(m.assetId) && !m.saved)
       .map((match) => ({
@@ -200,8 +205,8 @@ export default function ReviewMatchesScreen() {
             previewVideos += 1;
           }
           savedIds.push(m.assetId);
-        } catch (e) {
-          console.warn('save match failed', m.assetId, e?.message);
+        } catch {
+          console.warn('review save failed', { mediaType: m.mediaType === 'video' ? 'video' : 'image' });
           errors += 1;
           setSavingErrors(errors);
         }
@@ -217,13 +222,21 @@ export default function ReviewMatchesScreen() {
       user,
       matches: savedMatches,
       explicitlyConfirmedAssetIds: promotedFoldedIds,
-    }).catch((err) => console.warn('refreshTrustedReferences', err?.message));
+    }).catch(() => console.warn('trusted reference refresh failed'));
     await recordCalibrationReview({
       familyId: family.id,
       userId: user?.id,
       accepted: savedMatches,
       rejected,
-    }).catch((err) => console.warn('recordCalibrationReview', err?.message));
+    }).catch(() => console.warn('calibration review persistence failed'));
+    if (user?.id) {
+      markCandidateDecisions({
+        familyId: family.id,
+        userId: user.id,
+        keptAssetIds: savedIds,
+        skippedAssetIds: rejected.map((match) => match.assetId),
+      });
+    }
     if (savedIds.length && user?.id) {
       await maybePromptForPushNotifications({
         familyId: family.id,
@@ -284,6 +297,26 @@ export default function ReviewMatchesScreen() {
   }).current;
 
   // ─── Render branches ──────────────────────────────────────────────────────
+
+  if (billingLoading) {
+    return <Screen variant="warm"><View style={styles.center}><Caption>Preparing private review…</Caption></View></Screen>;
+  }
+
+  if (!canCurate) {
+    return (
+      <Screen variant="warm">
+        <View style={styles.center}>
+          <Eyebrow align="center">Private discovery</Eyebrow>
+          <Spacer h={space.md} />
+          <Hero align="center" style={{ fontSize: 28 }}>Photo review is paused.</Hero>
+          <Spacer h={space.sm} />
+          <Body align="center">Only parents on an active family plan can review or save newly discovered photos.</Body>
+          <Spacer h={space.lg} />
+          <Button variant="quiet" onPress={() => router.replace('/timeline')}>Back to Our World</Button>
+        </View>
+      </Screen>
+    );
+  }
 
   if (savingTotal > 0) {
     const pct = Math.round((savingCount / savingTotal) * 100);

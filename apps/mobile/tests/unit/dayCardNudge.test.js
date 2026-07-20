@@ -143,6 +143,23 @@ test('fallback is never empty', () => {
   assert.equal(nudge.route, null);
 });
 
+test('a real Tonight queue becomes the ritual while correction safety stays ahead of it', () => {
+  const tonight = selectDayCardNudge({
+    tonightQueueCount: 5,
+    waitingReviewCount: 30,
+    photoTrustNudge: { ...photoTrustNudge, trustState: 'learning' },
+  });
+  assert.equal(tonight.kind, 'tonight');
+  assert.equal(tonight.route, '/tonight');
+  assert.match(tonight.title, /5 memories/);
+
+  const correction = selectDayCardNudge({
+    tonightQueueCount: 5,
+    photoTrustNudge: { ...photoTrustNudge, trustState: 'needs_correction_review' },
+  });
+  assert.equal(correction.kind, 'photo-trust');
+});
+
 test('blocking assistant issues hide raw repair details behind parent-safe copy', () => {
   const failed = buildBlockingAssistantIssue({
     uploadQueue: { total: 2, failed: 1, uploading: 0, pending: 1, lastError: 'RPC 500 threshold confidence upload exception' },

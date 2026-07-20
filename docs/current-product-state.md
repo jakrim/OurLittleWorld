@@ -1,6 +1,6 @@
 # Our Little World — Current Product State
 
-Last updated: July 17, 2026
+Last updated: July 18, 2026
 
 ## Product Thesis
 
@@ -8,7 +8,7 @@ Our Little World is the private digital place where parents keep the life they a
 
 ## Current Product Loop
 
-`Today` helps parents notice, capture, review, and approve worthwhile moments. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
+`Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos, with Keep, Skip, or an optional one-line note. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
 
 ## Current Architecture
 
@@ -49,6 +49,12 @@ Our Little World is the private digital place where parents keep the life they a
   the union of saved contributions, never a wholesale mirror of either camera roll.
   Family-visible connection state contains aggregates only and excludes local asset
   identifiers, face data, fingerprints, candidates, and rejected photos.
+- Unsaved discovery candidates now persist in a family-and-parent-scoped SQLite
+  ledger on the device. Scan checkpoints and review progress are independent;
+  rescanning cannot erase Keep or Skip decisions, and queue/session state survives
+  termination. Candidate identity evidence, fingerprints, selection reasons, drafts,
+  rejects, and unavailable items never cross into Supabase or analytics. Only Keep
+  enters the existing shared moment/upload path.
 - Timeline and search fold only uncaptioned same-time bursts, Places and weekly recaps
   lead with one representative per event, and parent-authored context remains visible.
 - Moment views are recorded only on an explicit open and support honest Added by,
@@ -68,6 +74,9 @@ Our Little World is the private digital place where parents keep the life they a
 - Build the first 365 days as an honest day-by-day family album: automatically choose
   the daily anchor, preserve distinct standouts and special videos, and show combined
   saved-day coverage from both parents.
+- Pace historical catch-up through a deterministic Tonight queue that resumes until
+  complete, never pads with weak media, and stays secondary to repair and trust-safety
+  actions when those need attention.
 - Let both parents independently contribute from their own phone without turning
   either person's private camera roll into shared family data.
 - Let either parent restart only their device's photo-discovery profile without

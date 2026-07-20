@@ -7,6 +7,7 @@ import { countLabel } from './plural.js';
 export function selectDayCardNudge({
   blockingIssue = null,
   photoTrustNudge = null,
+  tonightQueueCount = 0,
   waitingReviewCount = 0,
   firstSuggestion = null,
   catchupGoal = null,
@@ -22,6 +23,24 @@ export function selectDayCardNudge({
       eyebrow: blockingIssue.eyebrow || 'Needs attention',
       title: blockingIssue.title,
       route: blockingIssue.route ?? null,
+    };
+  }
+  if (photoTrustNudge?.title && photoTrustNudge.trustState === 'needs_correction_review') {
+    return {
+      kind: photoTrustNudge.kind || 'photo-trust',
+      eyebrow: photoTrustNudge.eyebrow || 'Photo assistant',
+      title: photoTrustNudge.title,
+      route: photoTrustNudge.route ?? null,
+    };
+  }
+  if (tonightQueueCount > 0) {
+    return {
+      kind: 'tonight',
+      eyebrow: "Tonight's memories",
+      title: tonightQueueCount === 1
+        ? '1 memory is ready for a quiet look'
+        : `${tonightQueueCount} memories are ready for a quiet look`,
+      route: '/tonight',
     };
   }
   if (photoTrustNudge?.title) {

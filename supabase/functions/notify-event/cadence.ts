@@ -8,7 +8,7 @@ export const CATEGORY_DEFAULTS: Record<string, { route: string; enabled: boolean
   partner_activity: { route: '/prompt', enabled: true },
   new_moments: { route: '/review', enabled: true },
   suggested_firsts: { route: '/firsts', enabled: true },
-  tonight_picks: { route: '/digest', enabled: true },
+  tonight_picks: { route: '/tonight', enabled: true },
   letter_openable: { route: '/letters', enabled: true },
   circle_joined: { route: '/invite', enabled: true },
   billing_quota: { route: '/purchase', enabled: true },

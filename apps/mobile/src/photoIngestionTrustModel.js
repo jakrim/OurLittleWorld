@@ -108,6 +108,7 @@ function todayNudgeForModel(model) {
   if (model.state === 'auto_save_active' && !model.recentAutoSaveCount && !model.autoSaveErrors) return null;
   return {
     kind: 'photo-trust',
+    trustState: model.state,
     eyebrow: 'Photo assistant',
     title: model.title,
     route: model.route,

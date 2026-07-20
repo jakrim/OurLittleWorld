@@ -26,6 +26,7 @@ import {
 } from './ui';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { dismissCatchupGoal } from './catchupDismissals';
 import { buildBlockingAssistantIssue, selectDayCardNudge } from './dayCardNudge';
 import { selectTodaySuggestion } from './firstSuggestionModel';
@@ -39,7 +40,6 @@ import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
 import { digestHasContent } from './digestModel.js';
 import { buildDigestViewStatusLabel, buildPromptAnswerStatusLabel } from './secondParentStateModel';
-import { buildTonightModel } from './tonightModel';
 import { countLabel } from './plural';
 import { getImportCalibration, getRecentAutoSaves } from './recognitionTrust';
 import { useRitualHomeData } from './useRitualHomeData';
@@ -48,6 +48,7 @@ import { useMediaLibraryChangeObserver } from './mediaLibraryChanges';
 import { useICloudRetryCount } from './iCloudRetryQueue';
 import { formatMilestoneDisplayTitle } from './milestoneTitleModel';
 import * as Scan from './scanController';
+import { ensureNightlySession, getTonightSummary } from './candidateLedgerStore';
 
 const EMPTY_UPLOAD_QUEUE = { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null };
 const EMPTY_PHOTO_TRUST_INPUTS = { calibration: null, recentAutoSaves: [] };
@@ -57,10 +58,12 @@ export default function TodayScreen() {
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const [segment, setSegment] = useState('timeline');
   const [actionPhoto, setActionPhoto] = useState(null);
   const [uploadQueue, setUploadQueue] = useState(EMPTY_UPLOAD_QUEUE);
   const [photoTrustInputs, setPhotoTrustInputs] = useState(EMPTY_PHOTO_TRUST_INPUTS);
+  const [tonightSummary, setTonightSummary] = useState(null);
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
@@ -203,6 +206,21 @@ export default function TodayScreen() {
     return () => { alive = false; };
   }, [family?.id, user?.id]));
   useFocusEffect(useCallback(() => {
+    if (billingLoading || !entitlement?.isActive || !family?.id || !user?.id
+      || !['creator', 'partner'].includes(family?.me?.role)) {
+      setTonightSummary(null);
+      return undefined;
+    }
+    try {
+      ensureNightlySession({ familyId: family.id, userId: user.id });
+      setTonightSummary(getTonightSummary({ familyId: family.id, userId: user.id }));
+    } catch {
+      console.warn('tonight queue summary unavailable');
+      setTonightSummary(null);
+    }
+    return undefined;
+  }, [billingLoading, entitlement?.isActive, family?.id, family?.me?.role, user?.id]));
+  useFocusEffect(useCallback(() => {
     let alive = true;
     if (!family?.id || !user?.id) {
       setPhotoTrustInputs(EMPTY_PHOTO_TRUST_INPUTS);
@@ -240,6 +258,7 @@ export default function TodayScreen() {
   const nudge = selectDayCardNudge({
     blockingIssue,
     photoTrustNudge: photoTrustModel.todayNudge,
+    tonightQueueCount: tonightSummary?.status === 'active' ? tonightSummary.count : 0,
     waitingReviewCount,
     firstSuggestion,
     catchupGoal,
@@ -283,24 +302,10 @@ export default function TodayScreen() {
     () => buildDigestViewStatusLabel({ digestUnread }),
     [digestUnread],
   );
-  const tonightSuppressedKinds = useMemo(() => {
-    const kinds = [nudge.kind];
-    if (showPromptCard && promptIsActionable) kinds.push('prompt');
-    if (showDigestCard) kinds.push('digest');
-    return kinds;
-  }, [nudge.kind, promptIsActionable, showDigestCard, showPromptCard]);
-  const tonightModel = useMemo(
-    () => buildTonightModel({
-      promptState,
-      pendingReviewCount: waitingReviewCount,
-      recentPhotos,
-      firstSuggestion,
-      digest,
-      digestUnread,
-      suppressedKinds: tonightSuppressedKinds,
-    }),
-    [digest, digestUnread, firstSuggestion, promptState, recentPhotos, tonightSuppressedKinds, waitingReviewCount],
-  );
+  // The real private queue owns Tonight now. The previous compact list linked
+  // to several competing tools, so it stays hidden instead of duplicating the
+  // primary Tonight action.
+  const tonightModel = { visible: false, items: [] };
   // Only media that can actually render — stale rows fall through to the cover chain (B2).
   const digestStripMedia = useMemo(
     () => (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),

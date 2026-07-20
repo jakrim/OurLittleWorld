@@ -40,9 +40,9 @@ export const NOTIFICATION_CATEGORIES = [
   },
   {
     key: 'tonight_picks',
-    label: "Tonight's picks",
-    detail: 'Ready at 8:00 PM once Tonight ships.',
-    route: '/digest',
+    label: "Tonight's memories",
+    detail: 'A calm reminder only when worthwhile memories are ready.',
+    route: '/tonight',
     defaultEnabled: true,
   },
   {

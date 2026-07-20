@@ -2,6 +2,142 @@
 
 Loop state: COMPLETE WITH RECORDED BLOCKERS + INDEPENDENT REVIEW PASS DONE (2026-07-06). Working branch: `polish-sprints`. Source of truth: `docs/polish-backlog.md`.
 
+## Curated Memory Library audit and delivery plan (2026-07-18)
+
+- Audited the current mobile routes, Today/Add/Our World flows, scan/checkpoint lifecycle, local media database, review state, day-first curation, best-photo and video models, moment enrichment, family-library contract, notifications, analytics, and supporting Supabase schema against the requested daily plus historical curated-memory vision.
+- Created the repo-native implementation plan at `docs/curated-memory-library-plan.md` and the visual review at `reports/curated-memory-library-review-2026-07-18.html`.
+- P0 finding: full-scan candidates and review decisions are not a durable historical backlog. The scan controller owns candidates in memory, the local SQLite index does not persist unsaved discovery candidates, and a completed checkpoint makes later scans normally look back only three days. The proposed first release separates analyzed from reviewed state and adds a private on-device candidate ledger plus a crash-safe nightly queue.
+- Product recommendation: keep `Today` → `Add` → `Our World`, make Tonight's three-to-seven memory cards the primary Today ritual, move archive browsing out of Today, retain the dense review grid as an advanced utility, and keep printing/export secondary.
+- Partner recommendation: discovery remains private to each parent's phone; kept memories form the shared family archive; post-save duplicate grouping must preserve each parent's original and authored context.
+- Verification: focused daily-curation, Tonight, best-photo, partner-library, scene-label, and factual-caption tests passed 25/25; `git diff --check` passed for the new artifacts; HTML validation with `tidy` passed; and the full HTML document was rendered headlessly in Chrome and visually inspected. Expo MCP/runtime walkthrough was not used because the active MCP and booted simulator belong to the Get Mentors project; no process was interrupted and no production state changed.
+
+## Curated Memory Library Release 0 foundation and Tonight slice (2026-07-18)
+
+Status: implemented and verified locally on `polish-sprints`; no production deploy,
+remote migration, push, App Store action, or notification deployment was performed.
+
+### Durable design decisions
+
+- Local SQLite schema version `1` adds `discovery_candidates`,
+  `candidate_clusters`, `candidate_cluster_members`, `nightly_review_sessions`, and
+  `nightly_review_items` through a restart-safe `pragma user_version` migration.
+  Candidate rows are family-and-parent scoped and use constrained lifecycle values:
+  `discovered`, `eligible`, `queued`, `shown`, `kept`, `skipped`, `unavailable`,
+  `rejected`, and `superseded`.
+- Scan checkpoints remain independent of review. Foreground, background, and manual
+  writer scans persist analyzed candidates in bounded transactions before updating
+  live scan state; checkpoints advance only after a complete scan. Repeated scans
+  upsert by scoped asset identity, reuse current-version analysis, preserve parent
+  decisions, and cannot make the historical backlog unreachable.
+- Discovery evidence, asset identifiers, fingerprints, rejects, selection reasons,
+  queue state, and drafts remain on the device. The candidate store has no Supabase,
+  analytics, Sentry, or PostHog transport. Circle and inactive-entitlement states
+  fail closed before Photos access or ledger reads/writes. Only Keep enters the
+  existing `Tags.setBaby` and `Memories.setMine` path.
+- One active Tonight session is allowed per family/parent. An unfinished session
+  resumes without expiry until it is complete; completion suppresses another queue
+  on the same local day. Queue and decision writes are transactional, and Keep uses
+  `saving`/`failed`/`done` commit state around the existing idempotent upload path.
+  After a partial non-availability Keep failure, the same item must be retried and
+  cannot be skipped or replaced, preventing a later local decision from hiding a
+  retryable shared save.
+  Unavailable cards retain their ordered position and can recover to `shown` without
+  silently advancing the session.
+- The deterministic queue returns zero to seven items without padding: up to three
+  strong recent candidates, up to three historical coverage/standout candidates,
+  and one qualifying special video where available. It excludes already shown,
+  decided, rejected, unavailable, and superseded items and exposes only fixed,
+  parent-readable reason copy.
+- `/tonight` is a protected full-screen photo/video ritual with factual date and age,
+  one-line local draft autosave, Keep, Skip, iCloud recovery, native Photos escape,
+  completion, and a secondary advanced Review grid. Today uses the real queue count;
+  repair/trust/safety cards continue to outrank Tonight. `tonight_picks` now routes to
+  `/tonight`.
+
+### Scoped files
+
+- Ledger and queue: `apps/mobile/src/mediaDbSchema.js`, `mediaDb.js`,
+  `candidateLedgerModel.js`, `candidateLedgerStore.js`, and
+  `nightlyQueueModel.js`.
+- Scan integration and trust boundaries: `scanController.js`,
+  `libraryScanLauncher.js`, `ScanProgressScreen.js`, `ReviewMatchesScreen.js`,
+  `useForegroundAutoIngest.js`, and `backgroundAutoIngestTask.js`.
+- Product surface and routing: `TonightScreen.js`, `app/tonight.jsx`,
+  `TodayScreen.js`, `dayCardNudge.js`, `photoIngestionTrustModel.js`, and the local
+  notification route/settings contracts.
+- Deterministic proof: `candidateLedgerModel.test.js`,
+  `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
+  `curatedMemoryContracts.test.js`, plus the touched Today/notification tests.
+- Durable documentation: `docs/current-product-state.md`, `docs/architecture.md`,
+  `docs/curated-memory-library-plan.md`, this sprint log, and
+  `reports/curated-memory-library-review-2026-07-18.html`.
+
+### Performance and bounds
+
+Measured on the local development Mac with 5,000 deterministic, non-personal rows:
+
+- schema migration: `1.785 ms`;
+- bounded upsert: `80` rows maximum in memory/transaction, `171.486 ms` total,
+  `29,157 rows/sec`;
+- candidate query: `211` lightweight rows returned under the `900`-row cap in
+  `11.464 ms`;
+- deterministic seven-item queue generation: `6.524 ms`;
+- current-model cache read: all `5,000` asset keys in `2.468 ms`;
+- active-session resume query: `0.087 ms`;
+- database impact for the compact 5,000-row fixture: `2,326,528 bytes` (`2.219 MiB`).
+
+Named bounds: candidate persistence batch `80`; foreground photo analysis batch
+`60`; video analysis batch `8`; live JavaScript match cap `600`; nightly candidate
+query cap `900`; cached-analysis key cap `10,000`; Tonight draft cap `280` characters.
+
+### Verification and runtime evidence
+
+- Focused ledger/schema/queue/privacy contracts: `27/27` passed after the final
+  unavailable-state repair.
+- Closing gates: `pnpm test` passed web typecheck plus all `345` mobile unit tests;
+  `CI=true pnpm --filter @ourlittleworld/mobile exec expo lint` passed; `pnpm lint`
+  passed both packages; `pnpm typecheck` passed both packages; `pnpm build` completed
+  the production Next.js build; `deno check supabase/functions/notify-event/cadence.ts`
+  passed; and `git diff --check` passed. The iOS Debug simulator build used isolated
+  DerivedData at `/tmp/olw-tonight-derived` and completed with `BUILD SUCCEEDED`.
+- iPhone 16e local-only QA exercised: playable video; photo aspect fit; factual
+  date/age/reason; draft autosave; forced termination and deep-link relaunch; failed
+  Keep with private parent-safe error; successful image Keep through the canonical
+  local Supabase upload/moment path; one-line memory persistence; Skip; session
+  position restoration; unavailable/iCloud card and recovery; native Photos picker;
+  advanced Review route; completion; honest no-queue; Circle denial; lapsed/read-only;
+  dark appearance; accessibility-extra-extra-large text; Reduce Motion; and controls
+  reachable by scroll on the compact 390x844-point simulator.
+- Canonical successful Keep proof in the disposable local stack: one `photo_tags` row
+  reached `upload_status=ready`, linked one moment and stored media, and the authored
+  memory note persisted with length `32`. The earlier video Keep intentionally failed
+  because the local Edge runtime has no Cloudflare credentials; retry stayed on the
+  same card, exposed no provider/configuration string after the fix, and created no
+  duplicate moment.
+- Ignored evidence root:
+  `tmp/evidence/curated-memory-library-2026-07-18/`. Retained non-personal examples
+  include `tonight-photo-queue.png`, `tonight-photo-after-relaunch.png`,
+  `advanced-review-from-tonight.png`, `tonight-unavailable-recovery.png`,
+  `tonight-completion.png`, `tonight-no-queue.png`,
+  `tonight-dark-large-text-reduce-motion-refined.png`,
+  `tonight-circle-private.png`, and `tonight-lapsed-read-only.png`. Native-picker and
+  other screenshots containing the simulator's existing private photo thumbnails
+  were deleted and are not task artifacts.
+- Expo MCP was deliberately not attached because the exposed session and active
+  iPhone 16 Pro belong to Get Mentors. The isolated iPhone 16e, local Metro on 8092,
+  Maestro, `simctl`, screenshots, logs, and disposable local Supabase stack were used
+  instead. The existing Today fixture retained a legitimate photo-trust repair card,
+  so runtime correctly kept that repair above Tonight; deterministic Today tests prove
+  the real queue becomes the primary card when no repair/safety issue owns the slot.
+
+### Next roadmap slice
+
+The single best next slice is parent-authored enrichment inside Tonight: add durable
+voice-note capture, emoji/favorite, and editable AI-suggested factual organization on
+top of the now-stable candidate/session foundation. Keep every suggestion optional,
+source-aware, and local until the parent confirms the memory; do not add automatic
+milestone or developmental claims.
+
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 
 Source of truth: `docs/assistant-curated-baby-book-prd.md`.

@@ -5,6 +5,7 @@ import {
   DEFAULT_QUIET_HOURS_END,
   DEFAULT_QUIET_HOURS_START,
   NOTIFICATION_DAILY_HARD_CAP,
+  NOTIFICATION_CATEGORIES,
   enabledNotificationCount,
   mergeNotificationPreferences,
   normalizeNotificationPreferences,
@@ -19,6 +20,7 @@ test('notification defaults keep calm hard cap and quiet hours tunable constants
   assert.equal(defaults.categories.partner_activity, true);
   assert.equal(defaults.categories.weekly_digest, true);
   assert.equal(defaults.categories.suggested_firsts, true);
+  assert.equal(NOTIFICATION_CATEGORIES.find((category) => category.key === 'tonight_picks')?.route, '/tonight');
 });
 
 test('saved notification rows override only their category and quiet hours', () => {

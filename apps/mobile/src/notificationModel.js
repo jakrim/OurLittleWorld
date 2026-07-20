@@ -2,6 +2,7 @@ export const NOTIFICATION_DEEP_LINK_ROUTES = [
   '/digest',
   '/prompt',
   '/review',
+  '/tonight',
   '/letters',
   '/firsts',
   '/invite',
