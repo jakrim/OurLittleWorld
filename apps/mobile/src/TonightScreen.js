@@ -30,6 +30,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
+import { Family } from './families';
 import { ageAt, formatAge } from './ageModel';
 import {
   clearTonightVoiceDraft,
@@ -73,6 +74,16 @@ import {
   toggleTonightCollectionKey,
 } from './automaticCollectionModel';
 import { Body, Button, Caption, Eyebrow, Field, Hero, Screen, Spacer, space, useTheme } from './ui';
+import { listMomentArchive } from './moments';
+import SharedMomentEnrichmentCard from './SharedMomentEnrichmentCard';
+import { composeGroundedMomentContext } from './groundedContextModel';
+import {
+  chooseSharedTonightLookback,
+  listMomentAnnotations,
+  listMomentContextFacts,
+  listSavedEventCompanions,
+  SHARED_LOOKBACK_QUERY_LIMIT,
+} from './sharedEnrichment';
 
 const SAVE_STEP_LABELS = {
   media: 'Saving this memory…',
@@ -104,7 +115,35 @@ export default function TonightScreen() {
   const [saveStep, setSaveStep] = useState(null);
   const [catchup, setCatchup] = useState(null);
   const [photoAccess, setPhotoAccess] = useState(null);
+  const [lookback, setLookback] = useState(null);
+  const [lookbackOpen, setLookbackOpen] = useState(false);
+  const [lookbackMembers, setLookbackMembers] = useState({});
   const detailsScrollRef = useRef(null);
+
+  const loadLookback = useCallback(async () => {
+    if (!canCurate || !family?.id) return null;
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const archive = await listMomentArchive(family.id, { limit: SHARED_LOOKBACK_QUERY_LIMIT });
+    const selected = chooseSharedTonightLookback(
+      archive.filter((moment) => new Date(moment.captured_at).getTime() < cutoff
+        && moment.media?.some((media) => media.upload_status === 'ready')),
+      { localDate: new Date() },
+    );
+    if (!selected) {
+      setLookback(null);
+      return null;
+    }
+    const [annotations, contextFacts, eventCompanions, members] = await Promise.all([
+      listMomentAnnotations({ familyId: family.id, momentId: selected.id }),
+      listMomentContextFacts({ familyId: family.id, momentId: selected.id }),
+      listSavedEventCompanions({ familyId: family.id, momentId: selected.id }),
+      Family.members(family.id),
+    ]);
+    const hydrated = { ...selected, annotations, contextFacts, eventCompanions };
+    setLookback(hydrated);
+    setLookbackMembers(Object.fromEntries((members || []).map((member) => [member.userId, member.displayName || 'Family'])));
+    return hydrated;
+  }, [canCurate, family?.id]);
 
   const load = useCallback(async () => {
     if (billingLoading) return;
@@ -135,12 +174,13 @@ export default function TonightScreen() {
       cleanupOrphanedTonightVoiceDrafts(
         (next?.items || []).map((item) => item.draftVoice?.uri).filter(Boolean),
       ).catch(() => {});
+      loadLookback().catch(() => null);
     } catch (loadError) {
       setError(parentError(loadError, 'Tonight could not load on this device.'));
     } finally {
       setLoading(false);
     }
-  }, [billingLoading, canCurate, family?.babyBirthday, family?.id, user?.id]);
+  }, [billingLoading, canCurate, family?.babyBirthday, family?.id, loadLookback, user?.id]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -563,6 +603,65 @@ export default function TonightScreen() {
   }
   if (!canCurate) return <TonightDenied router={router} kind="lapsed" />;
 
+  if (lookbackOpen && lookback) {
+    const lookbackMedia = lookback.media?.[0] || null;
+    const lookbackAge = family?.babyBirthday
+      ? formatAge(ageAt(family.babyBirthday, new Date(lookback.captured_at).getTime()))
+      : '';
+    const context = composeGroundedMomentContext({
+      capturedAt: lookback.captured_at,
+      babyBirthday: family?.babyBirthday,
+      placeName: lookback.place_name,
+      contextFacts: lookback.contextFacts,
+      eventCompanions: lookback.eventCompanions,
+    });
+    return (
+      <Screen variant="warm" scroll contentStyle={styles.lookbackScreen}>
+        <View style={styles.lookbackHeader}>
+          <Pressable onPress={() => setLookbackOpen(false)} accessibilityRole="button" accessibilityLabel="Back to Tonight summary" style={styles.iconButton}>
+            <Ionicons name="chevron-back" size={24} color={theme.semantic.text} />
+          </Pressable>
+          <Caption>A saved memory</Caption>
+          <View style={styles.iconButton} />
+        </View>
+        <View style={[styles.lookbackMedia, { backgroundColor: theme.semantic.cardAlt }]} testID="tonight-shared-lookback">
+          {lookbackMedia?.media_type === 'video' && lookbackMedia.fullUrl ? (
+            <TonightVideo uri={lookbackMedia.fullUrl} posterUri={lookbackMedia.posterUrl || lookbackMedia.thumbUrl} theme={theme} />
+          ) : lookbackMedia?.fullUrl || lookbackMedia?.thumbUrl ? (
+            <Image source={{ uri: lookbackMedia.fullUrl || lookbackMedia.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="contain" />
+          ) : (
+            <View style={styles.centered}><Ionicons name="images-outline" size={36} color={theme.semantic.textMuted} /></View>
+          )}
+        </View>
+        <Eyebrow>Look back together</Eyebrow>
+        <Hero style={styles.lookbackTitle}>{lookback.title || formatCaptureDate(new Date(lookback.captured_at))}</Hero>
+        <Caption>{[lookbackAge, formatCaptureDate(new Date(lookback.captured_at))].filter(Boolean).join(' · ')}</Caption>
+        {context.length ? (
+          <View style={styles.lookbackContext}>
+            {context.map((fact) => (
+              <View key={fact.key} style={styles.lookbackContextRow}>
+                <Ionicons name={fact.icon} size={16} color={theme.semantic.primary} />
+                <Caption style={styles.lookbackContextText}>{fact.label}</Caption>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <SharedMomentEnrichmentCard
+          familyId={family.id}
+          momentId={lookback.id}
+          userId={user?.id}
+          canWrite={canCurate}
+          annotations={lookback.annotations || []}
+          voiceNotes={lookback.voiceNotes || []}
+          membersById={lookbackMembers}
+          theme={theme}
+          onSaved={loadLookback}
+        />
+        <Button variant="ghost" onPress={() => setLookbackOpen(false)}>Done for tonight</Button>
+      </Screen>
+    );
+  }
+
   if (session?.completed) {
     const summary = summarizeTonightCompletion(session.items);
     const enrichment = summary.withText + summary.withVoice + summary.withReaction;
@@ -587,6 +686,12 @@ export default function TonightScreen() {
         ) : null}
         {error ? <Caption style={[styles.error, { color: theme.colors.danger }]}>{error}</Caption> : null}
         <Spacer h={space.xl} />
+        {lookback ? (
+          <Button variant="quiet" onPress={() => setLookbackOpen(true)} testID="tonight-open-lookback">
+            Revisit a saved memory
+          </Button>
+        ) : null}
+        {lookback ? <Spacer h={space.sm} /> : null}
         {catchup?.hasMore ? (
           <Button onPress={keepGoing} loading={busy} testID="tonight-keep-going">Keep going</Button>
         ) : null}
@@ -604,6 +709,10 @@ export default function TonightScreen() {
         <Body align="center">We only make a set when there are memories strong enough to show you.</Body>
         {error ? <Caption style={[styles.error, { color: theme.colors.danger }]}>{error}</Caption> : null}
         <Spacer h={space.xl} />
+        {lookback ? (
+          <Button onPress={() => setLookbackOpen(true)} testID="tonight-open-lookback">Revisit a saved memory</Button>
+        ) : null}
+        {lookback ? <Spacer h={space.sm} /> : null}
         <Button variant="ghost" onPress={() => router.replace('/timeline')}>Back to Today</Button>
       </Screen>
     );
@@ -1009,6 +1118,13 @@ function completionContext(summary) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
+  lookbackScreen: { gap: space.md, paddingBottom: space.xxl },
+  lookbackHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  lookbackMedia: { width: '100%', aspectRatio: 4 / 5, borderRadius: 24, overflow: 'hidden' },
+  lookbackTitle: { marginTop: -space.xs },
+  lookbackContext: { gap: space.xs },
+  lookbackContextRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  lookbackContextText: { flex: 1 },
   centerTitle: { textAlign: 'center', marginVertical: space.md, fontSize: 34, lineHeight: 40 },
   completionNote: { marginTop: space.md, maxWidth: 340 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, minHeight: 52 },

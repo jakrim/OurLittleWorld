@@ -4,6 +4,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
 import * as mediaDb from './mediaDb';
+import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
 import { mediaUploadMetadata } from './mediaUploadMetadataModel';
@@ -360,6 +361,13 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
     if (tagDone.error) throw tagDone.error;
     if (mediaDone.error) throw mediaDone.error;
 
+    await registerReadySavedFileFingerprint({
+      familyId,
+      momentId,
+      mediaId,
+      fileUri: full.uri,
+    }).catch(() => null);
+
     return { fullId, thumbId, momentId, mediaId };
   } catch (err) {
     await releaseMediaUpload(reservationId);
@@ -561,6 +569,12 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     if (mediaDone.error) throw mediaDone.error;
 
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
+    await registerReadySavedFileFingerprint({
+      familyId,
+      momentId,
+      mediaId,
+      fileUri: info.localUri || info.uri,
+    }).catch(() => null);
     return { fullId: useStream ? null : fullId, streamUid, posterId: posterObject, momentId, mediaId };
   } catch (err) {
     await releaseMediaUpload(reservationId);
@@ -691,6 +705,13 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
     momentId,
     mediaId,
   });
+
+  await registerReadySavedFileFingerprint({
+    familyId,
+    momentId,
+    mediaId,
+    fileUri: poster.uri,
+  }).catch(() => null);
 
   return { posterId, posterOnly: true, momentId, mediaId };
 }

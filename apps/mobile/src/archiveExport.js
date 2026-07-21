@@ -11,6 +11,9 @@ export async function createPhotoBookExport({
   letters,
   promptResponses,
   chapters,
+  annotations,
+  annotationAuthors,
+  collections,
   limitations,
 } = {}) {
   const root = FileSystem.documentDirectory;
@@ -32,6 +35,9 @@ export async function createPhotoBookExport({
     letters,
     promptResponses,
     chapters,
+    annotations,
+    annotationAuthors,
+    collections,
     limitations,
     generatedAt: new Date(),
   });
@@ -51,7 +57,7 @@ export async function createPhotoBookExport({
       htmlFileName,
       format: 'pdf',
       mimeType: 'application/pdf',
-      title: `${family?.babyName || 'Our Little World'} photo book`,
+      title: `${family?.babyName || 'Our Little World'} family archive`,
     };
   } catch (err) {
     console.warn('createPhotoBookExport.pdfFallback', err?.message || err);
@@ -63,6 +69,6 @@ export async function createPhotoBookExport({
     format: 'html',
     mimeType: 'text/html',
     fallback: true,
-    title: `${family?.babyName || 'Our Little World'} photo book preview`,
+    title: `${family?.babyName || 'Our Little World'} family archive preview`,
   };
 }

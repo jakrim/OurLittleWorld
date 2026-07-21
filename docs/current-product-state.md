@@ -81,6 +81,17 @@ Our Little World is the private digital place where parents keep the life they a
   touch child-identity calibration. Circle cannot discover collections; lapsed writers
   retain policy-defined read access but cannot change filing. Unsaved candidates,
   private asset identity, drafts, and recognition evidence never enter this schema.
+- Shared enrichment remains parent-authored and source-linked. Each writer's text and
+  canonical voice annotation is a separate shared record after Save; another writer
+  cannot overwrite or delete it, and the private local draft is family/user/moment
+  scoped until then. Moment context is composed only from capture date, stored birth
+  date, safe parent-entered place, and nearby parent-confirmed Firsts. Changing or
+  deleting those sources invalidates dependent facts rather than leaving stale prose.
+- Two parents keeping the exact same already-saved file creates a conservative shared
+  event group only after both canonical media uploads are ready. The server keeps the
+  exact digest private and returns only sanitized companion records; both originals,
+  owners, and authored context remain intact. Tonight lookbacks query only bounded
+  already-kept shared moments and never another device's unsaved candidate ledger.
 - Timeline and search fold only uncaptioned same-time bursts, Places and weekly recaps
   lead with one representative per event, and parent-authored context remains visible.
 - Moment views are recorded only on an explicit open and support honest Added by,
@@ -111,6 +122,9 @@ Our Little World is the private digital place where parents keep the life they a
 - Let kept memories file themselves into factual, source-aware collections and expose
   those collections in Our World and Search. Do not enable scene/activity labels until
   a non-personal on-device evaluation demonstrates useful accuracy and safe fallbacks.
+- Use grounded, separately authored shared context to help parents remember without
+  inventing developmental history. Saved-memory lookbacks may bring an old moment
+  back into Tonight, but they never reveal or remotely analyze unsaved candidates.
 - Let both parents independently contribute from their own phone without turning
   either person's private camera roll into shared family data.
 - Let either parent restart only their device's photo-discovery profile without

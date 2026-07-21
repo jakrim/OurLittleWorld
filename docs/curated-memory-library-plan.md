@@ -1,7 +1,7 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Releases 0–3 plus shared-archive trust stabilization implemented and verified locally; Release 4 grounded context and shared enrichment is next
+Status: Releases 0–4 plus shared-archive trust stabilization implemented and verified locally; final backlog reconciliation and release-readiness proof remain
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
 
 ## Executive decision
@@ -606,6 +606,17 @@ Acceptance:
 ### Release 4 — Grounded life context and shared enrichment
 
 Goal: help parents remember when a moment happened in the baby's life without inventing history.
+
+Status: complete locally on July 21, 2026. Source-linked date, age, safe parent
+place, confirmed-First adjacency, separately authored parent text/voice, bounded
+already-kept Tonight lookbacks, and exact post-Keep duplicate grouping are implemented.
+Changing or deleting a source invalidates dependent facts; grouping preserves both
+parents' originals and words. Unsaved candidates remain private to their originating
+device. Circle sees annotations only on explicitly selected moments and cannot write;
+lapsed writers retain read-only access. Archive export includes separate contributions
+and automatic collections. All migrations were replayed and tested only against the
+disposable local Supabase stack; nothing was pushed, deployed, submitted, or changed
+in production.
 
 Build:
 

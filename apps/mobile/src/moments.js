@@ -20,6 +20,7 @@ import { attachmentTarget } from './mediaAttachmentTarget';
 import { supabase } from './supabase';
 import { normalizeMomentTags } from './tagModel';
 import { archivePageRanges } from './archivePaginationModel';
+import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
 import * as mediaDb from './mediaDb';
 
@@ -216,6 +217,15 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
     if (updateErr) throw updateErr;
 
     if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: full.uri,
+      }).catch(() => null);
+    }
+
+    if (momentId) {
       const { error: tagErr } = await supabase.from('photo_tags').upsert(
         {
           family_id: familyId,
@@ -375,6 +385,14 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
         mediaId,
       });
     }
+    if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: asset.uri,
+      }).catch(() => null);
+    }
     return { id: mediaId, type: 'video', streamUid, posterPath: posterMetadata.posterPath || null };
   } catch (err) {
     await releaseMediaUpload(reservationId);
@@ -452,6 +470,14 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
         momentId,
         mediaId,
       });
+    }
+    if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: poster.uri,
+      }).catch(() => null);
     }
     return { id: mediaId, type: 'video', posterPath, posterOnly: true };
   } catch (err) {
@@ -810,6 +836,7 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
         ),
         voice_notes (
           id,
+          author_user_id,
           duration_sec,
           waveform,
           audio_object,
@@ -873,6 +900,7 @@ export async function listMomentArchiveByIds(familyId, momentIds = []) {
       ),
       voice_notes (
         id,
+        author_user_id,
         duration_sec,
         waveform,
         audio_object,
@@ -1033,6 +1061,7 @@ export async function getMomentDetail({ familyId, momentId }) {
       ),
       voice_notes (
         id,
+        author_user_id,
         duration_sec,
         waveform,
         audio_object,

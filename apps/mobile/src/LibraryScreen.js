@@ -66,6 +66,7 @@ import {
   COLLECTION_MOMENT_PAGE_SIZE,
 } from './collections';
 import { collectionKindLabel } from './automaticCollectionModel';
+import { listFamilyAnnotationExport } from './sharedEnrichment';
 
 const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
 const TIMELINE_RENDER_LIMIT = 500;
@@ -596,6 +597,8 @@ export default function LibraryScreen() {
   const buildPhotoBookFile = async () => {
     setBuildingExport(true);
     try {
+      const annotations = manualQaFixture ? [] : await listFamilyAnnotationExport({ familyId: family.id });
+      const annotationAuthors = Object.fromEntries(familyMembers.map((member) => [member.userId, member.displayName || 'A parent']));
       const file = await createPhotoBookExport({
         family,
         stats: archiveStats,
@@ -604,6 +607,9 @@ export default function LibraryScreen() {
         letters: effectiveLetters,
         promptResponses: effectivePromptResponses,
         chapters: archiveSections,
+        annotations,
+        annotationAuthors,
+        collections: effectiveCollections,
         limitations: EXPORT_PREVIEW_LIMITATIONS,
       });
       setExportFile(file);
@@ -621,7 +627,7 @@ export default function LibraryScreen() {
         Alert.alert('Built HTML preview', 'PDF rendering was not available, so the app shared the print-ready HTML file instead.');
       }
     } catch (err) {
-      Alert.alert('Could not build photo book file', err?.message || String(err));
+      Alert.alert('Could not build family archive file', err?.message || String(err));
     } finally {
       setBuildingExport(false);
     }

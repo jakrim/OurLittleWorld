@@ -558,6 +558,93 @@ All shared-database proof used the disposable local Supabase stack and synthetic
   timezone, and author-label changes rather than hiding those dependencies inside the
   collection trigger.
 
+## Curated Memory Library Release 4 — Grounded context and shared enrichment (2026-07-21)
+
+Status: implemented, critically reviewed, and verified locally. Nothing was pushed,
+deployed, submitted, notified in production, or changed in production. Database,
+authorship, export, and two-writer proof used only the disposable local Supabase stack
+and synthetic non-personal media.
+
+### Product and durable contracts
+
+- Migration `20260720230000_grounded_context_and_shared_enrichment.sql` adds
+  separately authored text/voice `moment_annotations`, source-linked
+  `moment_context_facts`, and exact post-Keep saved-event grouping. Annotation mutation
+  requires an active family writer and preserves the author on account deletion;
+  Circle reads only annotations on explicitly shared moments and cannot contribute.
+- Context prose is composed from current capture date, stored birth date, safe
+  parent-entered place, and a parent-confirmed First within the named 60-day window.
+  First, moment, birthday, timezone, and member-label changes refresh dependent rows;
+  source or moment deletion cascades the dependent edge. No developmental, emotional,
+  relationship, activity, or preference inference was added.
+- Shared enrichment uses the canonical voice uploader and stable retry identities.
+  Text and voice drafts stay in family/user/moment-scoped local storage; draft audio
+  lives in a dedicated private directory, survives backgrounding/termination, and is
+  removed after successful Save or explicit removal. One parent cannot edit or delete
+  the other's contribution.
+- Exact duplicate grouping computes a content MD5 only after a canonical ready media
+  write. The digest is server-private with no client RLS path; a sanitized writer-only
+  RPC returns bounded companion records. Both originals, canonical moments, owners,
+  and authored context remain separate. No unsaved candidate, asset identifier,
+  recognition evidence, or on-device fingerprint crosses the device boundary.
+- Tonight can offer one deterministic old-memory lookback from a bounded 180-row
+  already-kept archive query. It supports factual context plus separate parent text
+  and voice without entering Add or Moment Detail. The empty state stays honest when
+  no kept memory exists. Archive export includes separately attributed contributions
+  and automatic collections, paged 500 rows at a time with a 5,000-row ceiling; exact
+  grouping digests are never exported.
+
+### Scoped implementation
+
+- Mobile shared context: `groundedContextModel.js`, `sharedEnrichment.js`,
+  `sharedEnrichmentModel.js`, `sharedLookbackModel.js`,
+  `SharedMomentEnrichmentCard.js`, `MomentDetailScreen.js`, and `TonightScreen.js`.
+- Private drafts and post-save grouping: `sharedAnnotationDraftModel.js`,
+  `sharedAnnotationDraftStore.js`, `savedMediaFingerprintModel.js`,
+  `savedMediaFingerprint.js`, `photoSync.js`, and `moments.js`.
+- Export: `archiveExport.js`, `archiveExportModel.js`, and `LibraryScreen.js`.
+- Remote contract and proof: migration
+  `20260720230000_grounded_context_and_shared_enrichment.sql`, pgTAP
+  `grounded_context_shared_enrichment_test.sql`, and five focused mobile model/privacy
+  test files.
+
+### Performance, bounds, and verification
+
+- Synthetic 5,000-kept-moment PostgreSQL run: inserts plus context triggers
+  `1,776.2 ms`; one confirmed-First refresh created 1,694 bounded edges in `54.5 ms`;
+  one context read was `0.078 ms`; family birth-date invalidation/refresh was
+  `1,418.9 ms`; shared context tables and indexes used `1,572,864 bytes`.
+- Named bounds: confirmed-First window `60 days`; saved-memory lookback query `180`;
+  event companions `12` (server hard maximum `24`); annotation export page `500` and
+  total `5,000`. Shared archive and context reads remain paginated or bounded.
+- `pnpm db:reset:migrations` replayed all local migrations and database lint returned
+  no errors. Focused pgTAP passed `40/40`; the R4 model/privacy suite passed `17/17`;
+  full mobile TypeScript plus unit tests passed `426/426`. Repository tests, lint, and
+  typecheck passed for both packages; CI Expo lint and the production web build passed.
+- Actual iPhone 17 simulator proof used two synthetic parent accounts. A private text
+  draft and a recorded voice draft survived forced termination/relaunch; microphone
+  denial offered Settings and recovered after permission; Save cleaned temporary
+  audio; the second parent saw the first parent's named text/voice, added separate
+  context, and could delete only their own contribution. A saved-video lookback showed
+  factual age/First context and the unavailable-poster fallback. Dark/light,
+  accessibility-large controls, keyboard, background/resume, Reduce Motion, export,
+  Circle/lapsed database policy, and completion states were reviewed. Export produced
+  real HTML/PDF with both authors and collections. Evidence root:
+  `tmp/evidence/curated-memory-library-release4-2026-07-20/`.
+
+### Critical review and remaining reconciliation
+
+- The review found no parallel save path, partner overwrite, stale-source edge,
+  unsaved cross-device exposure, unbounded duplicate query, or export omission.
+  Rich video playback remains the canonical existing player; the synthetic R4
+  lookback deliberately exercised its unavailable-poster fallback while Release 1
+  retains the successful playable-video proof.
+- Maximum accessibility text still exposes older overflow in parts of onboarding and
+  Today outside the new shared-enrichment controls. The final roadmap stabilization
+  slice owns that correction along with navigation/archive ownership, privacy-safe
+  operations instrumentation, notification operations/runbooks, and complete backlog
+  reconciliation.
+
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 
 Source of truth: `docs/assistant-curated-baby-book-prd.md`.

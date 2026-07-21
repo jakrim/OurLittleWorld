@@ -51,6 +51,12 @@ test('photo book export html includes trust copy and available book sections', (
         ],
       },
     ],
+    annotations: [
+      { annotation_type: 'text', body: 'We both remember the sunlight.', author_user_id: 'parent-a', created_at: '2026-07-03' },
+      { annotation_type: 'voice', voice_note_id: 'voice-a', author_user_id: 'parent-b', created_at: '2026-07-04' },
+    ],
+    annotationAuthors: { 'parent-a': 'Alex', 'parent-b': 'Sam' },
+    collections: [{ title: 'First year', moment_count: 3, confidence_band: 'factual' }],
     limitations: EXPORT_PREVIEW_LIMITATIONS,
     generatedAt: new Date('2026-07-09T12:00:00'),
   });
@@ -66,6 +72,11 @@ test('photo book export html includes trust copy and available book sections', (
   assert.match(html, /The sudden belly laugh/);
   assert.match(html, /Voice references/);
   assert.match(html, /Grandma singing/);
+  assert.match(html, /Parent contributions/);
+  assert.match(html, /Alex added context/);
+  assert.match(html, /Sam added a voice note/);
+  assert.match(html, /Automatic collections/);
+  assert.match(html, /First year/);
   assert.match(html, /Playable video files are represented by posters/);
   assert.match(html, /Voice recordings are listed as references/);
   assert.match(html, /Private share links and print fulfillment/);

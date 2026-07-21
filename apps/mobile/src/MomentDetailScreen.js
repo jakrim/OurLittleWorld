@@ -11,6 +11,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import BirthDatePicker from './ui/BirthDatePicker';
 import { Body, Button, Caption, Card, Field, HomeIndicator, PhotoPlaceholder, Screen, Title, V, glass, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
 import { Family } from './families';
 import { Firsts, Letters, WeeklyDigests } from './rituals';
@@ -43,6 +44,13 @@ import { buildMomentMilestoneRoute } from './momentMilestoneModel';
 import { buildLibraryManualQaMomentDetail } from './libraryManualQaFixtures';
 import { buildMomentPartnerStatus } from './secondParentStateModel';
 import { notifyPartnerReaction, notifyPartnerReply } from './notificationEvents';
+import SharedMomentEnrichmentCard from './SharedMomentEnrichmentCard';
+import { composeGroundedMomentContext } from './groundedContextModel';
+import {
+  listMomentAnnotations,
+  listMomentContextFacts,
+  listSavedEventCompanions,
+} from './sharedEnrichment';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -77,6 +85,7 @@ export default function MomentDetailScreen() {
   const momentId = Array.isArray(params.momentId) ? params.momentId[0] : params.momentId;
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement } = useBilling();
   const [moment, setMoment] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +106,11 @@ export default function MomentDetailScreen() {
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
 
-  const voice = moment?.voiceNotes?.find((item) => item.audioUrl) || null;
+  const annotationVoiceIds = useMemo(
+    () => new Set((moment?.annotations || []).map((item) => item.voice_note_id).filter(Boolean)),
+    [moment?.annotations],
+  );
+  const voice = moment?.voiceNotes?.find((item) => item.audioUrl && !annotationVoiceIds.has(item.id)) || null;
   const player = useAudioPlayer(voice?.audioUrl ? { uri: voice.audioUrl } : null, { updateInterval: 250 });
   const playerStatus = useAudioPlayerStatus(player);
 
@@ -119,7 +132,8 @@ export default function MomentDetailScreen() {
       }
       await recordMomentView({ familyId: family.id, momentId }).catch(() => {});
       const linkedFirsts = await Firsts.listForMoment(family.id, momentId);
-      const [linkedLetters, linkedDigest, views, replies] = await Promise.all([
+      const writer = ['creator', 'partner'].includes(family?.me?.role);
+      const [linkedLetters, linkedDigest, views, replies, annotations, contextFacts, eventCompanions] = await Promise.all([
         Letters.listConnectedToMoment(family.id, {
           momentId,
           firstIds: linkedFirsts.map((first) => first.id).filter(Boolean),
@@ -127,6 +141,9 @@ export default function MomentDetailScreen() {
         WeeklyDigests.getForMomentDate(family.id, next.captured_at),
         listMomentViews({ familyId: family.id, momentId }),
         listMomentReplies({ familyId: family.id, momentId }),
+        listMomentAnnotations({ familyId: family.id, momentId }),
+        listMomentContextFacts({ familyId: family.id, momentId }),
+        writer ? listSavedEventCompanions({ familyId: family.id, momentId }) : Promise.resolve([]),
       ]);
       setMoment({
         ...next,
@@ -135,6 +152,9 @@ export default function MomentDetailScreen() {
         connectedFirsts: linkedFirsts,
         connectedLetters: linkedLetters,
         connectedDigest: linkedDigest,
+        annotations,
+        contextFacts,
+        eventCompanions,
       });
     } finally {
       setLoading(false);
@@ -233,6 +253,7 @@ export default function MomentDetailScreen() {
   const sharedWith = useMemo(() => normalizeSharedWith(moment?.shared_with), [moment?.shared_with]);
   const sharedWithCircle = sharedWith.includes('circle');
   const canWrite = ['creator', 'partner'].includes(family?.me?.role);
+  const canContribute = canWrite && entitlement?.isActive === true;
   const isOwner = !!moment?.author_user_id && moment.author_user_id === user?.id;
   const membersById = useMemo(
     () => Object.fromEntries(members.map((member) => [member.userId, member.displayName || 'Family'])),
@@ -260,6 +281,13 @@ export default function MomentDetailScreen() {
     () => connectionChips.filter((chip) => chip.group !== 'action'),
     [connectionChips],
   );
+  const groundedContext = useMemo(() => composeGroundedMomentContext({
+    capturedAt: moment?.captured_at,
+    babyBirthday: family?.babyBirthday,
+    placeName: moment?.place_name,
+    contextFacts: moment?.contextFacts || [],
+    eventCompanions: moment?.eventCompanions || [],
+  }), [family?.babyBirthday, moment?.captured_at, moment?.contextFacts, moment?.eventCompanions, moment?.place_name]);
   const setPhotoFocus = useCallback((focused) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setPhotoFocused(focused);
@@ -722,6 +750,48 @@ export default function MomentDetailScreen() {
           />
         ) : null}
 
+        {groundedContext.length ? (
+          <Card variant="muted" testID="grounded-context-card">
+            <Caption>Where this sits in their story</Caption>
+            <V gap="sm" style={styles.contextFacts}>
+              {groundedContext.map((fact) => (
+                <View key={fact.key} style={styles.contextFactRow}>
+                  <Ionicons name={fact.icon} size={17} color={theme.semantic.primary} />
+                  <View style={styles.contextFactText}>
+                    <Body>{fact.label}</Body>
+                    <Caption>{fact.source}</Caption>
+                  </View>
+                </View>
+              ))}
+            </V>
+          </Card>
+        ) : null}
+
+        {distinctEventMoments(moment?.eventCompanions, moment?.id).length ? (
+          <Card variant="muted" testID="shared-event-card">
+            <Caption>Also saved from this moment</Caption>
+            <Body style={styles.sharedEventIntro}>Both originals and each parent's words stay intact.</Body>
+            <V gap="sm" style={styles.sharedEventList}>
+              {distinctEventMoments(moment.eventCompanions, moment.id).map((companion) => (
+                <Pressable
+                  key={companion.momentId}
+                  onPress={() => router.push({ pathname: '/moment/[momentId]', params: { momentId: companion.momentId } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open original saved by ${companion.ownerLabel}`}
+                  style={[styles.sharedEventRow, { borderColor: theme.semantic.border, backgroundColor: theme.semantic.cardAlt }]}
+                >
+                  <Ionicons name="copy-outline" size={17} color={theme.semantic.primary} />
+                  <View style={styles.contextFactText}>
+                    <Body>{companion.ownerLabel}</Body>
+                    <Caption>{new Date(companion.capturedAt).toLocaleString()}</Caption>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
+                </Pressable>
+              ))}
+            </V>
+          </Card>
+        ) : null}
+
         {voice ? (
           <Card variant="muted">
             <View style={styles.voiceHeader}>
@@ -747,6 +817,20 @@ export default function MomentDetailScreen() {
             <Caption>Handwritten note</Caption>
             <Body style={[styles.handwrittenNote, { color: theme.colors.ink }]}>{moment.caption_note}</Body>
           </Card>
+        ) : null}
+
+        {(moment.annotations?.length || canContribute) ? (
+          <SharedMomentEnrichmentCard
+            familyId={family.id}
+            momentId={moment.id}
+            userId={user?.id}
+            canWrite={canContribute}
+            annotations={moment.annotations || []}
+            voiceNotes={moment.voiceNotes || []}
+            membersById={membersById}
+            theme={theme}
+            onSaved={load}
+          />
         ) : null}
 
         <Card variant="muted">
@@ -886,6 +970,15 @@ export default function MomentDetailScreen() {
 
 function reactionLabel(reaction) {
   return REACTION_LABELS[reaction.key] || reaction.key;
+}
+
+function distinctEventMoments(rows = [], currentMomentId) {
+  const seen = new Set();
+  return rows.filter((row) => {
+    if (!row?.momentId || row.momentId === currentMomentId || seen.has(row.momentId)) return false;
+    seen.add(row.momentId);
+    return true;
+  });
 }
 
 function StoryLinkSection({ title, chips, theme, onOpen }) {
@@ -1227,6 +1320,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: space.xl,
+  },
+  contextFacts: {
+    marginTop: space.sm,
+  },
+  contextFactRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+  },
+  contextFactText: {
+    flex: 1,
+    gap: 2,
+  },
+  sharedEventIntro: {
+    marginTop: space.xs,
+  },
+  sharedEventList: {
+    marginTop: space.sm,
+  },
+  sharedEventRow: {
+    minHeight: 54,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
   },
   backButton: {
     marginTop: space.lg,

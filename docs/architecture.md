@@ -199,6 +199,23 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   after which the existing idempotent moment transaction applies them. Scene/activity
   classification remains gated because the existing heuristic is not a validated
   visual model.
+- **Grounded context and shared enrichment:** migration `20260720230000` adds
+  `moment_annotations`, `moment_context_facts`, and private exact-match
+  `saved_event_groups`/`saved_event_memberships`. Text and canonical voice annotations
+  are separate family-owned records with one nullable author; active writers can
+  create and remove only their own records, Circle can read only annotations attached
+  to explicitly shared moments, and lapsed writers are read-only. The mobile draft
+  remains in family/user/moment-scoped AsyncStorage plus a private temporary audio
+  directory until Save, with stable annotation, voice-note, and storage-object retry
+  identities. Date, age, and safe parent-entered place are composed from current
+  source records at read time. Only nearby confirmed-First edges are materialized;
+  source triggers refresh or delete them when moments, Firsts, birthdays, timezones,
+  or author labels change. Exact saved-file MD5 grouping runs only after the canonical
+  media row is ready and owned by the caller. The digest has no direct client policy
+  and sanitized writer-only RPC results preserve both originals and authorship.
+  `/tonight` may select one deterministic lookback from at most 180 already-kept
+  moments; event companion results are capped at 12. Family annotation export pages
+  500 rows at a time to a 5,000-row ceiling and never exports grouping digests.
 - **Upload/storage:** `photoSync.js` uploads resized full+thumb JPEGs to the private
   `family-photos` bucket as `photo_tags` rows; moments media in `moment_media`
   (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is
