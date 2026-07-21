@@ -1,28 +1,40 @@
-// Upload-metadata shape (W1). Quality signals computed during the scan ride
-// along into `moment_media.metadata` (jsonb, no migration) so the weekly
-// digest — and later the photo book — can rank media by quality instead of
-// recency alone. Keys are added only when the scan actually produced them.
+// Shared upload metadata is deliberately limited to non-identity facts about
+// the parent-approved media. Candidate reasons, recognition scores, face
+// counts, frame-presence evidence, fingerprints and local identifiers remain
+// in the private on-device ledger even after Keep.
 // No React Native imports — unit-tested with node --test.
 
 export function mediaUploadMetadata(base = {}, match = null) {
-  const out = { ...base };
+  const out = withoutPrivateFields(base);
   if (!match) return out;
   const captureQuality = finiteOrNull(match.captureQuality);
-  const recognitionScore = finiteOrNull(match.score);
-  const faceCount = finiteOrNull(match.faceCount);
-  const videoPresenceRatio = finiteOrNull(match.videoPresenceRatio);
-  const videoSampledFrames = finiteOrNull(match.videoSampledFrames);
-  const videoMatchedFrames = finiteOrNull(match.videoMatchedFrames);
   if (captureQuality != null) out.captureQuality = captureQuality;
-  if (recognitionScore != null) out.recognitionScore = recognitionScore;
-  if (faceCount != null) out.faceCount = faceCount;
-  if (videoPresenceRatio != null) out.videoPresenceRatio = videoPresenceRatio;
-  if (videoSampledFrames != null) out.videoSampledFrames = videoSampledFrames;
-  if (videoMatchedFrames != null) out.videoMatchedFrames = videoMatchedFrames;
-  if (match.curation?.dayKey) out.curationDay = String(match.curation.dayKey);
-  if (match.curation?.role) out.curationRole = String(match.curation.role);
-  if (match.curation?.reason) out.curationReason = String(match.curation.reason);
   return out;
+}
+
+const PRIVATE_METADATA_KEYS = new Set([
+  'assetId',
+  'localAssetId',
+  'pickerAssetId',
+  'recognitionCandidateId',
+  'recognitionScore',
+  'faceCount',
+  'videoPresenceRatio',
+  'videoSampledFrames',
+  'videoMatchedFrames',
+  'curationDay',
+  'curationRole',
+  'curationReason',
+  'visualFingerprint',
+  'identityEvidence',
+]);
+
+function withoutPrivateFields(base) {
+  const safe = {};
+  for (const [key, value] of Object.entries(base || {})) {
+    if (!PRIVATE_METADATA_KEYS.has(key) && value !== undefined) safe[key] = value;
+  }
+  return safe;
 }
 
 function finiteOrNull(value) {

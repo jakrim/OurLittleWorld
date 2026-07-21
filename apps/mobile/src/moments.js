@@ -21,6 +21,7 @@ import { supabase } from './supabase';
 import { normalizeMomentTags } from './tagModel';
 import { archivePageRanges } from './archivePaginationModel';
 import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
+import * as mediaDb from './mediaDb';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -159,13 +160,12 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
   const thumbId = uuid();
   const fullPath = `${target.basePath}/image-full/${fullId}.jpg`;
   const thumbPath = `${target.basePath}/image-thumb/${thumbId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
+  const sharedAssetKey = uuid();
   const location = locationFromAsset(asset);
   const creationTime = dateFromAsset(asset) || capturedAt;
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     fullPath,
     thumbPath,
     originalFileName: asset.fileName || null,
@@ -178,7 +178,7 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'image',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: 'image/jpeg',
     full_object: fullId,
@@ -220,7 +220,7 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
         {
           family_id: familyId,
           asset_owner_user_id: userId,
-          asset_id: localIdentifier,
+          asset_id: sharedAssetKey,
           tagged_by_user_id: userId,
           tagged_at: new Date().toISOString(),
           creation_time: creationTime,
@@ -239,6 +239,16 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
         { onConflict: 'family_id,asset_owner_user_id,asset_id' },
       );
       if (tagErr) throw tagErr;
+      if (asset.assetId) {
+        mediaDb.recordRemoteAssetTarget({
+          familyId,
+          ownerUserId: userId,
+          localAssetId: asset.assetId,
+          remoteAssetKey: sharedAssetKey,
+          momentId,
+          mediaId,
+        });
+      }
     }
 
     return { id: mediaId, type: 'image', fullPath, thumbPath };
@@ -260,7 +270,7 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
   const ext = extensionFor({ mimeType: asset.mimeType, fileName: asset.fileName, fallback: 'mp4' });
   const mimeType = asset.mimeType || (ext === 'mov' ? 'video/quicktime' : 'video/mp4');
   const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
+  const sharedAssetKey = uuid();
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
   const sourceBytes = asset.fileSize || fileSizeOf(asset.uri);
 
@@ -271,7 +281,6 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     ...(fullPath ? { fullPath } : {}),
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
@@ -283,7 +292,7 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: mimeType,
     full_object: useStream ? null : fullId,
@@ -356,6 +365,16 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
+    if (momentId && asset.assetId) {
+      mediaDb.recordRemoteAssetTarget({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: asset.assetId,
+        remoteAssetKey: sharedAssetKey,
+        momentId,
+        mediaId,
+      });
+    }
     return { id: mediaId, type: 'video', streamUid, posterPath: posterMetadata.posterPath || null };
   } catch (err) {
     await releaseMediaUpload(reservationId);
@@ -376,14 +395,13 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
   const mediaId = uuid();
   const posterId = uuid();
   const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${target.id}:${index}`;
+  const sharedAssetKey = uuid();
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
 
   const poster = await createVideoPoster(asset);
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     posterPath,
     posterTimeMs: poster.timeMs,
     posterWidth: poster.width,
@@ -400,7 +418,7 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: asset.mimeType || 'video/mp4',
     poster_object: posterId,
@@ -425,6 +443,16 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
       })
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
+    if (momentId && asset.assetId) {
+      mediaDb.recordRemoteAssetTarget({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: asset.assetId,
+        remoteAssetKey: sharedAssetKey,
+        momentId,
+        mediaId,
+      });
+    }
     return { id: mediaId, type: 'video', posterPath, posterOnly: true };
   } catch (err) {
     await supabase

@@ -252,10 +252,12 @@ export default function FirstComposeSheetScreen() {
     try {
       let photoForSave = selectedPhoto;
       if (selectedPhoto?.localOnly) {
-        await uploadForTag({ familyId: family?.id, assetId: selectedPhoto.asset_id });
+        const uploaded = await uploadForTag({ familyId: family?.id, assetId: selectedPhoto.asset_id });
         photoForSave = {
           ...selectedPhoto,
           asset_owner_user_id: user?.id,
+          asset_id: uploaded.remoteAssetKey,
+          moment_id: uploaded.momentId,
         };
       }
       const happenedAt = date ? `${date}T12:00:00.000Z` : null;

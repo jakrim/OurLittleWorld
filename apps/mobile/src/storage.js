@@ -1,15 +1,14 @@
 import { supabase } from './supabase';
 import { uploadForTag, deleteForTag } from './photoSync';
+import { resolveRemoteAssetKey } from './mediaDb';
 
 /**
  * Family-scoped storage for Tags + Memories. Both are now keyed by
  * (family_id, asset_owner_user_id, asset_id) so any member can see what
  * any other member tagged or wrote about a given photo.
  *
- * Until cloud photo upload lands (next milestone), `asset_id` is still a
- * device-local identifier from expo-media-library. We store the
- * `asset_owner_user_id` so partner devices know whose library a tag came
- * from, even though they can't render the image yet.
+ * `asset_id` is an opaque shared-media key. Device Photos identifiers stay in
+ * the owner's local SQLite mapping and never cross the family boundary.
  */
 
 async function currentUserId() {
@@ -53,12 +52,17 @@ export const Tags = {
   async savedTarget({ familyId, assetId, ownerUserId = null }) {
     const userId = ownerUserId || await currentUserId();
     if (!familyId || !assetId || !userId) return null;
+    const remoteAssetKey = resolveRemoteAssetKey({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }) || assetId;
     const { data, error } = await supabase
       .from('photo_tags')
       .select('moment_id, moment_media_id, upload_status')
       .eq('family_id', familyId)
       .eq('asset_owner_user_id', userId)
-      .eq('asset_id', assetId)
+      .eq('asset_id', remoteAssetKey)
       .maybeSingle();
     if (error) throw error;
     return data || null;
@@ -105,12 +109,17 @@ export const Memories = {
   /** All memories on a single photo (multiple if both parents wrote one). */
   async forAsset({ familyId, assetId, ownerUserId }) {
     if (!familyId || !assetId || !ownerUserId) return [];
+    const remoteAssetKey = resolveRemoteAssetKey({
+      familyId,
+      ownerUserId,
+      localAssetId: assetId,
+    }) || assetId;
     const { data, error } = await supabase
       .from('memories')
       .select('id, author_user_id, note, created_at, updated_at')
       .eq('family_id', familyId)
       .eq('asset_owner_user_id', ownerUserId)
-      .eq('asset_id', assetId)
+      .eq('asset_id', remoteAssetKey)
       .order('created_at', { ascending: true });
     if (error) {
       console.warn('Memories.forAsset', error.message);
@@ -129,6 +138,11 @@ export const Memories = {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
+    const remoteAssetKey = resolveRemoteAssetKey({
+      familyId,
+      ownerUserId,
+      localAssetId: assetId,
+    }) || assetId;
 
     const trimmed = note?.trim() || '';
 
@@ -137,7 +151,7 @@ export const Memories = {
       .select('id')
       .eq('family_id', familyId)
       .eq('asset_owner_user_id', ownerUserId)
-      .eq('asset_id', assetId)
+      .eq('asset_id', remoteAssetKey)
       .eq('author_user_id', userId)
       .maybeSingle();
     if (selErr) throw selErr;
@@ -164,7 +178,7 @@ export const Memories = {
       .insert({
         family_id: familyId,
         asset_owner_user_id: ownerUserId,
-        asset_id: assetId,
+        asset_id: remoteAssetKey,
         author_user_id: userId,
         note: trimmed,
       })

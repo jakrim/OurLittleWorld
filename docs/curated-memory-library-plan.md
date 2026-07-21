@@ -1,7 +1,7 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Releases 0, 1, and 2 implemented and verified locally; Release 3 automatic collections is next
+Status: Releases 0, 1, and 2 plus shared-archive trust stabilization implemented and verified locally; Release 3 automatic collections is next
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
 
 ## Executive decision
@@ -560,6 +560,17 @@ Acceptance:
 - 365-day browsing remains performant with at least 5,000 saved moments.
 
 ### Release 3 — Automatic collections
+
+Prerequisite status: complete locally on July 20, 2026. A narrow shared-archive trust
+slice was inserted because collection membership cannot safely reference raw device
+Photos identifiers, accept lapsed writes, or disappear when one author's account is
+removed. New Keeps now use device-private opaque identity mappings and stable retry
+targets; shared metadata is scrubbed; server policies enforce active writers; and
+family-owned authored records survive account deletion with removed attribution.
+The remote migrations are locally replayed and tested but deliberately not deployed.
+Legacy-row rotation requires a staged production rollout after compatible clients are
+adopted so older installed builds do not create duplicate Keeps; that external rollout
+gate does not block local Release 3 implementation.
 
 Goal: organize the family record with minimal parent work.
 

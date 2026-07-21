@@ -379,6 +379,96 @@ rich moment objects.
   through account deletion. These are prerequisites for safe collection membership,
   partner corrections, and later shared annotations—not an expansion of collections.
 
+## Curated Memory Library — shared archive trust stabilization (2026-07-20)
+
+Status: implemented, critically reviewed, and verified locally after Release 2 commit
+`3c24a20`. This in-between slice was required before automatic collections because
+shared membership cannot safely depend on a private camera-roll identifier, lapsed
+clients must not write around UI gates, and deleting one writer must not erase a
+family-owned memory. Nothing was pushed, deployed, submitted, or changed in production.
+
+### Durable contracts and corrections
+
+- SQLite schema version `4` extends `local_asset_mappings` with one opaque remote UUID
+  plus stable canonical moment/media IDs. The identity and retry targets are created
+  before the first remote write. Repeated Keep after a partial tag, moment, media, or
+  storage success therefore resumes the same transaction instead of creating another
+  moment. Mapping rows are family-and-owner scoped and indexed by the opaque key.
+- `photoSync`, manual picker moments, First composition, saved-media queries, correction,
+  deletion, retry, and poster-video promotion translate only at the device boundary.
+  Raw Photos identifiers remain in local SQLite/upload jobs. Remote `photo_tags`,
+  `moment_media`, memories, Firsts, and weekly references use the opaque UUID.
+- Shared upload metadata now excludes device/picker asset IDs, candidate IDs, child
+  recognition scores, face counts, sampled-video presence evidence, curation reasons,
+  fingerprints, and identity evidence. The server migration rotates legacy raw keys,
+  follows their relationships, scrubs metadata, rejects new raw values, and is
+  repeatable without rotating already-opaque keys.
+- Server policies now require both writer membership and active entitlement for all
+  shared archive writes and storage mutation. This includes photo tags, memories,
+  moments/media/voice/reactions/tags, prompts, Firsts, Letters/replies/views, digest and
+  ritual settings, scan checkpoints/calibration, family library connection, and family
+  update. Existing read-only Circle selection boundaries remain green.
+- Family-owned authored rows use nullable author/owner foreign keys with `ON DELETE SET
+  NULL`. Account removal preserves shared moments, media, voice, reactions, replies,
+  notes, Firsts, Letters, and prompts while removing attribution. This establishes the
+  smallest safe authorship base for Release 4; the destructive account-deletion product
+  workflow itself remains tracked by its policy and is not implemented here.
+- The simulator checker first exposed a missing `photo_tags` read policy during upsert,
+  then a partial-Keep duplicate risk because canonical target IDs were not persisted
+  until the tag existed, then a local/opaque mismatch in correction feedback. Each was
+  corrected and the same real-write path was rerun to completion.
+
+### Scoped implementation
+
+- Device persistence and translation: `mediaDbSchema.js`, `mediaDb.js`, `photoSync.js`,
+  `storage.js`, `moments.js`, `mediaUploadMetadataModel.js`, `autoSaveCorrection.js`,
+  `FirstComposeSheetScreen.js`, and `MomentDetailScreen.js`.
+- Runtime proof: `RealAutoSaveWriteSmokeScreen.js` now asserts one opaque UUID across
+  the tag/media rows and rejects private metadata before performing real storage and
+  correction cleanup.
+- Remote contracts: migrations `20260720210000_private_shared_media_identity.sql` and
+  `20260720211000_shared_archive_write_and_authorship.sql`; pgTAP coverage in
+  `shared_media_identity_migration_test.sql`, `shared_archive_trust_test.sql`, and the
+  updated `read_only_circle_rls_test.sql`.
+- Model/migration proof: `mediaDbSchema.test.js`, `mediaUploadMetadataModel.test.js`,
+  and `sharedArchiveTrustContracts.test.js`.
+
+### Verification and performance
+
+- Focused local model/migration suite: `28/28` passed after the final mapping-scale
+  test. Complete mobile TypeScript plus unit suite: `402/402` passed. `pnpm test`,
+  `pnpm lint`, `pnpm typecheck`, CI-mode Expo lint, and `pnpm build` all passed; web
+  tasks used their unchanged cached artifacts where reported.
+- `pnpm db:reset:migrations` replayed the complete migration history and database lint
+  reported no schema errors. pgTAP suites passed: shared archive trust `10/10`, existing
+  Circle read-only boundaries `22/22`, and legacy shared identity migration/replay
+  `6/6`.
+- Deterministic 5,000-row local mapping run: insert `338.0 ms`, indexed 250-key lookup
+  `13.0 ms`, database `1,572,864 bytes`, lookup page cap `250`. The existing 5,000
+  candidate run remained bounded: migration `25.8 ms`, insert `819.4 ms`, coverage
+  query `26.3 ms`, database `3,170,304 bytes`.
+- Actual iPhone 16 Pro simulator, local-only Supabase, disposable auth/family, and a
+  simulator still photo passed the real `Tags.setBaby` path: entitlement, Photos read,
+  opaque tag/media identity, privacy-safe metadata, full/thumb upload, correction,
+  row/file deletion, and one local negative example. Evidence:
+  `tmp/evidence/shared-archive-trust-runtime-pass.png`. Expo MCP was not exposed in this
+  session; CLI/simctl and the existing isolated OLW Metro process were used without
+  interrupting the other booted projects.
+
+### Release gate and next slice
+
+- The new remote migrations are intentionally local-only. Production rollout must be
+  staged: first ship a compatible client that creates opaque mappings for new Keeps,
+  then choose and validate a one-time legacy installed-device reconciliation before
+  rotating existing raw rows, then apply server constraints/RLS, and only afterward
+  retire old writers. Deploying the migration ahead of that client/backfill gate could
+  make an old install re-save an already-kept asset. This is an explicit production
+  rollout blocker, not a local Release 3 blocker.
+- Release 3 automatic factual collections is next. Scene/activity suggestions remain
+  gated until an on-device evaluation proves useful accuracy; factual date, media,
+  author, confirmed First, safe place, and favorite/reaction collections do not depend
+  on that model.
+
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 
 Source of truth: `docs/assistant-curated-baby-book-prd.md`.

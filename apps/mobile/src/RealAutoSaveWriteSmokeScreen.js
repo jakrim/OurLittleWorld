@@ -7,6 +7,7 @@ import { ensureLibraryPermission, fetchPhotosPage, getAssetDetails } from './pho
 import { recordRecentAutoSave } from './recognitionTrust';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { Tags } from './storage';
+import { resolveRemoteAssetKey } from './mediaDb';
 import { supabase } from './supabase';
 import { describeSupabaseTarget, isLocalSupabaseUrl } from './supabaseQaGuard';
 import { Button, Body, Caption, Card, Eyebrow, Screen, Title, space, useTheme } from './ui';
@@ -153,8 +154,15 @@ async function runRealAutoSaveWriteSmoke({ onStep } = {}) {
   await recordRecentAutoSave({ familyId, userId: user.id, match });
   onStep?.('Wrote assistant-added memory through Tags.setBaby.');
 
-  const upload = await verifyUpload({ familyId, userId: user.id, assetId: asset.id });
-  onStep?.('Verified photo_tags, moment_media, and storage objects.');
+  const remoteAssetKey = resolveRemoteAssetKey({
+    familyId,
+    ownerUserId: user.id,
+    localAssetId: asset.id,
+  });
+  if (!remoteAssetKey) throw new Error('Private media identity mapping was not persisted.');
+
+  const upload = await verifyUpload({ familyId, userId: user.id, assetId: remoteAssetKey });
+  onStep?.('Verified opaque shared identity, privacy-safe metadata, moment media, and storage objects.');
 
   await removeAutoSavedMemory({
     familyId,
@@ -176,7 +184,7 @@ async function runRealAutoSaveWriteSmoke({ onStep } = {}) {
   const removal = await verifyRemoval({
     familyId,
     userId: user.id,
-    assetId: asset.id,
+    assetId: remoteAssetKey,
     mediaId: upload.tag.moment_media_id,
     fullPath: upload.fullPath,
     thumbPath: upload.thumbPath,
@@ -190,7 +198,7 @@ async function runRealAutoSaveWriteSmoke({ onStep } = {}) {
     passed: upload.passed && removal.passed && correction.passed,
     summary: 'Local real-write path passed.',
     detail: 'Used local Supabase only: disposable auth user, disposable family, simulator Photos, real storage upload, assistant-added removal, and correction recording.',
-    uploadSummary: `${upload.tag.upload_status}; media source ${upload.media.metadata?.source || 'missing'}`,
+    uploadSummary: `${upload.tag.upload_status}; opaque shared identity; private fields excluded`,
     removalSummary: removal.passed ? 'tag, media, and storage objects removed' : 'cleanup incomplete',
     correctionSummary: `${correction.correctionCount} correction(s), ${correction.negativeCount} negative example(s)`,
   };
@@ -277,13 +285,28 @@ async function verifyUpload({ familyId, userId, assetId }) {
 
   const { data: media, error: mediaError } = await supabase
     .from('moment_media')
-    .select('id, metadata, upload_status')
+    .select('id, local_identifier, metadata, upload_status')
     .eq('family_id', familyId)
     .eq('id', tag.moment_media_id)
     .single();
   if (mediaError) throw mediaError;
   if (media.upload_status !== 'ready') throw new Error(`Moment media upload status was ${media.upload_status}.`);
   if (media.metadata?.source !== 'scan-auto-save') throw new Error('Moment media was not marked as scan-auto-save.');
+  if (!isOpaqueSharedMediaKey(tag.asset_id) || media.local_identifier !== tag.asset_id) {
+    throw new Error('Shared media rows did not use one opaque canonical identity.');
+  }
+  const forbiddenMetadataKeys = [
+    'localAssetId',
+    'pickerAssetId',
+    'recognitionCandidateId',
+    'recognitionScore',
+    'faceCount',
+    'visualFingerprint',
+    'identityEvidence',
+  ];
+  if (forbiddenMetadataKeys.some((key) => Object.prototype.hasOwnProperty.call(media.metadata || {}, key))) {
+    throw new Error('Shared media metadata contained private device or recognition evidence.');
+  }
 
   const fullPath = media.metadata?.fullPath || `${familyId}/full/${tag.storage_object}.jpg`;
   const thumbPath = media.metadata?.thumbPath || `${familyId}/thumb/${tag.thumb_object}.jpg`;
@@ -357,6 +380,10 @@ function shortId(value) {
   const text = String(value || '');
   if (text.length <= 12) return text;
   return `${text.slice(0, 6)}...${text.slice(-4)}`;
+}
+
+function isOpaqueSharedMediaKey(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
 }
 
 const styles = StyleSheet.create({

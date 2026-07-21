@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 3;
+export const MEDIA_DB_SCHEMA_VERSION = 4;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -207,6 +207,23 @@ export const FIRST_YEAR_CATCHUP_MIGRATION_SQL = `
     on family_saved_day_facts (family_id, local_day);
 `;
 
+export const PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL = `
+  create table if not exists local_asset_mappings (
+    family_id text not null,
+    owner_user_id text not null,
+    asset_id text not null,
+    media_id text,
+    last_checked_at text,
+    primary key (family_id, owner_user_id, asset_id)
+  );
+  alter table local_asset_mappings add column remote_asset_key text;
+  alter table local_asset_mappings add column moment_id text;
+  alter table local_asset_mappings add column updated_at text;
+  create unique index if not exists local_asset_mappings_remote_key_idx
+    on local_asset_mappings (family_id, owner_user_id, remote_asset_key)
+    where remote_asset_key is not null;
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -237,6 +254,16 @@ export const MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS = Object.freeze([
   'local_day',
   'saved_count',
   'refreshed_at',
+]);
+
+export const MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS = Object.freeze([
+  'family_id',
+  'owner_user_id',
+  'asset_id',
+  'media_id',
+  'remote_asset_key',
+  'moment_id',
+  'updated_at',
 ]);
 
 export function applyMediaDbMigrations(database) {
@@ -276,6 +303,16 @@ export function applyMediaDbMigrations(database) {
       throw new Error(`Local first-year catch-up migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
+  if (currentVersion < 4) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL);
+        database.execSync('pragma user_version = 4;');
+      });
+    } catch (error) {
+      throw new Error(`Local private media identity migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
   assertCandidateLedgerSchema(database);
   return MEDIA_DB_SCHEMA_VERSION;
 }
@@ -299,5 +336,12 @@ export function assertCandidateLedgerSchema(database) {
     .filter((column) => !savedDayColumns.has(column));
   if (missingSavedDayColumns.length) {
     throw new Error(`Local saved-day coverage store is incomplete; missing columns: ${missingSavedDayColumns.join(', ')}. Restart the app after freeing device storage.`);
+  }
+  const mappingRows = database.getAllSync('pragma table_info(local_asset_mappings)');
+  const mappingColumns = new Set((mappingRows || []).map((row) => row.name));
+  const missingMappingColumns = MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS
+    .filter((column) => !mappingColumns.has(column));
+  if (missingMappingColumns.length) {
+    throw new Error(`Local private media identity store is incomplete; missing columns: ${missingMappingColumns.join(', ')}. Restart the app after freeing device storage.`);
   }
 }

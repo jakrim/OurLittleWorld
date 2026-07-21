@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { mediaUploadMetadata } from '../../src/mediaUploadMetadataModel.js';
 
-test('quality signals ride along when the scan produced them', () => {
+test('only non-identity quality rides along after parent Keep', () => {
   assert.deepEqual(
     mediaUploadMetadata(
       { source: 'library-review', fullPath: 'f/full/x.jpg' },
@@ -13,8 +13,6 @@ test('quality signals ride along when the scan produced them', () => {
       source: 'library-review',
       fullPath: 'f/full/x.jpg',
       captureQuality: 0.82,
-      recognitionScore: 0.91,
-      faceCount: 1,
     },
   );
 });
@@ -28,9 +26,18 @@ test('missing or junk signals are omitted, not written as null', () => {
   assert.deepEqual(mediaUploadMetadata(), {});
 });
 
-test('daily curation and video evidence persist without camera-roll identifiers', () => {
+test('private identity, curation, and camera-roll evidence is stripped', () => {
   assert.deepEqual(
-    mediaUploadMetadata({ source: 'daily-curation' }, {
+    mediaUploadMetadata({
+      source: 'daily-curation',
+      localAssetId: 'PH-PRIVATE/L0/001',
+      pickerAssetId: 'PH-PRIVATE/L0/002',
+      recognitionCandidateId: 'PH-PRIVATE/L0/003',
+      identityEvidence: [0.1, 0.2],
+      visualFingerprint: 'private-fingerprint',
+    }, {
+      score: 0.99,
+      faceCount: 1,
       videoPresenceRatio: 2 / 3,
       videoSampledFrames: 3,
       videoMatchedFrames: 2,
@@ -42,12 +49,6 @@ test('daily curation and video evidence persist without camera-roll identifiers'
     }),
     {
       source: 'daily-curation',
-      videoPresenceRatio: 2 / 3,
-      videoSampledFrames: 3,
-      videoMatchedFrames: 2,
-      curationDay: '2026-07-16',
-      curationRole: 'standout-video',
-      curationReason: 'baby-present-across-video',
     },
   );
 });

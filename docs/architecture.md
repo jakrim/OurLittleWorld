@@ -143,7 +143,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   ranked against family-union saved-day coverage in the family ritual timezone;
   completed primary sessions pace from three to five to seven cards, and an optional
   continuation is capped at three without counting as another evening or notification.
-  SQLite schema version 3 persists capture timezone, scan last-seen/availability
+  SQLite schema version 4 persists capture timezone, scan last-seen/availability
   provenance, unavailable reason, and a family-scoped saved-day fact cache in addition
   to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
@@ -160,6 +160,10 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `tonightNotifications.js` schedules locally only for a real queue after writer,
   entitlement, preference, quiet-hour, timezone, duplicate, completion, and daily-cap
   checks; notification data is limited to coarse queue state/count/date and `/tonight`.
+  `local_asset_mappings` also owns the private mapping from a device Photos identifier
+  to an opaque shared UUID and stable canonical moment/media IDs. The mapping is
+  created before the first retryable Keep write, so process termination or a partial
+  upload resumes the same shared transaction rather than duplicating a moment.
   Canceled, expired, and past-due families retain explicitly allowlisted browse-only
   archive routes, while global navigation removes Add and discovery/queue/write gates
   remain closed. A never-subscribed family still enters purchase setup. Circle members
@@ -186,6 +190,14 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is
   mediated by `workers/media-gateway` with short-lived session tokens
   (`create-media-session` edge function).
+  The device Photos identifier stays in SQLite and upload-job state only. Remote
+  `photo_tags.asset_id`, `moment_media.local_identifier`, and related saved references
+  use the mapped opaque UUID. Shared metadata removes local asset, picker, candidate,
+  recognition, face, presence-frame, fingerprint, and identity evidence. Database
+  constraints reject new raw identifiers; entitlement-aware RLS denies lapsed writes
+  even if an older client bypasses UI gates. Author foreign keys use `ON DELETE SET
+  NULL` for family-owned records so account removal preserves shared content without
+  misattributing it.
   Local SQLite upload jobs and the current writer's incomplete `photo_tags` rows retry
   silently with a five-minute cooldown when Our World opens. Only a parent-safe retry
   card remains if automatic recovery cannot finish.

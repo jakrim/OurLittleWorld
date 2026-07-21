@@ -31,6 +31,7 @@ import {
   updateMoment,
 } from './moments';
 import { uploadForTag } from './photoSync';
+import { resolveLocalAssetId } from './mediaDb';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
 import { shareMemoryMoment } from './shareMoment';
@@ -148,7 +149,11 @@ export default function MomentDetailScreen() {
       Alert.alert('Saved on another device', 'The playable video can be saved from the family member who took it.');
       return;
     }
-    const assetId = media?.local_identifier;
+    const assetId = resolveLocalAssetId({
+      familyId: family.id,
+      ownerUserId: user?.id,
+      remoteAssetKey: media?.local_identifier,
+    });
     if (!assetId) return;
     if (isLocalAssetDeleted(media)) {
       Alert.alert('Still in the vault', 'The original was deleted from this phone, but this saved moment is still in the family vault.');

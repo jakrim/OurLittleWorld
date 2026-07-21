@@ -11,11 +11,13 @@ import { CANDIDATE_BATCH_SIZE } from '../../src/candidateLedgerModel.js';
 import {
   CANDIDATE_LEDGER_MIGRATION_SQL,
   FIRST_YEAR_CATCHUP_MIGRATION_SQL,
+  PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL,
   applyMediaDbMigrations,
   assertCandidateLedgerSchema,
   MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS,
   MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS,
   MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS,
+  MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS,
   MEDIA_DB_SCHEMA_VERSION,
   TONIGHT_ENRICHMENT_MIGRATION_SQL,
 } from '../../src/mediaDbSchema.js';
@@ -26,7 +28,7 @@ test('candidate ledger migration succeeds on a fresh database and is repeatable'
     migrate(dbPath);
     assert.equal(query(dbPath, 'pragma user_version;'), String(MEDIA_DB_SCHEMA_VERSION));
     const tables = query(dbPath, "select name from sqlite_master where type='table' order by name;").split('\n');
-    for (const table of ['discovery_candidates', 'candidate_clusters', 'candidate_cluster_members', 'nightly_review_sessions', 'nightly_review_items', 'nightly_review_enrichment', 'family_saved_day_facts']) {
+    for (const table of ['discovery_candidates', 'candidate_clusters', 'candidate_cluster_members', 'nightly_review_sessions', 'nightly_review_items', 'nightly_review_enrichment', 'family_saved_day_facts', 'local_asset_mappings']) {
       assert.ok(tables.includes(table), `${table} exists`);
     }
     const columns = query(dbPath, 'pragma table_info(discovery_candidates);')
@@ -103,13 +105,32 @@ test('current version 2 ledger upgrades in place with stable capture day and sca
   });
 });
 
+test('version 3 upgrades to a private local-to-shared media identity map without exposing local IDs', () => {
+  withDatabase((dbPath) => {
+    migrateV3(dbPath);
+    run(dbPath, `insert into local_asset_mappings (
+      family_id, owner_user_id, asset_id, media_id, last_checked_at
+    ) values ('family-a','parent-a','PH-PRIVATE/L0/001','media-1','2026-07-20');`);
+    run(dbPath, `begin immediate; ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} pragma user_version = 4; commit;`);
+    run(dbPath, `update local_asset_mappings set remote_asset_key='11111111-1111-4111-8111-111111111111',
+      moment_id='moment-1', updated_at='2026-07-20' where asset_id='PH-PRIVATE/L0/001';`);
+
+    assert.equal(query(dbPath, 'pragma user_version;'), '4');
+    assert.equal(query(dbPath, `select asset_id || '|' || remote_asset_key || '|' || moment_id
+      from local_asset_mappings;`), 'PH-PRIVATE/L0/001|11111111-1111-4111-8111-111111111111|moment-1');
+    const columns = query(dbPath, 'pragma table_info(local_asset_mappings);')
+      .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
+    for (const required of MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS) assert.ok(columns.includes(required));
+  });
+});
+
 test('upgrade preserves the current production local tables and their rows', () => {
   withDatabase((dbPath) => {
     run(dbPath, `
       create table media_items (media_id text primary key, family_id text not null, media_type text not null);
       create table media_sync_cursors (family_id text primary key, cursor text, synced_at text);
       create table upload_jobs (id text primary key, family_id text not null, media_type text not null, status text not null);
-      create table local_asset_mappings (family_id text, owner_user_id text, asset_id text, primary key (family_id, owner_user_id, asset_id));
+      create table local_asset_mappings (family_id text, owner_user_id text, asset_id text, media_id text, last_checked_at text, primary key (family_id, owner_user_id, asset_id));
       insert into media_items values ('saved-1', 'family-a', 'image');
       insert into upload_jobs values ('job-1', 'family-a', 'image', 'queued');
       insert into media_sync_cursors values ('family-a', 'cursor-a', '2026-07-18');
@@ -226,12 +247,13 @@ test('migration wrapper turns partial or storage failures into actionable diagno
   );
 });
 
-test('schema validation rejects a version 3 database missing saved-day coverage', () => {
+test('schema validation rejects a version 4 database missing saved-day coverage', () => {
   const database = {
     getAllSync: (sql) => {
       if (sql.includes('discovery_candidates')) return MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS.map((name) => ({ name }));
       if (sql.includes('nightly_review_enrichment')) return MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS.map((name) => ({ name }));
       if (sql.includes('family_saved_day_facts')) return [];
+      if (sql.includes('local_asset_mappings')) return MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS.map((name) => ({ name }));
       return MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS.map((name) => ({ name }));
     },
   };
@@ -294,10 +316,49 @@ test('5,000 private candidates ingest and query within a bounded page', () => {
   });
 });
 
+test('5,000 kept-media identity mappings remain bounded and use the remote lookup index', () => {
+  withDatabase((dbPath) => {
+    migrate(dbPath);
+    const insertStarted = performance.now();
+    for (let offset = 0; offset < 5000; offset += 250) {
+      const rows = [];
+      for (let index = offset; index < offset + 250; index += 1) {
+        const suffix = String(index).padStart(12, '0');
+        rows.push(`('family-mapping','parent-mapping','private-local-${index}','media-${index}','2026-07-20','00000000-0000-4000-8000-${suffix}','moment-${index}','2026-07-20')`);
+      }
+      run(dbPath, `begin immediate; insert into local_asset_mappings (
+        family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,updated_at
+      ) values ${rows.join(',')}; commit;`);
+    }
+    const insertMs = performance.now() - insertStarted;
+    const requestedKeys = Array.from({ length: 250 }, (_, position) => {
+      const index = position * 19;
+      return `'00000000-0000-4000-8000-${String(index).padStart(12, '0')}'`;
+    });
+    const queryStarted = performance.now();
+    const selected = query(dbPath, `select count(*) from local_asset_mappings
+      where family_id='family-mapping' and owner_user_id='parent-mapping'
+        and remote_asset_key in (${requestedKeys.join(',')});`);
+    const queryMs = performance.now() - queryStarted;
+    const queryPlan = query(dbPath, `explain query plan select asset_id from local_asset_mappings
+      where family_id='family-mapping' and owner_user_id='parent-mapping'
+        and remote_asset_key='00000000-0000-4000-8000-000000000123';`);
+    const databaseBytes = statSync(dbPath).size;
+
+    console.info(`shared-identity-performance insert_5000_ms=${insertMs.toFixed(1)} lookup_250_ms=${queryMs.toFixed(1)} database_bytes=${databaseBytes} lookup_page_limit=250`);
+
+    assert.equal(selected, '250');
+    assert.match(queryPlan, /local_asset_mappings_remote_key_idx/);
+    assert.ok(insertMs < 2500, `mapping insert took ${insertMs.toFixed(1)}ms`);
+    assert.ok(queryMs < 250, `mapping query took ${queryMs.toFixed(1)}ms`);
+    assert.ok(databaseBytes < 5 * 1024 * 1024, '5,000 compact mappings stay below 5 MB');
+  });
+});
+
 function migrate(dbPath) {
   if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
@@ -307,6 +368,18 @@ function migrateV1(dbPath) {
 function migrateV2(dbPath) {
   migrateV1(dbPath);
   run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} pragma user_version = 2; commit;`);
+}
+
+function migrateV3(dbPath) {
+  migrateV2(dbPath);
+  run(dbPath, `begin immediate;
+    ${FIRST_YEAR_CATCHUP_MIGRATION_SQL}
+    create table if not exists local_asset_mappings (
+      family_id text, owner_user_id text, asset_id text, media_id text, last_checked_at text,
+      primary key (family_id, owner_user_id, asset_id)
+    );
+    pragma user_version = 3;
+    commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {

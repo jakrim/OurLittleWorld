@@ -60,6 +60,16 @@ Our Little World is the private digital place where parents keep the life they a
   survive termination. Keep reuses the canonical moment, voice, reaction, and upload
   paths; a partial shared write locks Skip/replacement until the same idempotent
   transaction finishes. Skipping removes private drafts without uploading them.
+- A device-local Photos identifier never becomes shared archive identity. SQLite keeps
+  the private local-to-opaque mapping and stable canonical moment/media retry IDs;
+  `photo_tags`, `moment_media`, saved references, and upload metadata receive only the
+  opaque UUID after Keep. Shared metadata strips recognition, face, fingerprint,
+  candidate, and camera-roll evidence. The server rejects raw legacy identifiers on
+  new writes.
+- Shared archive writes are denied server-side for lapsed families, including storage,
+  moments, media, voice, reactions, Firsts, Letters, prompts, scan checkpoints, and
+  library-connection state. Deleting an author account nulls attribution rather than
+  cascading away co-owned family memories, media, voice, reactions, or replies.
 - A nightly notification is eligible only for a real non-empty writer queue and obeys
   the family-local time, quiet hours, category preference, daily cap, role, entitlement,
   completion, and duplicate-schedule gates. Its metadata contains only coarse queue
