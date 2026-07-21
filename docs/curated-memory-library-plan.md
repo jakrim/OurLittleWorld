@@ -1,7 +1,7 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Releases 0, 1, and 2 plus shared-archive trust stabilization implemented and verified locally; Release 3 automatic collections is next
+Status: Releases 0–3 plus shared-archive trust stabilization implemented and verified locally; Release 4 grounded context and shared enrichment is next
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
 
 ## Executive decision
@@ -572,13 +572,26 @@ Legacy-row rotation requires a staged production rollout after compatible client
 adopted so older installed builds do not create duplicate Keeps; that external rollout
 gate does not block local Release 3 implementation.
 
+Status: complete locally on July 20, 2026. Durable family-owned factual collections,
+selected-by-default Tonight filing suggestions, reversible parent corrections, the
+Our World Collections surface, collection-backed search, bounded paging, source and
+model provenance, active-writer mutation gates, Circle privacy, and 5,000-saved-memory
+performance proof are implemented. Date, media, author, confirmed First, parent place,
+favorite/reaction, and first-year facts organize kept memories without any required
+filing action. Visual scene/activity suggestions were deliberately not enabled: the
+existing heuristic is not a validated visual classifier, and shipping speculative
+labels would violate the trust goal. The documented evidence-based fallback is the
+complete factual collection set until a future on-device evaluation clears that gate.
+No remote migration, deploy, push, production write, or store action occurred.
+
 Goal: organize the family record with minimal parent work.
 
 Build:
 
 - collection schema and Our World collection surface;
 - automatic date, media, First, author, place, and behavior collections;
-- validated on-device scene/activity suggestions;
+- validated on-device scene/activity suggestions, or an explicit evidence-based gate
+  retaining factual fallbacks when validation is insufficient;
 - selected-by-default category chips in Tonight;
 - category correction learning isolated from identity learning;
 - search and filters backed by collection membership.

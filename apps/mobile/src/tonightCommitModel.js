@@ -14,7 +14,7 @@ export async function executeTonightCommit({
   const scope = { sessionId, familyId, userId, position };
   const prepared = dependencies.beginTonightKeep(scope);
   if (prepared.alreadyComplete) return prepared.item;
-  let current = prepared.item || item;
+  let current = { ...(item || {}), ...(prepared.item || {}) };
   const plan = buildTonightCommitPlan(current);
 
   current = await commitStep({
@@ -75,7 +75,10 @@ export async function executeTonightCommit({
 
 async function commitStep({ scope, step, current, dependencies, action, onStep }) {
   if (step.complete) return current;
-  if (!step.needed) return dependencies.markTonightCommitStep({ ...scope, step: step.key, state: 'skipped' });
+  if (!step.needed) return {
+    ...current,
+    ...dependencies.markTonightCommitStep({ ...scope, step: step.key, state: 'skipped' }),
+  };
   onStep?.(step.key, 'saving');
   current = dependencies.markTonightCommitStep({ ...scope, step: step.key, state: 'saving' });
   try {
@@ -87,7 +90,7 @@ async function commitStep({ scope, step, current, dependencies, action, onStep }
       ...(result?.canonicalMomentId ? { canonicalMomentId: result.canonicalMomentId } : {}),
     });
     onStep?.(step.key, 'saved');
-    return saved;
+    return { ...current, ...saved };
   } catch (error) {
     dependencies.markTonightCommitStep({ ...scope, step: step.key, state: 'failed' });
     onStep?.(step.key, 'failed');
@@ -111,6 +114,14 @@ async function commitEnrichmentStep({ step, current, familyId, userId, momentId,
   }
   if (step === 'reaction') {
     for (const emoji of tonightReactionCodes(current)) await dependencies.saveReaction({ familyId, momentId, emoji });
+  }
+  if (step === 'collection') {
+    return dependencies.saveCollections({
+      familyId,
+      momentId,
+      availableKeys: current.availableCollectionKeys || [],
+      selectedKeys: current.collectionKeys || [],
+    });
   }
   return null;
 }

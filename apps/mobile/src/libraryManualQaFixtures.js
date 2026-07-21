@@ -9,10 +9,12 @@ const ZERO_UPLOAD_QUEUE = Object.freeze({
 const EMPTY_FIXTURE_KEY = 'empty';
 const LARGE_NO_FIRSTS_FIXTURE_KEY = 'large-no-firsts';
 const CONNECTED_FIRST_LETTER_FIXTURE_KEY = 'connected-first-letter';
+const COLLECTIONS_FIXTURE_KEY = 'collections';
 const SUPPORTED_FIXTURES = new Set([
   EMPTY_FIXTURE_KEY,
   LARGE_NO_FIRSTS_FIXTURE_KEY,
   CONNECTED_FIRST_LETTER_FIXTURE_KEY,
+  COLLECTIONS_FIXTURE_KEY,
 ]);
 
 export function normalizeLibraryManualQaFixture(value) {
@@ -40,6 +42,7 @@ export function buildLibraryManualQaFixture(value, {
     uploadQueue: { ...ZERO_UPLOAD_QUEUE },
     pendingChange: null,
     iCloudRetry: { count: 0, entries: [] },
+    collections: [],
   };
 
   if (key === EMPTY_FIXTURE_KEY) return base;
@@ -51,11 +54,50 @@ export function buildLibraryManualQaFixture(value, {
     };
   }
 
+  if (key === COLLECTIONS_FIXTURE_KEY) {
+    return {
+      ...base,
+      ...buildCollectionsRows({ userId, now }),
+    };
+  }
+
   const { moments, shared } = buildLargeNoFirstsRows({ userId, now });
   return {
     ...base,
     moments,
     shared,
+  };
+}
+
+function buildCollectionsRows({ userId, now }) {
+  const { moments, shared } = buildLargeNoFirstsRows({ userId, now });
+  const sample = moments.slice(0, 24);
+  const photoIds = sample.map((moment) => moment.id);
+  const parkIds = sample.filter((moment) => moment.place_name === 'At the park').map((moment) => moment.id);
+  const monthIds = sample.filter((moment) => moment.captured_at.startsWith('2026-07')).map((moment) => moment.id);
+  const authorIds = sample.filter((_, index) => index % 2 === 0).map((moment) => moment.id);
+  const collections = [
+    fixtureCollection('qa-collection-photos', 'media:photos', 'media', 'Photos', 'media_type', photoIds),
+    fixtureCollection('qa-collection-month', 'month:2026-07', 'month', 'July 2026', 'date_month', monthIds),
+    fixtureCollection('qa-collection-park', 'place:qa-park', 'place', 'At the park', 'parent_place', parkIds),
+    fixtureCollection('qa-collection-author', 'author:qa-parent', 'author', 'Added by a parent', 'author', authorIds),
+  ];
+  return { moments: sample, shared: shared.slice(0, 24), collections };
+}
+
+function fixtureCollection(id, collectionKey, kind, title, sourceCode, momentIds) {
+  return {
+    id,
+    family_id: 'qa-family',
+    collection_key: collectionKey,
+    kind,
+    title,
+    source_code: sourceCode,
+    confidence_band: sourceCode === 'parent_place' ? 'parent' : 'factual',
+    model_version: 'factual-collections-v1',
+    moment_count: momentIds.length,
+    latest_captured_at: null,
+    moment_ids: momentIds,
   };
 }
 

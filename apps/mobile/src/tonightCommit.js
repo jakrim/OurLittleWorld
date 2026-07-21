@@ -1,6 +1,7 @@
 import { isMediaPolicyError } from './mediaPolicy';
 import { ensureMomentReaction, ensureMomentVoiceNote } from './moments';
 import { Memories, Tags } from './storage';
+import { applyMomentCollectionChoices } from './collections';
 import {
   beginTonightKeep,
   markTonightCommitStep,
@@ -15,6 +16,7 @@ const defaultDependencies = {
   saveText: (input) => Memories.setMine(input),
   saveVoice: ensureMomentVoiceNote,
   saveReaction: ensureMomentReaction,
+  saveCollections: applyMomentCollectionChoices,
 };
 
 export async function commitTonightMemory({

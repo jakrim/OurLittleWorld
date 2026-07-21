@@ -836,6 +836,60 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   return hydrateMomentRows(familyId, rows);
 }
 
+export async function listMomentArchiveByIds(familyId, momentIds = []) {
+  const ids = [...new Set((momentIds || []).filter(Boolean))].slice(0, 60);
+  if (!familyId || !ids.length) return [];
+  const { data, error } = await supabase
+    .from('moments')
+    .select(`
+      id,
+      family_id,
+      author_user_id,
+      title,
+      caption_note,
+      captured_at,
+      place_name,
+      latitude,
+      longitude,
+      shared_with,
+      created_at,
+      moment_media (
+        id,
+        media_type,
+        local_identifier,
+        owner_user_id,
+        file_name,
+        mime_type,
+        width,
+        height,
+        duration_sec,
+        metadata,
+        upload_status,
+        quota_class,
+        storage_provider,
+        playback_provider,
+        stream_uid,
+        sort_order
+      ),
+      voice_notes (
+        id,
+        duration_sec,
+        waveform,
+        audio_object,
+        mime_type,
+        upload_status
+      ),
+      moment_tags (tag),
+      moment_reactions (emoji, author_user_id)
+    `)
+    .eq('family_id', familyId)
+    .in('id', ids);
+  if (error) throw error;
+  const order = new Map(ids.map((id, index) => [id, index]));
+  const rows = (data || []).sort((a, b) => (order.get(a.id) ?? ids.length) - (order.get(b.id) ?? ids.length));
+  return hydrateMomentRows(familyId, rows);
+}
+
 export async function listMomentDayArchive(familyId, {
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   momentLimit = MOMENT_DAY_INDEX_MAX_MOMENTS,

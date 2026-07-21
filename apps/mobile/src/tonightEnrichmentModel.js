@@ -16,6 +16,11 @@ export function buildTonightCommitPlan(item) {
       needed: Boolean(item?.favorite || item?.reactionCode),
       complete: ['saved', 'skipped'].includes(steps.reaction),
     },
+    {
+      key: 'collection',
+      needed: Boolean(item?.availableCollectionKeys?.length),
+      complete: ['saved', 'skipped'].includes(steps.collection),
+    },
   ];
 }
 
@@ -37,6 +42,7 @@ export function tonightCommitStatus(item) {
       text: 'Adding your note…',
       voice: 'Adding your voice note…',
       reaction: 'Adding your favorite…',
+      collection: 'Filing it in your world…',
     };
     return { label: labels[active?.key] || 'Saving this memory…', tone: 'neutral' };
   }

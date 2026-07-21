@@ -184,7 +184,21 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   rich window for context-heavy timeline/search/export compatibility, obtains exact
   family media counts separately, and reads up to 5,000 lightweight day-index rows.
   The dedicated day list/detail is the full first-year browsing surface; collection-
-  backed search beyond the rich recent window is a Release 3 responsibility.
+  backed search now uses family-owned factual collection membership.
+- **Automatic collections:** migration `20260720220000` derives `collections` and
+  `collection_memberships` only from canonical parent-kept moments and their saved
+  facts. Trigger refresh covers capture date, media/voice type, author, confirmed
+  First, safe parent-entered place, favorite/reaction, and first-year membership.
+  Membership carries fixed provenance, confidence band, model version, and a
+  reversible parent exclusion that derivation refresh preserves. Security-invoker
+  summary/page views inherit writer-only RLS; active entitlement is required for
+  correction RPCs, while Circle cannot enumerate the archive. The mobile reader pages
+  at 60 memories and scans at most 5,000 lightweight IDs; canonical moments are then
+  hydrated in ordered bounded batches. SQLite schema version 5 keeps Tonight's
+  selected-by-default factual choices and collection commit state private until Keep,
+  after which the existing idempotent moment transaction applies them. Scene/activity
+  classification remains gated because the existing heuristic is not a validated
+  visual model.
 - **Upload/storage:** `photoSync.js` uploads resized full+thumb JPEGs to the private
   `family-photos` bucket as `photo_tags` rows; moments media in `moment_media`
   (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is

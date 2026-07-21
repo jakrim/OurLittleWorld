@@ -8,7 +8,7 @@ Our Little World is the private digital place where parents keep the life they a
 
 ## Current Product Loop
 
-`Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos with Keep, Skip, one-line context, voice, favorite/reaction, and a bounded best-of-burst choice in the same pager. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
+`Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos with Keep, Skip, one-line context, voice, favorite/reaction, a bounded best-of-burst choice, and factual filing suggestions in the same pager. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, automatically maintained collections, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
 
 ## Current Architecture
 
@@ -74,6 +74,13 @@ Our Little World is the private digital place where parents keep the life they a
   the family-local time, quiet hours, category preference, daily cap, role, entitlement,
   completion, and duplicate-schedule gates. Its metadata contains only coarse queue
   state/count/date and routes to the current `/tonight` session.
+- Automatic collections are derived only from parent-kept shared records and explicit
+  facts: capture date, media type, author, confirmed First, safe parent place,
+  favorite/reaction, and first-year date range. Collection membership records source,
+  confidence band, model version, and reversible parent exclusion. Corrections never
+  touch child-identity calibration. Circle cannot discover collections; lapsed writers
+  retain policy-defined read access but cannot change filing. Unsaved candidates,
+  private asset identity, drafts, and recognition evidence never enter this schema.
 - Timeline and search fold only uncaptioned same-time bursts, Places and weekly recaps
   lead with one representative per event, and parent-authored context remains visible.
 - Moment views are recorded only on an explicit open and support honest Added by,
@@ -101,6 +108,9 @@ Our Little World is the private digital place where parents keep the life they a
   lightweight first-year archive can represent 5,000 saved moments without hydrating
   their full context graphs, while a bounded day-detail query keeps every same-day
   standout and special video individually browsable.
+- Let kept memories file themselves into factual, source-aware collections and expose
+  those collections in Our World and Search. Do not enable scene/activity labels until
+  a non-personal on-device evaluation demonstrates useful accuracy and safe fallbacks.
 - Let both parents independently contribute from their own phone without turning
   either person's private camera roll into shared family data.
 - Let either parent restart only their device's photo-discovery profile without

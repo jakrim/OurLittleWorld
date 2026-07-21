@@ -25,7 +25,7 @@ export const CANDIDATE_UNAVAILABLE_CODES = Object.freeze([
   'missing_after_full_scan',
 ]);
 export const TONIGHT_REACTION_CODES = Object.freeze(['spark', 'seen']);
-export const TONIGHT_COMMIT_STEPS = Object.freeze(['media', 'text', 'voice', 'reaction']);
+export const TONIGHT_COMMIT_STEPS = Object.freeze(['media', 'text', 'voice', 'reaction', 'collection']);
 export const TONIGHT_COMMIT_STEP_STATES = Object.freeze(['idle', 'saving', 'saved', 'failed', 'skipped']);
 
 export function listCachedAnalysisAssetIds({
@@ -574,6 +574,33 @@ export function saveTonightReactionDraft({
   return readTonightSession({ familyId, userId });
 }
 
+export function saveTonightCollectionDraft({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  collectionKeys = [],
+}) {
+  assertScope(familyId, userId);
+  const normalized = [...new Set((collectionKeys || [])
+    .map((key) => String(key || '').trim())
+    .filter((key) => /^[a-z0-9:_-]{1,160}$/.test(key)))]
+    .slice(0, 12);
+  const database = getMediaDatabase();
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    assertMutableItem(database, { sessionId, familyId, userId, position });
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    database.runSync(
+      `update nightly_review_enrichment set draft_collection_keys_json = ?,
+         collection_commit_state = 'idle', retry_id = null, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [JSON.stringify(normalized), stamp, sessionId, position, familyId, userId],
+    );
+  });
+  return readTonightSession({ familyId, userId });
+}
+
 export function clearTonightVoiceDraft({ sessionId, familyId, userId, position }) {
   assertScope(familyId, userId);
   const database = getMediaDatabase();
@@ -997,7 +1024,8 @@ function hydrateSession(database, session) {
        e.draft_voice_waveform_json, e.draft_favorite, e.draft_reaction_code,
        e.retry_id, e.canonical_moment_id, e.canonical_voice_note_id,
        e.canonical_voice_object_id, e.media_commit_state, e.text_commit_state,
-       e.voice_commit_state, e.reaction_commit_state, e.temp_cleanup_state
+       e.voice_commit_state, e.reaction_commit_state, e.draft_collection_keys_json,
+       e.collection_commit_state, e.temp_cleanup_state
      from nightly_review_items i
      join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id and c.asset_id = i.asset_id
      left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
@@ -1081,6 +1109,7 @@ function mapSessionItem(row) {
     } : null,
     favorite: Number(row.draft_favorite || 0) === 1,
     reactionCode: row.draft_reaction_code || null,
+    collectionKeys: row.draft_collection_keys_json == null ? null : parseJsonArray(row.draft_collection_keys_json),
     retryId: row.retry_id || null,
     canonicalMomentId: row.canonical_moment_id || null,
     canonicalVoiceNoteId: row.canonical_voice_note_id || null,
@@ -1090,6 +1119,7 @@ function mapSessionItem(row) {
       text: row.text_commit_state || 'idle',
       voice: row.voice_commit_state || 'idle',
       reaction: row.reaction_commit_state || 'idle',
+      collection: row.collection_commit_state || 'idle',
     },
     tempCleanupState: row.temp_cleanup_state || 'idle',
     lastErrorCode: row.last_error_code || null,

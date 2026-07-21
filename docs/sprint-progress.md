@@ -469,6 +469,95 @@ family-owned memory. Nothing was pushed, deployed, submitted, or changed in prod
   author, confirmed First, safe place, and favorite/reaction collections do not depend
   on that model.
 
+## Curated Memory Library Release 3 — Automatic factual collections (2026-07-20)
+
+Status: implemented, critically reviewed, and verified locally after trust-stabilization
+commit `58d1e59`. Nothing was pushed, deployed, submitted, or changed in production.
+All shared-database proof used the disposable local Supabase stack and synthetic data.
+
+### Product and durable contracts
+
+- Migration `20260720220000_automatic_factual_collections.sql` adds family-owned
+  `collections` and source-aware `collection_memberships`. Trigger-backed refresh
+  creates year, month, photos, videos, voice, author, confirmed First, safe
+  parent-entered place, Favorites, Family reactions, and First year collections only
+  from already-kept shared records. Every kept moment therefore has date membership
+  without asking the parent to file it.
+- Membership stores fixed source code/ref, confidence band, model version, explicit
+  parent exclusion, correction writer, and timestamps. Derivation refresh updates
+  changed facts without rewriting unchanged rows and preserves parent corrections;
+  deletion of a source First/reaction or moment invalidates/cascades the dependent
+  membership. Corrections are isolated from photo-identity calibration.
+- Security-invoker collection views inherit writer-only row security. Active
+  entitlement is required for correction RPCs; Circle cannot discover collections;
+  lapsed writers retain read-only archive access. The schema contains no local asset
+  identifier, fingerprint, face/identity evidence, candidate, reject, or draft field.
+- SQLite schema version `5` adds private Tonight collection choices and an explicit
+  collection commit step. Suggestions are deterministic capture-date/media facts,
+  selected by default, capped at four, reversible before Keep, and committed only
+  after the canonical moment exists. Retries reuse the same Tonight transaction.
+- Our World adds a Collections surface, factual source copy, capture-date ordered
+  60-item pages, removal with Undo for active writers, and collection-name Search.
+  Timeline previews the highest-value collection shortcuts. A `qa=collections`
+  fixture supplies 24 non-personal moments and four factual collections without remote
+  writes. Dynamic Type review changed the five-way utility control to two columns at
+  accessibility sizes and capped only the decorative collection headline.
+- Scene/activity suggestions are deliberately completed as an evidence-based no-ship
+  decision for this release. `visionSceneLabeler` is a location/time/parent-keyword
+  heuristic, not validated visual understanding; factual collections are the safe
+  fallback until a separate non-personal on-device evaluation proves useful accuracy.
+
+### Scoped implementation
+
+- Local draft/model: `mediaDbSchema.js`, `candidateLedgerStore.js`,
+  `automaticCollectionModel.js`, `tonightEnrichmentModel.js`,
+  `tonightCommitModel.js`, `tonightCommit.js`, and `TonightScreen.js`.
+- Shared archive and UI: `collections.js`, `moments.js`, `LibraryScreen.js`, and
+  `libraryManualQaFixtures.js`.
+- Remote contract: migration `20260720220000_automatic_factual_collections.sql` and
+  pgTAP `automatic_factual_collections_test.sql`.
+- Deterministic proof: `automaticCollectionModel.test.js`,
+  `automaticCollectionContracts.test.js`, and the updated schema, Tonight commit,
+  enrichment, and Library fixture tests.
+
+### Performance, bounds, and verification
+
+- Synthetic 5,000-kept-moment PostgreSQL run: moment insert plus factual derivation
+  `3,048.8 ms`; 5,000 image attachments plus media refresh `2,440.2 ms`; 25,000
+  memberships across 12 collections; summary query execution `48.9 ms`; 60-item
+  capture-date page query execution `14.1 ms`; collection tables and indexes
+  `15,245,312 bytes`. Earlier update-every-row refresh took more than 54 seconds for
+  5,000 media rows; changed-fact-only upserts removed that defect before closure.
+- Named bounds: Tonight factual suggestions `4`; collection summary `80`; collection
+  page and canonical hydration `60`; lightweight membership scan `5,000`. The client
+  never hydrates 5,000 rich moment graphs or holds an unbounded archive array.
+- `pnpm db:reset:migrations` replayed every local migration and DB lint returned no
+  errors. Focused pgTAP passed `22/22`. The collection model/contract/schema/Tonight
+  suite passed as part of the complete mobile TypeScript plus `412/412` unit tests.
+  CI Expo lint, repository lint (`2/2` packages), repository typecheck (`2/2`
+  packages), and the unchanged-web production build all passed.
+- Actual iPhone 17 simulator on SDK 57 used a disposable signed-in local family. The
+  real canonical write smoke passed opaque identity, image upload, correction, cleanup,
+  and privacy checks. Collection opening and collection-name Search passed Maestro;
+  dark and light appearances rendered; accessibility-large text exposed and then
+  verified the two-column navigation correction; Reduce Motion was enabled for that
+  pass. Evidence root:
+  `tmp/evidence/curated-memory-library-release3-2026-07-20/`, including
+  `local-smoke-passed.png`, `collections-dark.png`, `collection-open-dark.png`,
+  `collection-search-dark.png`, and
+  `collections-light-a11y-large-reduce-motion-fixed.png`.
+
+### Review decision and next slice
+
+- Critical review corrected membership pages that were ordered by derivation-row time
+  instead of canonical capture date, an unhandled Undo failure, missing chip/search
+  accessibility labels, and inaccessible three-column utility labels at large text.
+- Remote migrations remain intentionally undeployed behind the staged opaque-identity
+  rollout gate documented above. Release 4 grounded life context and separate partner
+  annotations is next; it must add dependency invalidation for family birthday,
+  timezone, and author-label changes rather than hiding those dependencies inside the
+  collection trigger.
+
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 
 Source of truth: `docs/assistant-curated-baby-book-prd.md`.

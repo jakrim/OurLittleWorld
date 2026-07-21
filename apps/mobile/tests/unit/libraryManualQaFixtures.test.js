@@ -15,8 +15,27 @@ test('normalizes only supported library manual QA fixtures', () => {
   assert.equal(normalizeLibraryManualQaFixture('empty'), 'empty');
   assert.equal(normalizeLibraryManualQaFixture(['large-no-firsts']), 'large-no-firsts');
   assert.equal(normalizeLibraryManualQaFixture('connected-first-letter'), 'connected-first-letter');
+  assert.equal(normalizeLibraryManualQaFixture('collections'), 'collections');
   assert.equal(normalizeLibraryManualQaFixture('production'), null);
   assert.equal(normalizeLibraryManualQaFixture(undefined), null);
+});
+
+test('collections fixture is bounded, factual and contains no inferred activity labels', () => {
+  const fixture = buildLibraryManualQaFixture('collections', {
+    userId: 'parent-1',
+    now: new Date('2026-07-09T12:00:00Z'),
+  });
+
+  assert.equal(fixture.moments.length, 24);
+  assert.deepEqual(fixture.collections.map((collection) => collection.title), [
+    'Photos',
+    'July 2026',
+    'At the park',
+    'Added by a parent',
+  ]);
+  assert.ok(fixture.collections.every((collection) => collection.moment_ids.length <= 24));
+  assert.ok(fixture.collections.every((collection) => ['factual', 'parent'].includes(collection.confidence_band)));
+  assert.ok(fixture.collections.every((collection) => !['activity', 'emotion', 'milestone'].includes(collection.kind)));
 });
 
 test('empty library manual QA fixture is non-mutating and quiet', () => {

@@ -45,6 +45,7 @@ import {
   replaceTonightItemWithParentPick,
   restoreCandidateMedia,
   saveTonightDraft,
+  saveTonightCollectionDraft,
   saveTonightReactionDraft,
   saveTonightVoiceDraft,
   selectTonightBurstAlternate,
@@ -66,6 +67,11 @@ import {
 import { cancelTonightNotificationForSession } from './tonightNotifications';
 import { getFamilyRitualSettings } from './ritualSettings';
 import { refreshFamilySavedDayCoverage } from './savedDayCoverage';
+import {
+  buildTonightCollectionSuggestions,
+  selectedTonightCollectionKeys,
+  toggleTonightCollectionKey,
+} from './automaticCollectionModel';
 import { Body, Button, Caption, Eyebrow, Field, Hero, Screen, Spacer, space, useTheme } from './ui';
 
 const SAVE_STEP_LABELS = {
@@ -73,6 +79,7 @@ const SAVE_STEP_LABELS = {
   text: 'Adding your words…',
   voice: 'Uploading your voice note…',
   reaction: 'Adding your favorite…',
+  collection: 'Filing it in your world…',
 };
 
 export default function TonightScreen() {
@@ -160,6 +167,14 @@ export default function TonightScreen() {
     && activeItem?.lastErrorCode !== 'asset_unavailable';
   const activePosition = activeItem?.position;
   const activeDraftText = activeItem?.draftText || '';
+  const collectionSuggestions = useMemo(
+    () => buildTonightCollectionSuggestions({ item: activeItem, babyBirthday: family?.babyBirthday }),
+    [activeItem, family?.babyBirthday],
+  );
+  const selectedCollectionKeys = useMemo(
+    () => selectedTonightCollectionKeys({ suggestions: collectionSuggestions, draftKeys: activeItem?.collectionKeys }),
+    [activeItem?.collectionKeys, collectionSuggestions],
+  );
 
   useEffect(() => {
     setBurstOpen(false);
@@ -197,6 +212,18 @@ export default function TonightScreen() {
       position: activePosition,
     });
   }, [activeDraftText, activePosition, family?.id, session?.sessionId, user?.id]);
+
+  useEffect(() => {
+    if (!activeItem || activeItem.collectionKeys != null || !collectionSuggestions.length) return;
+    const next = saveTonightCollectionDraft({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+      collectionKeys: collectionSuggestions.map((entry) => entry.key),
+    });
+    setSession(next);
+  }, [activeItem, collectionSuggestions, family?.id, session?.sessionId, user?.id]);
 
   const changeDraft = useCallback((text) => {
     if (keepNeedsRetry) return;
@@ -273,7 +300,11 @@ export default function TonightScreen() {
         familyId: family.id,
         userId: user.id,
         position: activeItem.position,
-        item: activeItem,
+        item: {
+          ...activeItem,
+          collectionKeys: selectedCollectionKeys,
+          availableCollectionKeys: collectionSuggestions.map((entry) => entry.key),
+        },
         match: matchFromItem(activeItem),
         onStep: (step, state) => {
           if (state === 'saving') setSaveStep(step);
@@ -409,6 +440,19 @@ export default function TonightScreen() {
       position: activeItem.position,
       favorite: activeItem.favorite,
       reactionCode: activeItem.reactionCode === reactionCode ? null : reactionCode,
+    });
+    setSession(next);
+  };
+
+  const toggleCollection = (key) => {
+    if (busy || keepNeedsRetry) return;
+    const nextKeys = toggleTonightCollectionKey({ selectedKeys: selectedCollectionKeys, key });
+    const next = saveTonightCollectionDraft({
+      sessionId: session.sessionId,
+      familyId: family.id,
+      userId: user.id,
+      position: activeItem.position,
+      collectionKeys: nextKeys,
     });
     setSession(next);
   };
@@ -680,6 +724,41 @@ export default function TonightScreen() {
             })}
           </View>
 
+          {collectionSuggestions.length ? (
+            <View style={styles.collectionDraft}>
+              <View style={styles.collectionDraftHeader}>
+                <Caption style={styles.collectionDraftTitle}>Filed for you</Caption>
+                <Caption>Tap only if one does not belong.</Caption>
+              </View>
+              <View style={styles.collectionChipRow}>
+                {collectionSuggestions.map((suggestion) => {
+                  const selected = selectedCollectionKeys.includes(suggestion.key);
+                  return (
+                    <Pressable
+                      key={suggestion.key}
+                      onPress={() => toggleCollection(suggestion.key)}
+                      disabled={busy || keepNeedsRetry}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      accessibilityLabel={`${suggestion.title} collection`}
+                      style={[
+                        styles.collectionChip,
+                        {
+                          borderColor: selected ? theme.semantic.primary : theme.semantic.border,
+                          backgroundColor: selected ? theme.colors.primarySoft : theme.semantic.cardAlt,
+                        },
+                      ]}
+                      testID={`tonight-collection-${suggestion.key}`}
+                    >
+                      <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={theme.semantic.primary} />
+                      <Caption style={styles.collectionChipText}>{suggestion.title}</Caption>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           <VoiceDraftCard
             voice={activeItem.draftVoice}
             recording={recording}
@@ -947,6 +1026,12 @@ const styles = StyleSheet.create({
   unavailableTitle: { fontSize: 28, lineHeight: 34, textAlign: 'center', marginTop: space.md, marginBottom: space.sm },
   enrichmentRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: space.sm },
   enrichmentButton: { minHeight: 42, borderWidth: 1, borderRadius: 14, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  collectionDraft: { marginTop: space.md, gap: space.sm },
+  collectionDraftHeader: { gap: 2 },
+  collectionDraftTitle: { fontWeight: '800' },
+  collectionChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  collectionChip: { minHeight: 38, borderWidth: 1, borderRadius: 999, paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  collectionChipText: { fontWeight: '700' },
   emojiButton: { width: 42, height: 42, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   emoji: { fontSize: 20, lineHeight: 25 },
   voiceCard: { borderWidth: 1, borderRadius: 16, padding: space.md, marginTop: space.md, gap: space.sm },

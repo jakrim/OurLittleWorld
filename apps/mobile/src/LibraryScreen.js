@@ -59,6 +59,13 @@ import { listFamilyLibraryConnections } from './familyLibrarySync';
 import { buildFamilyLibrarySyncModel } from './familyLibrarySyncModel';
 import { buildSavedDailyAlbum } from './dailyCurationModel';
 import { deviceTimeZone, getFamilyRitualSettings } from './ritualSettings';
+import {
+  listAutomaticCollections,
+  listCollectionMoments,
+  setCollectionMembershipVisible,
+  COLLECTION_MOMENT_PAGE_SIZE,
+} from './collections';
+import { collectionKindLabel } from './automaticCollectionModel';
 
 const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
 const TIMELINE_RENDER_LIMIT = 500;
@@ -68,7 +75,7 @@ export default function LibraryScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const theme = useTheme();
-  const { width: viewportWidth } = useWindowDimensions();
+  const { width: viewportWidth, fontScale } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
   const { entitlement, loading: billingLoading } = useBilling();
@@ -108,6 +115,11 @@ export default function LibraryScreen() {
   const [showUtilityDetails, setShowUtilityDetails] = useState(false);
   const [familyMembers, setFamilyMembers] = useState([]);
   const [libraryConnections, setLibraryConnections] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [collectionMoments, setCollectionMoments] = useState([]);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionHasMore, setCollectionHasMore] = useState(false);
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
@@ -132,6 +144,7 @@ export default function LibraryScreen() {
   const effectiveUploadQueue = manualQaFixture?.uploadQueue || uploadQueue;
   const effectivePendingChange = manualQaFixture ? null : pendingChange;
   const effectiveICloudRetry = manualQaFixture?.iCloudRetry || iCloudRetry;
+  const effectiveCollections = manualQaFixture?.collections || collections;
 
   const openSegment = useCallback((next) => {
     setSegment(next);
@@ -169,6 +182,7 @@ export default function LibraryScreen() {
       connectionRows,
       dayRows,
       countRows,
+      collectionRows,
     ] = await Promise.all([
       listSharedTagged(family.id, { limit: 90 }).catch(() => []),
       Tags.all(family.id).catch(() => ({})),
@@ -185,6 +199,7 @@ export default function LibraryScreen() {
       listFamilyLibraryConnections(family.id).catch(() => []),
       listMomentDayArchive(family.id, { momentLimit: 5000, timezone: familyTimezone }).catch(() => []),
       getFamilyArchiveCounts(family.id).catch(() => null),
+      listAutomaticCollections(family.id).catch(() => []),
     ]);
     setShared(sharedRows);
     setMoments(momentRows);
@@ -200,6 +215,7 @@ export default function LibraryScreen() {
     setDailyArchiveRecords(dayRows);
     setArchiveCounts(countRows);
     setArchiveTimezone(familyTimezone);
+    setCollections(collectionRows);
   }, [canManageLibrary, family?.babyBirthday, family?.id, user?.id]);
 
   const loadLocalInitial = useCallback(async () => {
@@ -285,6 +301,19 @@ export default function LibraryScreen() {
     lapsedSubscriptionPolicy: null,
   }), [effectiveFirsts, effectiveLetters, effectiveMoments, effectivePromptResponses, effectiveShared, effectiveUploadQueue, family?.babyBirthday]);
   const archiveRecords = bookHome.records;
+  const collectionHome = useMemo(() => buildBookHomeModel({
+    moments: collectionMoments,
+    sharedPhotos: [],
+    firsts: effectiveFirsts,
+    letters: [],
+    digests: [],
+    childBirthday: family?.babyBirthday,
+    promptResponses: [],
+    voiceNotes: [],
+    uploadRepairState: null,
+    exportLimitations: [],
+    lapsedSubscriptionPolicy: null,
+  }), [collectionMoments, effectiveFirsts, family?.babyBirthday]);
   const archiveStats = manualQaFixture || !archiveCounts
     ? bookHome.stats
     : { ...bookHome.stats, ...archiveCounts };
@@ -401,6 +430,77 @@ export default function LibraryScreen() {
     if (record?.moment) openMoment(record.moment);
     else if (record?.photo) openShared(record.photo);
   };
+
+  const openCollection = useCallback(async (collection) => {
+    if (!family?.id || !collection?.id) return;
+    setSelectedCollection(collection);
+    openSegment('collections');
+    if (manualQaFixture) {
+      const momentIds = new Set(collection.moment_ids || []);
+      setCollectionMoments(effectiveMoments.filter((moment) => momentIds.has(moment.id)));
+      setCollectionHasMore(false);
+      return;
+    }
+    setCollectionLoading(true);
+    try {
+      const rows = await listCollectionMoments(family.id, collection.id, { offset: 0 });
+      setCollectionMoments(rows);
+      setCollectionHasMore(rows.length === COLLECTION_MOMENT_PAGE_SIZE);
+    } catch (collectionError) {
+      Alert.alert('Could not open collection', collectionError?.message || String(collectionError));
+      setCollectionMoments([]);
+      setCollectionHasMore(false);
+    } finally {
+      setCollectionLoading(false);
+    }
+  }, [effectiveMoments, family?.id, manualQaFixture, openSegment]);
+
+  const loadMoreCollection = useCallback(async () => {
+    if (!family?.id || !selectedCollection?.id || collectionLoading || !collectionHasMore) return;
+    setCollectionLoading(true);
+    try {
+      const rows = await listCollectionMoments(family.id, selectedCollection.id, { offset: collectionMoments.length });
+      setCollectionMoments((current) => [...current, ...rows]);
+      setCollectionHasMore(rows.length === COLLECTION_MOMENT_PAGE_SIZE);
+    } finally {
+      setCollectionLoading(false);
+    }
+  }, [collectionHasMore, collectionLoading, collectionMoments.length, family?.id, selectedCollection?.id]);
+
+  const removeFromCollection = useCallback(async (record) => {
+    const momentId = record?.moment?.id;
+    if (!canManageLibrary || !family?.id || !selectedCollection?.id || !momentId) return;
+    try {
+      await setCollectionMembershipVisible({
+        familyId: family.id,
+        collectionId: selectedCollection.id,
+        momentId,
+        visible: false,
+      });
+      setCollectionMoments((current) => current.filter((moment) => moment.id !== momentId));
+      Alert.alert('Removed from this collection', 'The memory is still safely kept in Our World.', [
+        { text: 'Done', style: 'cancel' },
+        {
+          text: 'Undo',
+          onPress: async () => {
+            try {
+              await setCollectionMembershipVisible({
+                familyId: family.id,
+                collectionId: selectedCollection.id,
+                momentId,
+                visible: true,
+              });
+              openCollection(selectedCollection);
+            } catch (undoError) {
+              Alert.alert('Could not restore memory', undoError?.message || String(undoError));
+            }
+          },
+        },
+      ]);
+    } catch (collectionError) {
+      Alert.alert('Could not update collection', collectionError?.message || String(collectionError));
+    }
+  }, [canManageLibrary, family?.id, openCollection, selectedCollection]);
 
   const openCameraRollTools = () => {
     if (!canManageLibrary) return;
@@ -557,8 +657,10 @@ export default function LibraryScreen() {
         <SegmentedControl
           value={segment}
           onChange={openSegment}
+          columns={fontScale >= 1.4 ? 2 : 3}
           options={[
             { value: 'photos', label: 'Timeline' },
+            { value: 'collections', label: 'Collections' },
             { value: 'places', label: 'Places' },
             { value: 'search', label: 'Search' },
             { value: 'export', label: 'Export' },
@@ -582,6 +684,7 @@ export default function LibraryScreen() {
               onOpenAlbum={() => router.push('/daily-album')}
               theme={theme}
             />
+            <AutomaticCollectionsPreview collections={effectiveCollections} onOpen={openCollection} theme={theme} />
             <SavedMomentGrid
               childName={family?.babyName}
               sections={presentationSections}
@@ -662,6 +765,20 @@ export default function LibraryScreen() {
               />
             ) : null}
           </View>
+        ) : segment === 'collections' ? (
+          <CollectionsPanel
+            collections={effectiveCollections}
+            selected={selectedCollection}
+            records={collectionHome.records}
+            loading={collectionLoading}
+            hasMore={collectionHasMore}
+            onSelect={openCollection}
+            onOpen={openArchiveRecord}
+            onLoadMore={loadMoreCollection}
+            canEdit={canManageLibrary && !manualQaFixture}
+            onRemove={removeFromCollection}
+            theme={theme}
+          />
         ) : segment === 'places' ? (
           <View style={styles.placeList}>
             {places.length ? places.map((place) => (
@@ -712,6 +829,8 @@ export default function LibraryScreen() {
               onFilterChange={setArchiveFilter}
               results={searchEventGroups}
               stats={archiveStats}
+              collections={effectiveCollections}
+              onOpenCollection={openCollection}
               onOpen={openArchiveRecord}
               theme={theme}
             />
@@ -745,7 +864,120 @@ export default function LibraryScreen() {
 
 function normalizeLibrarySegment(value) {
   const raw = Array.isArray(value) ? value[0] : value;
-  return ['photos', 'places', 'search', 'export'].includes(raw) ? raw : null;
+  return ['photos', 'collections', 'places', 'search', 'export'].includes(raw) ? raw : null;
+}
+
+function AutomaticCollectionsPreview({ collections, onOpen, theme }) {
+  if (!collections?.length) return null;
+  return (
+    <View style={styles.autoCollectionSection}>
+      <View style={styles.sectionHeader}>
+        <View style={styles.resultText}>
+          <Eyebrow>Filed for you</Eyebrow>
+          <Title style={styles.cardTitle}>Collections that organize themselves.</Title>
+          <Caption>Date, media, parent choices, confirmed Firsts, and safe places update from the memories you keep.</Caption>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.autoCollectionRail}>
+        {collections.slice(0, 8).map((collection) => (
+          <Pressable
+            key={collection.id}
+            onPress={() => onOpen(collection)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${collection.title} collection`}
+            style={[styles.autoCollectionCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+          >
+            <Caption>{collectionKindLabel(collection.kind)}</Caption>
+            <Title style={styles.autoCollectionTitle} numberOfLines={2}>{collection.title}</Title>
+            <Caption>{countText(collection.moment_count, 'memory')}</Caption>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function CollectionsPanel({ collections, selected, records, loading, hasMore, onSelect, onOpen, onLoadMore, canEdit, onRemove, theme }) {
+  return (
+    <View style={styles.collectionPanel}>
+      <Card padding="md">
+        <Eyebrow>Automatic collections</Eyebrow>
+        <Title style={styles.cardTitle} maxFontSizeMultiplier={1.6}>Less filing. More remembering.</Title>
+        <Body>These use facts already saved with your family memories. An unkept camera-roll photo never appears here.</Body>
+        <View style={styles.collectionChooser}>
+          {(collections || []).map((collection) => {
+            const active = selected?.id === collection.id;
+            return (
+              <Pressable
+                key={collection.id}
+                testID={`collection-${collection.collection_key}`}
+                onPress={() => onSelect(collection)}
+                accessibilityRole="button"
+                accessibilityLabel={`${collection.title}, ${countText(collection.moment_count, 'memory')}`}
+                accessibilityState={{ selected: active }}
+                style={[
+                  styles.collectionChoice,
+                  {
+                    backgroundColor: active ? theme.colors.primarySoft : theme.semantic.cardAlt,
+                    borderColor: active ? theme.semantic.primary : theme.semantic.border,
+                  },
+                ]}
+              >
+                <Caption style={styles.collectionChoiceTitle}>{collection.title}</Caption>
+                <Caption>{Number(collection.moment_count || 0).toLocaleString()}</Caption>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+      {selected ? (
+        <View style={styles.collectionResults}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.resultText}>
+              <Eyebrow>{collectionKindLabel(selected.kind)}</Eyebrow>
+              <Title style={styles.cardTitle}>{selected.title}</Title>
+              <Caption>{countText(selected.moment_count, 'memory')} · {collectionSourceLabel(selected.source_code)}</Caption>
+            </View>
+          </View>
+          {records.map((record) => (
+            <View key={record.key} style={styles.collectionResultRow}>
+              <ArchiveResultRow record={record} onPress={() => onOpen(record)} theme={theme} />
+              {canEdit ? (
+                <Pressable
+                  onPress={() => onRemove(record)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${record.title || 'memory'} from ${selected.title}`}
+                  style={styles.collectionRemoveButton}
+                >
+                  <Caption>Not in this collection</Caption>
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+          {loading ? <ActivityIndicator color={theme.semantic.primary} /> : null}
+          {hasMore && !loading ? <Button variant="ghost" onPress={onLoadMore}>Load more</Button> : null}
+          {!loading && !records.length ? <Caption>No visible memories remain in this collection.</Caption> : null}
+        </View>
+      ) : (
+        <Card><Body>Choose a collection to browse it.</Body></Card>
+      )}
+    </View>
+  );
+}
+
+function collectionSourceLabel(sourceCode) {
+  const labels = {
+    date_year: 'From saved dates',
+    date_month: 'From saved dates',
+    media_type: 'From saved media',
+    author: 'From saved authorship',
+    confirmed_first: 'From a confirmed First',
+    parent_place: 'From a parent-added place',
+    favorite: 'From a parent favorite',
+    reaction: 'From family reactions',
+    life_stage: 'From birth and capture dates',
+  };
+  return labels[sourceCode] || 'From saved facts';
 }
 
 function libraryTileSizeForWidth(width) {
@@ -1710,8 +1942,13 @@ const ARCHIVE_FILTERS = [
   { value: 'firsts', label: 'Firsts' },
 ];
 
-function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, stats, onOpen, theme }) {
+function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, stats, collections, onOpenCollection, onOpen, theme }) {
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+  const collectionMatches = (collections || []).filter((collection) => {
+    if (filter !== 'all' || !query.trim()) return false;
+    return `${collection.title} ${collectionKindLabel(collection.kind)}`.toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase());
+  }).slice(0, 8);
   const toggleGroup = (key) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -1738,6 +1975,7 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
           <TextInput
             value={query}
             onChangeText={onQueryChange}
+            accessibilityLabel="Search saved memories and collections"
             placeholder="Title, place, tag, date, voice..."
             placeholderTextColor={theme.semantic.textMuted}
             autoCapitalize="none"
@@ -1769,6 +2007,26 @@ function SearchPanel({ query, onQueryChange, filter, onFilterChange, results, st
           <SearchStat label={countLabel(stats.firsts, 'first')} value={stats.firsts} theme={theme} />
         </View>
       </Card>
+
+      {collectionMatches.length ? (
+        <View style={styles.searchCollectionMatches}>
+          <Eyebrow>Matching collections</Eyebrow>
+          <View style={styles.collectionChooser}>
+            {collectionMatches.map((collection) => (
+              <Pressable
+                key={collection.id}
+                onPress={() => onOpenCollection(collection)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${collection.title} collection`}
+                style={[styles.collectionChoice, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+              >
+                <Caption style={styles.collectionChoiceTitle}>{collection.title}</Caption>
+                <Caption>{Number(collection.moment_count || 0).toLocaleString()}</Caption>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {results.length ? results.flatMap((group) => {
         const expanded = expandedGroups.has(group.key);
@@ -2807,6 +3065,62 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0,
+  },
+  autoCollectionSection: {
+    marginTop: space.lg,
+    gap: space.sm,
+  },
+  autoCollectionRail: {
+    gap: space.sm,
+    paddingRight: space.xl,
+  },
+  autoCollectionCard: {
+    width: 156,
+    minHeight: 112,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: space.md,
+    justifyContent: 'space-between',
+  },
+  autoCollectionTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  collectionPanel: {
+    gap: space.lg,
+  },
+  collectionChooser: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.xs,
+    marginTop: space.md,
+  },
+  collectionChoice: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+  },
+  collectionChoiceTitle: {
+    fontWeight: '800',
+  },
+  collectionResults: {
+    gap: space.sm,
+  },
+  searchCollectionMatches: {
+    gap: space.sm,
+  },
+  collectionResultRow: {
+    gap: 2,
+  },
+  collectionRemoveButton: {
+    alignSelf: 'flex-end',
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: space.sm,
   },
   placeList: {
     gap: space.sm,

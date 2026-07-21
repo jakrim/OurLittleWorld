@@ -50,6 +50,21 @@ test('reaction failure after moment success is idempotent across repeated Keep',
   assert.equal(harness.item.commitSteps.reaction, 'saved');
 });
 
+test('collection choices commit once after canonical media and remain retry-safe', async () => {
+  const harness = commitHarness(item({
+    availableCollectionKeys: ['media:photos', 'month:2026-07'],
+    collectionKeys: ['media:photos'],
+  }));
+  await executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies });
+  await executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies });
+  assert.deepEqual(harness.calls.collections, [{
+    familyId: 'family-a',
+    momentId: 'moment-1',
+    availableKeys: ['media:photos', 'month:2026-07'],
+    selectedKeys: ['media:photos'],
+  }]);
+});
+
 function item(overrides = {}) {
   return {
     assetId: 'asset-1',
@@ -62,7 +77,7 @@ function item(overrides = {}) {
     canonicalVoiceNoteId: 'voice-note-1',
     canonicalVoiceObjectId: 'voice-object-1',
     canonicalMomentId: null,
-    commitSteps: { media: 'idle', text: 'idle', voice: 'idle', reaction: 'idle' },
+    commitSteps: { media: 'idle', text: 'idle', voice: 'idle', reaction: 'idle', collection: 'idle' },
     ...overrides,
   };
 }
@@ -78,6 +93,7 @@ function commitHarness(initialItem, options = {}) {
     enrichment: [],
     voiceIdentities: [],
     savedReactions: new Set(),
+    collections: [],
   };
   let failedVoice = false;
   let failedSpark = false;
@@ -110,6 +126,7 @@ function commitHarness(initialItem, options = {}) {
       calls.savedReactions.add(emoji);
       calls.enrichment.push(emoji);
     },
+    saveCollections: async (input) => { calls.collections.push(input); },
   };
   return { item: initialItem, calls, dependencies };
 }

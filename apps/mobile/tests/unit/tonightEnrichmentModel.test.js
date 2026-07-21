@@ -20,6 +20,7 @@ test('text, voice, favorite and reaction produce explicit independent commit ste
     { key: 'text', needed: true, complete: false },
     { key: 'voice', needed: true, complete: false },
     { key: 'reaction', needed: true, complete: false },
+    { key: 'collection', needed: false, complete: false },
   ]);
   assert.deepEqual(tonightReactionCodes(item), ['heart', 'spark']);
 });
@@ -27,7 +28,7 @@ test('text, voice, favorite and reaction produce explicit independent commit ste
 test('empty enrichment is skipped rather than manufactured', () => {
   const plan = buildTonightCommitPlan({ commitSteps: {} });
   assert.deepEqual(plan.map(({ key, needed }) => [key, needed]), [
-    ['media', true], ['text', false], ['voice', false], ['reaction', false],
+    ['media', true], ['text', false], ['voice', false], ['reaction', false], ['collection', false],
   ]);
 });
 
