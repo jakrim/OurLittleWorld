@@ -1,3 +1,4 @@
+-- Run directly with host psql so relative migration includes remain available.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -53,7 +54,7 @@ insert into public.memories (family_id, asset_owner_user_id, asset_id, author_us
 values ('20000000-0000-4000-8000-000000000010', '20000000-0000-4000-8000-000000000001',
   'PH-PRIVATE/L0/001', '20000000-0000-4000-8000-000000000001', 'Private identifier fixture');
 
-\ir ../migrations/20260720210000_private_shared_media_identity.sql
+\ir ../../migrations/20260720210000_private_shared_media_identity.sql
 
 select plan(6);
 
@@ -85,7 +86,7 @@ select is(
 
 create temporary table first_rotation_key as
 select asset_id from public.photo_tags where id = '20000000-0000-4000-8000-000000000301';
-\ir ../migrations/20260720210000_private_shared_media_identity.sql
+\ir ../../migrations/20260720210000_private_shared_media_identity.sql
 select is(
   (select asset_id from public.photo_tags where id = '20000000-0000-4000-8000-000000000301'),
   (select asset_id from first_rotation_key),

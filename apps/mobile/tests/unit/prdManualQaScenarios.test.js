@@ -232,7 +232,7 @@ test('section 15: assistant suggestion dismissal quiets only that suggestion lan
 test('section 15: calibrated auto-save starts review-first and pauses after corrections', () => {
   const firstScan = buildPhotoIngestionTrustModel({
     pendingReviewCount: 12,
-    babyName: 'Reuben',
+    babyName: 'River',
   });
   const cleanCorrections = Array.from({ length: TRUST_CLEAN_BATCH_MIN }, (_, index) => ({
     assetId: `asset-${index}`,
@@ -306,7 +306,7 @@ test('section 15: export preview includes parent-owned book material and current
     now,
   });
   const html = buildPhotoBookHtml({
-    family: { babyName: 'Reuben' },
+    family: { babyName: 'River' },
     stats: home.stats,
     years: home.yearSummaries,
     firsts: [{ id: 'first-laugh', title: 'First laugh', done: true, happened_at: '2026-01-14' }],

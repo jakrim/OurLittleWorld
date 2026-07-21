@@ -1,6 +1,6 @@
 # Our Little World — Current Product State
 
-Last updated: July 20, 2026
+Last updated: July 21, 2026
 
 ## Product Thesis
 
@@ -9,6 +9,12 @@ Our Little World is the private digital place where parents keep the life they a
 ## Current Product Loop
 
 `Today` helps parents notice, capture, review, and approve worthwhile moments. When strong private candidates exist, `Tonight's memories` is the primary calm review ritual: three to seven photos or videos with Keep, Skip, one-line context, voice, favorite/reaction, a bounded best-of-burst choice, and factual filing suggestions in the same pager. `Add` starts with the parent's intention: photos or a moment, a note to each other, a voice note, or a letter to baby. `Our World` is the durable payoff through the shared timeline, automatically maintained collections, media, Firsts, Letters, and related memory surfaces. Search and export are utilities inside that world.
+
+Today has one owner and one job. The root route redirects to canonical Today; archive
+timeline, month, Places, and first-year browsing live only in Our World. Today keeps
+trust/repair priorities, the Tonight ritual, prompts or digest when relevant, and one
+clear handoff into the shared family archive. Book-readiness and printing are not
+daily nudges.
 
 ## Current Architecture
 
@@ -74,6 +80,9 @@ Our Little World is the private digital place where parents keep the life they a
   the family-local time, quiet hours, category preference, daily cap, role, entitlement,
   completion, and duplicate-schedule gates. Its metadata contains only coarse queue
   state/count/date and routes to the current `/tonight` session.
+  Scheduling is local to the device because the queue is private; the remote
+  notification function explicitly rejects `tonight_picks` and cannot invent queue
+  readiness from server state.
 - Automatic collections are derived only from parent-kept shared records and explicit
   facts: capture date, media type, author, confirmed First, safe parent place,
   favorite/reaction, and first-year date range. Collection membership records source,
@@ -97,6 +106,10 @@ Our Little World is the private digital place where parents keep the life they a
 - Moment views are recorded only on an explicit open and support honest Added by,
   Read/Seen by, reaction, and private reply state between family writers.
 - Family authorization, analytics payloads, account deletion, export, lapsed-subscription access, and media privacy are release-critical behavior.
+- Curated-memory measurement is consent-gated and content-free. Tonight, collection,
+  and shared-annotation events use only coarse count/duration buckets and fixed enums;
+  candidate/session IDs, local asset identity, selection evidence, authored text,
+  reaction values, and local voice paths remain outside analytics and error payloads.
 - Letters and long-term promises must be supported by export/ownership behavior; marketing cannot promise indefinite platform custody.
 
 ## Active Product Direction

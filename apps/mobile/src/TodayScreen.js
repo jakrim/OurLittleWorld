@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -14,10 +14,6 @@ import {
   Card,
   Eyebrow,
   EntranceView,
-  ENTRANCE_STAGGER_MS,
-  PhotoPlaceholder,
-  SegmentedContent,
-  SegmentedControl,
   Title,
   glass,
   radius,
@@ -32,18 +28,14 @@ import { buildBlockingAssistantIssue, selectDayCardNudge } from './dayCardNudge'
 import { selectTodaySuggestion } from './firstSuggestionModel';
 import { readFirstSuggestionState, snoozeFirstSuggestion } from './firstSuggestionStore';
 import { ageAt, formatAge, localCalendarDayDiff, localDateFromISODate } from './ageModel.js';
-import { removeAutoSavedMemory } from './autoSaveCorrection';
-import { AUTO_SAVE_CORRECTION_COPY, isAutoSavedMemory } from './autoSaveCorrectionModel';
-import { deleteForTag, getUploadQueueStatus } from './photoSync';
+import { getUploadQueueStatus } from './photoSync';
 import { buildPhotoIngestionTrustModel } from './photoIngestionTrustModel';
-import PhotoActionSheet from './PhotoActionSheet';
 import { pickDigestCoverUri } from './digestCover';
 import { digestHasContent } from './digestModel.js';
 import { buildDigestViewStatusLabel, buildPromptAnswerStatusLabel } from './secondParentStateModel';
 import { countLabel } from './plural';
 import { getImportCalibration, getRecentAutoSaves } from './recognitionTrust';
 import { useRitualHomeData } from './useRitualHomeData';
-import { buildPlaceClusters } from './visionSceneLabeler';
 import { useMediaLibraryChangeObserver } from './mediaLibraryChanges';
 import { useICloudRetryCount } from './iCloudRetryQueue';
 import { formatMilestoneDisplayTitle } from './milestoneTitleModel';
@@ -53,6 +45,10 @@ import { getNotificationPreferences } from './notificationSettings';
 import { getFamilyRitualSettings } from './ritualSettings';
 import { maybeScheduleTonightNotification } from './tonightNotifications';
 import { refreshFamilySavedDayCoverage } from './savedDayCoverage';
+import { trackAnalyticsEvent } from './analytics';
+import { bucketCount } from './analyticsEventsModel';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import { localDayInTimeZone } from './firstYearCatchupModel';
 
 const EMPTY_UPLOAD_QUEUE = { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null };
 const EMPTY_PHOTO_TRUST_INPUTS = { calibration: null, recentAutoSaves: [] };
@@ -69,8 +65,6 @@ export default function TodayScreen() {
     && writer
     && !!family?.id
     && !!user?.id;
-  const [segment, setSegment] = useState('timeline');
-  const [actionPhoto, setActionPhoto] = useState(null);
   const [uploadQueue, setUploadQueue] = useState(EMPTY_UPLOAD_QUEUE);
   const [photoTrustInputs, setPhotoTrustInputs] = useState(EMPTY_PHOTO_TRUST_INPUTS);
   const [tonightSummary, setTonightSummary] = useState(null);
@@ -94,10 +88,7 @@ export default function TodayScreen() {
     goalRows,
     digestUnread,
     sharedPhotos,
-    recentPhotos,
-    todayMatches,
     firstsSummary,
-    bookReadinessNudge,
     membersById,
     refresh,
     snoozePrompt: snoozePromptCached,
@@ -123,49 +114,6 @@ export default function TodayScreen() {
     }
   };
 
-  const openPhoto = (photo) => {
-    if (!photo?.asset_id) return;
-    if (photo.moment_id) {
-      router.push({ pathname: '/moment/[momentId]', params: { momentId: photo.moment_id } });
-      return;
-    }
-    const params = { assetId: photo.asset_id };
-    if (photo.asset_owner_user_id) params.ownerUserId = photo.asset_owner_user_id;
-    const previewUri = photo.thumbUrl || photo.fullUrl;
-    if (previewUri) params.uri = previewUri;
-    if (photo.creation_time) params.creationTime = String(new Date(photo.creation_time).getTime());
-    router.push({ pathname: '/photo/[assetId]', params });
-  };
-
-  const onLongPressPhoto = (photo) => {
-    setActionPhoto(photo);
-  };
-
-  const removePhoto = async () => {
-    if (!family?.id || !actionPhoto) return;
-    const photo = actionPhoto;
-    setActionPhoto(null);
-    try {
-      if (isAutoSavedMemory(photo) && user?.id) {
-        await removeAutoSavedMemory({
-          familyId: family.id,
-          userId: user.id,
-          target: photo,
-        });
-        Alert.alert(AUTO_SAVE_CORRECTION_COPY.successTitle, AUTO_SAVE_CORRECTION_COPY.successBody);
-      } else {
-        await deleteForTag({
-          familyId: family.id,
-          assetOwnerUserId: photo.asset_owner_user_id,
-          assetId: photo.asset_id,
-        });
-      }
-      refresh({ force: true });
-    } catch (err) {
-      Alert.alert('Could not remove', err?.message || String(err));
-    }
-  };
-
   const title = family?.babyName ? `${family.babyName}'s world` : 'today';
   const prompt = promptState?.prompt;
   const mine = promptState?.mine;
@@ -176,7 +124,6 @@ export default function TodayScreen() {
   );
   const snoozed = promptState?.snoozed;
   const loadingCold = status === 'idle' || status === 'refreshing';
-  const activeSegment = segment === 'on-this-day' && !todayMatches.length ? 'timeline' : segment;
   const waitingReviewCount = scanState.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
   const blockingIssue = useMemo(
     () => buildBlockingAssistantIssue({
@@ -244,16 +191,34 @@ export default function TodayScreen() {
           userId: user.id,
           timezone: session?.timezone,
         }));
-        if (session?.status === 'active' && !session.completed) await maybeScheduleTonightNotification({
-          familyId: family.id,
-          userId: user.id,
-          session,
-          preferences,
-          role: family.me.role,
-          entitlementActive: entitlement.isActive,
-          timezone: session.timezone || ritualSettings.timezone,
-          targetTime: ritualSettings.dailyPromptTime,
-        });
+        if (session?.status === 'active' && !session.completed) {
+          const scheduled = await maybeScheduleTonightNotification({
+            familyId: family.id,
+            userId: user.id,
+            session,
+            preferences,
+            role: family.me.role,
+            entitlementActive: entitlement.isActive,
+            timezone: session.timezone || ritualSettings.timezone,
+            targetTime: ritualSettings.dailyPromptTime,
+          });
+          if (scheduled?.scheduled) {
+            const timezone = session.timezone || ritualSettings.timezone;
+            trackAnalyticsEvent('tonight_notification_scheduled', {
+              surface: 'notification',
+              queue_count_bucket: bucketCount(session.items?.length || 0),
+              schedule_day: localDayInTimeZone(scheduled.triggerDate, timezone) === session.localDay
+                ? 'same_local_day'
+                : 'next_local_day',
+            }, {
+              family_id: family.id,
+              actor_role: family.me.role,
+              plan_state: 'active',
+              platform: analyticsPlatform('ios'),
+              environment: analyticsEnvironment(),
+            });
+          }
+        }
       } catch {
         console.warn('tonight queue summary unavailable');
         if (alive) setTonightSummary(null);
@@ -305,7 +270,6 @@ export default function TodayScreen() {
     catchupGoal,
     promptState,
     missedPrompt,
-    bookReadinessNudge,
     digestUnread,
     babyName: family?.babyName,
   });
@@ -321,14 +285,6 @@ export default function TodayScreen() {
     const next = await snoozeFirstSuggestion({ familyId: family.id, userId: user.id, goalKey: nudge.goalKey });
     setSuggestionState(next);
   };
-  const monthSections = useMemo(
-    () => groupByMonth(sharedPhotos, family?.babyBirthday),
-    [family?.babyBirthday, sharedPhotos],
-  );
-  const places = useMemo(
-    () => buildPlaceClusters({ shared: sharedPhotos, metadataByKey: {}, memoriesByKey: {} }),
-    [sharedPhotos],
-  );
   const digestCoverUri = useMemo(
     () => pickDigestCoverUri({
       coverPhoto: digest.coverPhoto,
@@ -352,24 +308,6 @@ export default function TodayScreen() {
     () => (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
     [digest.representativeMedia],
   );
-
-  const photoSheetActions = actionPhoto ? [
-    {
-      icon: 'open-outline',
-      label: 'Open moment',
-      onPress: () => {
-        const photo = actionPhoto;
-        setActionPhoto(null);
-        openPhoto(photo);
-      },
-    },
-    {
-      icon: 'trash-outline',
-      label: isAutoSavedMemory(actionPhoto) ? AUTO_SAVE_CORRECTION_COPY.actionLabel : 'Remove from timeline',
-      destructive: true,
-      onPress: removePhoto,
-    },
-  ] : [];
 
   return (
     <AppShell
@@ -573,69 +511,24 @@ export default function TodayScreen() {
         />
       </EntranceView>
 
-      {/* The control sits directly above the content it switches (H1). */}
       <EntranceView index={tonightModel.visible ? 5 : 4}>
-        <SegmentedControl
-          value={activeSegment}
-          onChange={setSegment}
-          options={[
-            { value: 'timeline', label: 'Timeline' },
-            { value: 'places', label: 'Places' },
-            // A segment that is always empty is worse than no segment (A4).
-            ...(todayMatches.length ? [{ value: 'on-this-day', label: 'On this day' }] : []),
-          ]}
-        />
+        <AnimatedPressable
+          onPress={() => router.push('/library')}
+          accessibilityRole="button"
+          accessibilityLabel="Open Our World to browse saved memories"
+        >
+          <Card variant="ghost" style={styles.worldPayoffCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.teaserCopy}>
+                <Eyebrow>Our World</Eyebrow>
+                <Title style={styles.teaserTitle}>All the memories you have kept, in one place.</Title>
+                <Caption>Browse days, collections, places, Firsts, letters, and search.</Caption>
+              </View>
+              <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
+            </View>
+          </Card>
+        </AnimatedPressable>
       </EntranceView>
-
-      <EntranceView index={tonightModel.visible ? 6 : 5}>
-        <SegmentedContent segmentKey={activeSegment}>
-          {activeSegment === 'timeline' ? (
-            <>
-              <PhotoRail
-                title="Recent"
-                photos={recentPhotos}
-                babyBirthday={family?.babyBirthday}
-                onPress={openPhoto}
-                onLongPress={onLongPressPhoto}
-                onSeeAll={() => router.push('/library')}
-                empty="No saved moments yet."
-                emptyActionLabel="Add your first"
-                onEmptyAction={() => router.push('/add')}
-              />
-              <MonthTimeline
-                sections={monthSections}
-                onPress={openPhoto}
-                onLongPress={onLongPressPhoto}
-                youUserId={user?.id}
-              />
-            </>
-          ) : activeSegment === 'on-this-day' ? (
-            <PhotoRail
-              title="On this day"
-              photos={todayMatches}
-              babyBirthday={family?.babyBirthday}
-              onPress={openPhoto}
-              onLongPress={onLongPressPhoto}
-              empty="No matching moments from this date yet."
-              onSeeAll={() => setSegment('timeline')}
-            />
-          ) : (
-            <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
-          )}
-        </SegmentedContent>
-      </EntranceView>
-
-      <PhotoActionSheet
-        photo={actionPhoto}
-        visible={!!actionPhoto}
-        onClose={() => setActionPhoto(null)}
-        actions={photoSheetActions}
-        subtitle={actionPhoto
-          ? isAutoSavedMemory(actionPhoto)
-            ? 'Added by the assistant. Remove it if it does not belong; the original stays in Photos.'
-            : 'What should happen with this moment?'
-          : undefined}
-      />
     </AppShell>
   );
 }
@@ -761,220 +654,6 @@ function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
   );
 }
 
-function PhotoRail({
-  title,
-  photos,
-  babyBirthday,
-  onPress,
-  onLongPress,
-  onSeeAll,
-  empty = 'No saved photos yet.',
-  emptyActionLabel,
-  onEmptyAction,
-}) {
-  const theme = useTheme();
-  return (
-    <View>
-      <View style={styles.sectionHeader}>
-        <Title style={styles.railTitle}>{title}</Title>
-        {onSeeAll ? (
-          <Pressable
-            onPress={onSeeAll}
-            accessibilityRole="button"
-            accessibilityLabel={`See all ${title}`}
-            hitSlop={8}
-            style={styles.inlineHeaderAction}
-          >
-            <Caption>See all</Caption>
-          </Pressable>
-        ) : null}
-      </View>
-      {photos.length ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.photoRailContent}
-        >
-          {photos.map((photo, index) => (
-            <EntranceView key={`${photo.asset_owner_user_id}:${photo.asset_id}`} index={index} delayMs={ENTRANCE_STAGGER_MS * 2}>
-              <Pressable
-                onPress={() => onPress(photo)}
-                onLongPress={() => onLongPress?.(photo)}
-                delayLongPress={220}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${title} moment ${index + 1}`}
-                accessibilityHint={onLongPress ? 'Long press for more actions.' : undefined}
-                style={styles.photoRailTile}
-              >
-                {photo.thumbUrl || photo.fullUrl ? (
-                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-                <View style={[styles.photoChip, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
-                  <Caption style={[styles.photoChipText, { color: theme.colors.bg }]}>
-                    {railChipLabel({ photo, babyBirthday, title })}
-                  </Caption>
-                </View>
-              </Pressable>
-            </EntranceView>
-          ))}
-        </ScrollView>
-      ) : (
-        <Card variant="ghost">
-          <Body>{empty}</Body>
-          {emptyActionLabel ? (
-            <Button
-              size="sm"
-              fullWidth={false}
-              style={styles.emptyRailButton}
-              onPress={onEmptyAction}
-              icon={<Ionicons name="add" size={14} color={theme.colors.onPrimary} />}
-            >
-              {emptyActionLabel}
-            </Button>
-          ) : null}
-        </Card>
-      )}
-    </View>
-  );
-}
-
-function MonthTimeline({ sections, onPress, onLongPress, youUserId }) {
-  const theme = useTheme();
-  if (!sections.length) return null;
-  return (
-    <View style={styles.monthList}>
-      {sections.map((section, sectionIndex) => {
-        const renderableItems = (section.items || []).filter(hasRenderableMedia);
-        const visibleItems = renderableItems.slice(0, 4);
-        const hiddenCount = Math.max(0, (section.items || []).length - visibleItems.length);
-        return (
-          <EntranceView key={section.key} index={sectionIndex} delayMs={ENTRANCE_STAGGER_MS * 3}>
-            <Card padding="md" style={styles.monthCard}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.monthHeaderCopy}>
-                  <Eyebrow>{section.monthLabel}</Eyebrow>
-                  {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
-                </View>
-                <Caption>{section.items.length} moments</Caption>
-              </View>
-              {visibleItems.length ? (
-                <View style={styles.monthGrid}>
-                  {visibleItems.map((photo, index) => (
-                    <Pressable
-                      key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                      onPress={() => onPress(photo)}
-                      onLongPress={() => onLongPress(photo)}
-                      delayLongPress={220}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
-                      accessibilityHint="Long press for more actions."
-                      style={[styles.monthTile, { backgroundColor: theme.semantic.cardAlt }]}
-                    >
-                      <PhotoPlaceholder
-                        source={{ uri: photo.thumbUrl || photo.fullUrl }}
-                        seed={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                        radius={radius.sm}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      {index === visibleItems.length - 1 && hiddenCount > 0 ? (
-                        <View style={[styles.monthMoreBadge, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
-                          <Caption style={[styles.monthMoreText, { color: theme.colors.onPrimary }]}>+{hiddenCount}</Caption>
-                        </View>
-                      ) : null}
-                      {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
-                    </Pressable>
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.monthSyncNote}>
-                  <Ionicons name="cloud-outline" size={16} color={theme.semantic.textMuted} />
-                  <Caption>Photo previews are still syncing for this month.</Caption>
-                </View>
-              )}
-            </Card>
-          </EntranceView>
-        );
-      })}
-    </View>
-  );
-}
-
-function hasRenderableMedia(photo) {
-  return !!(photo?.thumbUrl || photo?.fullUrl);
-}
-
-function PlacesPreview({ places, onPress, onLongPress }) {
-  if (!places.length) {
-    return (
-      <Card>
-        <Eyebrow>Places</Eyebrow>
-        <Title style={styles.digestTitle}>No mapped moments yet.</Title>
-        <Body>Photos with location data will collect here as the archive grows.</Body>
-      </Card>
-    );
-  }
-  return (
-    <View style={styles.placeList}>
-      {places.slice(0, 6).map((place, placeIndex) => (
-        <EntranceView key={place.id} index={placeIndex} delayMs={ENTRANCE_STAGGER_MS * 2}>
-          <Card padding="md" style={styles.placeCard}>
-            <View style={styles.placeCopy}>
-              <Eyebrow>{place.label}</Eyebrow>
-              <Title style={styles.placeTitle}>{place.photos.length} moments here</Title>
-              <Caption>{place.topScenes.slice(0, 2).join(' · ') || 'Family outing'}</Caption>
-            </View>
-            <View style={styles.placeThumbs}>
-              {place.photos.slice(0, 3).map((photo) => (
-                <Pressable
-                  key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                  onPress={() => onPress(photo)}
-                  onLongPress={() => onLongPress(photo)}
-                  delayLongPress={220}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open moment from ${place.label}`}
-                  accessibilityHint="Long press for more actions."
-                  style={styles.placeThumb}
-                >
-                  {photo.thumbUrl || photo.fullUrl ? (
-                    <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                  ) : (
-                    <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          </Card>
-        </EntranceView>
-      ))}
-    </View>
-  );
-}
-
-function groupByMonth(items, babyBirthday) {
-  const sorted = [...(items || [])]
-    .filter((item) => item.creation_time)
-    .sort((a, b) => +new Date(b.creation_time) - +new Date(a.creation_time));
-  const buckets = new Map();
-  for (const item of sorted) {
-    const dt = new Date(item.creation_time);
-    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-    if (!buckets.has(key)) {
-      const monthLabel = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toLowerCase();
-      const age = babyBirthday ? ageAt(babyBirthday, dt.getTime()) : null;
-      buckets.set(key, {
-        key,
-        monthLabel,
-        ageLabel: age ? formatAge(age) : '',
-        items: [],
-      });
-    }
-    buckets.get(key).items.push(item);
-  }
-  return Array.from(buckets.values());
-}
-
 function Metric({ label, value }) {
   return (
     <View style={styles.metric}>
@@ -995,16 +674,6 @@ function formatAgeLine(label) {
   if (!label) return '';
   if (/\bold$/i.test(label) || label === 'birth day' || label.startsWith('before')) return label;
   return `${label} old`;
-}
-
-function railChipLabel({ photo, babyBirthday, title }) {
-  if (String(title || '').toLowerCase().includes('on this day')) return photo?.onThisDayLabel || 'On this day';
-  if (babyBirthday && photo?.creation_time) {
-    const age = ageAt(babyBirthday, new Date(photo.creation_time).getTime());
-    const label = formatAge(age);
-    if (label) return label.replace(' old', '');
-  }
-  return 'Recent';
 }
 
 function formatWeek(start, end) {
@@ -1037,6 +706,9 @@ const styles = StyleSheet.create({
   searchPillText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  worldPayoffCard: {
+    minHeight: 116,
   },
   tonightCard: {
     borderRadius: 14,

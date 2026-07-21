@@ -17,8 +17,16 @@ The app must not imply camera-roll originals are deleted or managed by this poli
 
 ## Export Scope
 
-Exports include photos, videos, voice, letters, firsts, prompt answers, dates,
-metadata, and chapter summaries when available.
+Exports include photos, videos, canonical voice, separately authored parent text and
+voice annotations, letters, firsts, prompt answers, dates, factual context, automatic
+collection membership, and chapter summaries when available. Each contribution keeps
+its available author attribution; one parent's words are never collapsed into the
+other parent's caption.
+
+Private discovery candidates, local asset identifiers, face or identity evidence,
+lookalike fingerprints, rejected media, Tonight drafts, and exact-match event-group
+digests are never part of an archive export. Event grouping is presentation metadata;
+both kept originals remain independently exportable.
 
 Current preview limitations must be disclosed before paid trust copy relies on the
 export promise:

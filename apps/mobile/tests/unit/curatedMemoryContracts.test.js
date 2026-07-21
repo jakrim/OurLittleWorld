@@ -125,6 +125,21 @@ test('Today and Library gate photo observers and write utilities behind writer e
   assert.match(library, /onRepair=\{repairUploadQueue\}/);
 });
 
+test('navigation has one Today owner and keeps archive browsing in Our World', () => {
+  const guards = source('navigation/RouteGuards.js');
+  const today = source('TodayScreen.js');
+  const library = source('LibraryScreen.js');
+
+  assert.match(guards, /return <RouteRedirect href=\{gate\.href \|\| '\/timeline'\} \/>/);
+  assert.doesNotMatch(guards, /return <TodayScreen/);
+  assert.doesNotMatch(today, /<SegmentedControl|<MonthTimeline|<PhotoRail|<PlacesPreview/);
+  assert.match(today, /Open Our World to browse saved memories/);
+  assert.match(library, /<DailyAlbumPanel/);
+  assert.match(library, /<AutomaticCollectionsPreview/);
+  assert.match(library, /value: 'places'/);
+  assert.match(library, /value: 'search'/);
+});
+
 test('lapsed families can browse saved archive routes but cannot enter write routes', () => {
   const guards = source('navigation/RouteGuards.js');
   const libraryRoute = readFileSync(new URL('../../app/library.jsx', import.meta.url), 'utf8');
@@ -207,14 +222,16 @@ test('Tonight notification creation is queue-backed and role-entitlement gated',
   assert.doesNotMatch(scheduler, /assetId|draft_voice|fingerprint|identity_score/);
 });
 
-test('Tonight private draft fields are prohibited from analytics', () => {
+test('Tonight analytics is isolated behind coarse properties and prohibits private draft fields', () => {
   const analytics = source('analyticsEventsModel.js');
   for (const field of ['draftVoiceUri', 'voicePath', 'reactionCode', 'retryId', 'assetId', 'localUri']) {
     assert.match(analytics, new RegExp(`['"]${field}['"]`));
   }
   const tonight = source('TonightScreen.js');
   const ledger = source('candidateLedgerStore.js');
-  assert.doesNotMatch(tonight, /trackAnalytics|Sentry|PostHog/);
+  assert.match(tonight, /tonightDecisionProperties/);
+  assert.match(tonight, /tonightCompletionProperties/);
+  assert.doesNotMatch(tonight, /Sentry|PostHog/);
   assert.doesNotMatch(ledger, /trackAnalytics|Sentry|PostHog|from ['"]\.\/supabase/);
 });
 

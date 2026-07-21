@@ -61,3 +61,16 @@ Deno.test('non-transactional notifications honor the daily hard cap', () => {
 
   assertEquals(decision.send, false);
 });
+
+Deno.test('server never sends Tonight without private device queue proof', () => {
+  const decision = deliveryDecisionFromRows({
+    event: { familyId: 'fam1', category: 'tonight_picks', eventKey: 'tonight:2026-07-06' },
+    recipientUserId: 'user2',
+    preferences: [{ user_id: 'user2', category: 'tonight_picks', enabled: true }],
+    deliveries: [],
+    today: '2026-07-06',
+    now: new Date('2026-07-06T20:00:00Z'),
+  });
+
+  assertEquals(decision, { send: false, batchKey: '' });
+});

@@ -633,7 +633,7 @@ export default function MomentDetailScreen() {
           >
             <Ionicons name="chevron-back" size={19} color={mediaOverlayTextColor} />
           </Pressable>
-          <Caption style={{ color: mediaOverlayTextColor }}>{capturedLabel}</Caption>
+          <Caption maxFontSizeMultiplier={1.4} style={{ color: mediaOverlayTextColor }}>{capturedLabel}</Caption>
           <Pressable
             onPress={() => setMenuVisible(true)}
             accessibilityRole="button"
@@ -645,12 +645,12 @@ export default function MomentDetailScreen() {
         </View>
         {!photoFocused ? <View style={styles.heroCaption}>
           {capturedAgeLabel ? (
-            <Caption style={[styles.heroAge, { color: mediaOverlayTextColor }]}>{capturedAgeLabel}</Caption>
+            <Caption maxFontSizeMultiplier={1.4} style={[styles.heroAge, { color: mediaOverlayTextColor }]}>{capturedAgeLabel}</Caption>
           ) : null}
-          <Title style={[styles.heroTitle, { color: mediaOverlayTextColor }]}>
+          <Title maxFontSizeMultiplier={1.4} numberOfLines={3} style={[styles.heroTitle, { color: mediaOverlayTextColor }]}>
             {moment.title || 'A little moment'}
           </Title>
-          <Caption style={[styles.heroMeta, { color: glass.inverseTextBody }]}>
+          <Caption maxFontSizeMultiplier={1.4} numberOfLines={3} style={[styles.heroMeta, { color: glass.inverseTextBody }]}>
             {[...heroActivity, moment.place_name, capturedLabel].filter(Boolean).join(' · ') || 'Saved moment'}
           </Caption>
         </View> : null}

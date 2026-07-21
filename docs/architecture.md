@@ -31,7 +31,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
   queue and owns the private discovery-candidate ledger plus nightly review sessions.
   `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations (current
-  schema version 3);
+  schema version 5);
   `candidateLedgerStore.js` scopes every row by family and parent and never imports a
   remote or analytics transport. Server state is Supabase via `rituals.js`,
   `moments.js`, `photoSync.js`.
@@ -42,10 +42,13 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `childScopeModel.js` where data boundaries matter. See
   `docs/multi-child-readiness.md` for the exact K1 schema, event, digest, prompt,
   recognition, and RLS migration points.
-- **Analytics contract:** no analytics SDK is installed yet. Event names, triggers,
-  allowed values, required properties, and forbidden content fields are defined in
-  `docs/analytics-events.md`; `analyticsEventsModel.js` and `analytics.js` enforce
-  the allowlist before any future transport emits an event.
+- **Analytics contract:** event names, triggers, allowed values, required properties,
+  and forbidden content fields are defined in `docs/analytics-events.md`;
+  `analyticsEventsModel.js` and `analytics.js` enforce the allowlist before the
+  consent-aware dedicated HTTP transport can emit an event. Curated-memory events use
+  only fixed enums, coarse buckets, and duration bands; private candidate/session IDs,
+  asset identity, reasons evidence, drafts, reaction values, and audio paths are never
+  properties.
 - **Assistant feedback boundaries:** `assistantFeedbackTransparencyModel.js` defines
   which assistant loop a parent action can affect. Face-match corrections, First
   suggestion `Not this`, photo-stack choices, caption draft use, and book-readiness
@@ -160,6 +163,9 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `tonightNotifications.js` schedules locally only for a real queue after writer,
   entitlement, preference, quiet-hour, timezone, duplicate, completion, and daily-cap
   checks; notification data is limited to coarse queue state/count/date and `/tonight`.
+  The remote `notify-event` cadence rejects `tonight_picks` even when a stored
+  preference enables the category, because a server cannot prove the existence of a
+  private device queue. This category is device-scheduled only.
   `local_asset_mappings` also owns the private mapping from a device Photos identifier
   to an opaque shared UUID and stable canonical moment/media IDs. The mapping is
   created before the first retryable Keep write, so process termination or a partial
@@ -283,13 +289,13 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `notifications` table. Adding a category touches both check constraints, cadence
   defaults, settings model, and event copy.
 - **Today:** one assistant nudge at a time via `dayCardNudge.js`
-  (blocking repair > photo trust > review > suggested first > catchup > prompt >
-  book readiness > digest > fallback). `bookReadinessNudgeModel.js` scores moment and
-  month readiness as media plus durable parent context, then supplies at most one
-  gentle "add one line" candidate from cached Book data. `tonightModel.js` adds the
-  compact evening ritual from already-loaded prompt, review, suggested-first,
-  recent-photo, and digest signals, suppressing items already owned by the primary
-  Today card.
+  (blocking repair > photo trust > review > suggested first > catch-up > prompt >
+  missed prompt > digest > fallback). A real Tonight queue becomes the obvious ritual
+  whenever no higher-priority trust or repair action exists. Today no longer owns a
+  second timeline, month browser, Places browser, or print-readiness nudge; one
+  `Our World` payoff card hands archive browsing to the canonical archive surface.
+  The root route redirects to the canonical Today route instead of rendering a second
+  Today owner.
 
 ## Suggested Firsts pipeline (Track S — assistant-first, parent-approved)
 

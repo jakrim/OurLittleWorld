@@ -44,8 +44,8 @@ test('annualTodayMatches only returns prior-year exact-date photos', () => {
 });
 
 test('monthversary labels read naturally', () => {
-  assert.equal(monthversaryLabel('Reuben', 1), 'Reuben, one month ago today');
-  assert.equal(monthversaryLabel('Reuben', 6), 'Reuben, six months ago today');
+  assert.equal(monthversaryLabel('River', 1), 'River, one month ago today');
+  assert.equal(monthversaryLabel('River', 6), 'River, six months ago today');
   assert.equal(monthversaryLabel(null, 2), 'Two months ago today');
 });
 

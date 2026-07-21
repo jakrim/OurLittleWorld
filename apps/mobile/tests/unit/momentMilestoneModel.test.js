@@ -53,7 +53,7 @@ test('a linked moment date is fixed and described as inherited', () => {
   assert.equal(shouldLockMilestoneDate({ sourceMomentId: 'moment-1', happenedDate: '2026-07-11' }), true);
   assert.equal(shouldLockMilestoneDate({ sourceMomentId: null, happenedDate: '2026-07-11' }), false);
   assert.equal(
-    milestoneDateSourceCaption({ ageCaption: "Reuben's age on this date: 11 months, 18 days." }),
-    "Date from this saved moment. Reuben's age on this date: 11 months, 18 days.",
+    milestoneDateSourceCaption({ ageCaption: "River's age on this date: 11 months, 18 days." }),
+    "Date from this saved moment. River's age on this date: 11 months, 18 days.",
   );
 });

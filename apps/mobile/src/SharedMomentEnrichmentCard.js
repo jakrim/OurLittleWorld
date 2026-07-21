@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, AppState, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import {
   RecordingPresets,
@@ -24,6 +24,8 @@ import {
   removeMomentAnnotation,
 } from './sharedEnrichment';
 import { Body, Button, Caption, Card, Field, space } from './ui';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 export default function SharedMomentEnrichmentCard({
   familyId,
@@ -35,6 +37,7 @@ export default function SharedMomentEnrichmentCard({
   membersById = {},
   theme,
   onSaved,
+  analyticsSurface = 'moment_detail',
 }) {
   const scope = useMemo(() => ({ familyId, momentId, userId }), [familyId, momentId, userId]);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -162,6 +165,18 @@ export default function SharedMomentEnrichmentCard({
       await clearSharedAnnotationDraft(scope);
       setDraft(await readSharedAnnotationDraft(scope));
       setNotice('Saved with your name.');
+      trackAnalyticsEvent('shared_annotation_saved', {
+        surface: analyticsSurface,
+        annotation_kind: draft.text.trim() && draft.voice?.uri
+          ? 'mixed'
+          : draft.voice?.uri ? 'voice' : 'text',
+      }, {
+        family_id: familyId,
+        actor_role: 'unknown',
+        plan_state: 'active',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+      });
       await onSaved?.();
     } catch {
       await persist({ commitState: 'failed', lastErrorCode: 'save_failed' });

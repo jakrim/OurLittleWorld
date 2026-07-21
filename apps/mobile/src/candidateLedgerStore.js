@@ -1044,6 +1044,9 @@ function hydrateSession(database, session) {
     currentPosition: Number(session.current_position || 0),
     itemCount: Number(session.item_count || rows.length),
     completed: session.status === 'completed',
+    continuation: String(session.seed || '').includes(':more:'),
+    createdAt: session.created_at,
+    completedAt: session.completed_at || null,
     items: rows.map(mapSessionItem),
   };
 }

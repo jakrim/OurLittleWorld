@@ -20,10 +20,6 @@ const blockingIssue = {
   title: 'Some memories did not finish saving',
   route: { pathname: '/library', params: { segment: 'photos' } },
 };
-const bookReadinessNudge = {
-  title: 'Add one line to make July easier to remember',
-  route: { pathname: '/library', params: { segment: 'photos' } },
-};
 const photoTrustNudge = {
   kind: 'photo-trust',
   eyebrow: 'Photo assistant',
@@ -31,7 +27,7 @@ const photoTrustNudge = {
   route: '/review',
 };
 
-test('priority order: blocking issue > photo-trust > review > suggested-first > catchup > prompt > missed-prompt > book-readiness > digest > fallback', () => {
+test('priority order: blocking issue > photo-trust > review > suggested-first > catchup > prompt > missed-prompt > digest > fallback', () => {
   const everything = {
     blockingIssue,
     photoTrustNudge,
@@ -40,9 +36,8 @@ test('priority order: blocking issue > photo-trust > review > suggested-first > 
     catchupGoal,
     promptState: unansweredPrompt,
     missedPrompt,
-    bookReadinessNudge,
     digestUnread: true,
-    babyName: 'Reuben',
+    babyName: 'River',
   };
   assert.equal(selectDayCardNudge(everything).kind, 'blocking-repair');
   assert.equal(selectDayCardNudge({ ...everything, blockingIssue: null }).kind, 'photo-trust');
@@ -80,20 +75,6 @@ test('priority order: blocking issue > photo-trust > review > suggested-first > 
       promptState: null,
       missedPrompt: null,
     }).kind,
-    'book-readiness',
-  );
-  assert.equal(
-    selectDayCardNudge({
-      ...everything,
-      blockingIssue: null,
-      photoTrustNudge: null,
-      waitingReviewCount: 0,
-      firstSuggestion: null,
-      catchupGoal: null,
-      promptState: null,
-      missedPrompt: null,
-      bookReadinessNudge: null,
-    }).kind,
     'digest',
   );
   assert.equal(selectDayCardNudge({}).kind, 'fallback');
@@ -116,8 +97,8 @@ test('review nudge counts and pluralizes', () => {
 });
 
 test('catchup nudge names the child and seeds the composer route', () => {
-  const nudge = selectDayCardNudge({ catchupGoal, babyName: 'Reuben' });
-  assert.equal(nudge.title, "Did we ever save Reuben's first laugh?");
+  const nudge = selectDayCardNudge({ catchupGoal, babyName: 'River' });
+  assert.equal(nudge.title, "Did we ever save River's first laugh?");
   assert.equal(nudge.goalKey, 'laugh');
   assert.deepEqual(nudge.route.params, { title: 'First laugh', targetAge: '3-4 months', goalKey: 'laugh' });
 });
@@ -150,7 +131,7 @@ test('a real Tonight queue becomes the ritual while correction safety stays ahea
     photoTrustNudge: { ...photoTrustNudge, trustState: 'learning' },
   });
   assert.equal(tonight.kind, 'tonight');
-  assert.equal(tonight.route, '/tonight');
+  assert.equal(tonight.route, '/tonight?source=today');
   assert.match(tonight.title, /5 memories/);
 
   const correction = selectDayCardNudge({

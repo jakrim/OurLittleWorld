@@ -52,9 +52,9 @@ test('first happened age is derived from birthday and happened date', () => {
 test('first happened date caption includes the computed age when available', () => {
   assert.equal(firstHappenedDateCaption({
     babyBirthday: '2025-07-23',
-    babyName: 'Reuben',
+    babyName: 'River',
     happenedDate: '2025-10-01',
-  }), "Reuben's age on this date: 2 months, 8 days. Roughly when it happened is fine.");
+  }), "River's age on this date: 2 months, 8 days. Roughly when it happened is fine.");
 
   assert.equal(firstHappenedDateCaption({
     babyBirthday: null,

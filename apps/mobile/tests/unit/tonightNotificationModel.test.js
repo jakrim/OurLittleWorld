@@ -30,7 +30,7 @@ const preferences = {
   categories: { tonight_picks: true },
 };
 
-test('real non-empty writer queue schedules once with calm count copy and /tonight route', () => {
+test('real non-empty writer queue schedules once with calm count copy and /tonight notification source', () => {
   const now = new Date('2026-07-20T17:00:00Z');
   assert.equal(shouldScheduleTonightNotification({
     session, preferences, role: 'creator', entitlementActive: true, timezone: session.timezone, now,
@@ -39,7 +39,7 @@ test('real non-empty writer queue schedules once with calm count copy and /tonig
     title: "Tonight's memories",
     body: '3 memories are ready for a quiet look tonight.',
   });
-  assert.equal(TONIGHT_NOTIFICATION_ROUTE, '/tonight');
+  assert.equal(TONIGHT_NOTIFICATION_ROUTE, '/tonight?source=notification');
 
   const state = markTonightNotificationScheduled(null, session, { identifier: 'native-1', scheduledAt: now });
   assert.equal(shouldScheduleTonightNotification({

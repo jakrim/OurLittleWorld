@@ -13,7 +13,6 @@ export function selectDayCardNudge({
   catchupGoal = null,
   promptState = null,
   missedPrompt = null,
-  bookReadinessNudge = null,
   digestUnread = false,
   babyName = '',
 } = {}) {
@@ -40,7 +39,7 @@ export function selectDayCardNudge({
       title: tonightQueueCount === 1
         ? '1 memory is ready for a quiet look'
         : `${tonightQueueCount} memories are ready for a quiet look`,
-      route: '/tonight',
+      route: '/tonight?source=today',
     };
   }
   if (photoTrustNudge?.title) {
@@ -96,14 +95,6 @@ export function selectDayCardNudge({
       title: missedPrompt.promptText || missedPrompt.prompt.text,
       route: { pathname: '/prompt', params: { promptDate: missedPrompt.promptDate } },
       promptDate: missedPrompt.promptDate,
-    };
-  }
-  if (bookReadinessNudge?.title) {
-    return {
-      kind: 'book-readiness',
-      eyebrow: bookReadinessNudge.eyebrow || 'Remember',
-      title: bookReadinessNudge.title,
-      route: bookReadinessNudge.route || '/library',
     };
   }
   if (digestUnread) {

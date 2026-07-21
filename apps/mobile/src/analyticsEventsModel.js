@@ -27,6 +27,12 @@ export const ANALYTICS_EVENT_NAMES = Object.freeze([
   'gift_redeemed',
   'purchase_started',
   'purchase_completed',
+  'tonight_opened',
+  'tonight_item_decided',
+  'tonight_completed',
+  'tonight_notification_scheduled',
+  'collection_correction_applied',
+  'shared_annotation_saved',
 ]);
 
 export const ANALYTICS_FORBIDDEN_KEYS = Object.freeze([
@@ -97,6 +103,9 @@ const ENUMS = Object.freeze({
     'web_pricing',
     'web_gift',
     'notification',
+    'tonight',
+    'our_world',
+    'collections',
     'unknown',
   ],
   child_age_band: ['prenatal', '0_3m', '3_6m', '6_12m', '12_24m', '24m_plus', 'unknown'],
@@ -307,6 +316,57 @@ const EVENT_SPECS = Object.freeze({
       plan_state_after: ['trialing', 'active', 'gift', 'unknown'],
     },
   },
+  tonight_opened: {
+    required: ['surface', 'open_source', 'queue_count_bucket', 'resume_state'],
+    values: {
+      open_source: ['today', 'notification', 'direct', 'unknown'],
+      queue_count_bucket: ENUMS.count_bucket,
+      resume_state: ['new', 'resumed', 'completed', 'empty'],
+    },
+  },
+  tonight_item_decided: {
+    required: ['surface', 'decision', 'media_kind', 'has_enrichment', 'retry_state'],
+    values: {
+      decision: ['kept', 'skipped', 'unavailable'],
+      retry_state: ['first_try', 'retry'],
+    },
+  },
+  tonight_completed: {
+    required: [
+      'surface',
+      'kept_count_bucket',
+      'skipped_count_bucket',
+      'unavailable_count_bucket',
+      'enriched_count_bucket',
+      'duration_bucket',
+      'continuation',
+    ],
+    values: {
+      kept_count_bucket: ENUMS.count_bucket,
+      skipped_count_bucket: ENUMS.count_bucket,
+      unavailable_count_bucket: ENUMS.count_bucket,
+      enriched_count_bucket: ENUMS.count_bucket,
+      duration_bucket: ['under_1m', '1_3m', '3_5m', '5_10m', '10m_plus', 'unknown'],
+    },
+  },
+  tonight_notification_scheduled: {
+    required: ['surface', 'queue_count_bucket', 'schedule_day'],
+    values: {
+      queue_count_bucket: ENUMS.count_bucket,
+      schedule_day: ['same_local_day', 'next_local_day'],
+    },
+  },
+  collection_correction_applied: {
+    required: ['surface', 'correction', 'collection_kind'],
+    values: {
+      correction: ['excluded', 'restored'],
+      collection_kind: ['date', 'media', 'author', 'first', 'place', 'favorite', 'reaction', 'first_year', 'unknown'],
+    },
+  },
+  shared_annotation_saved: {
+    required: ['surface', 'annotation_kind'],
+    values: { annotation_kind: ['text', 'voice', 'mixed'] },
+  },
 });
 
 export const ANALYTICS_EVENT_SPECS = EVENT_SPECS;
@@ -412,7 +472,7 @@ function validateAnalyticsValue({ key, value, spec, eventName }) {
   if (allowed && !allowed.includes(value)) {
     throw new Error(`Invalid analytics value for ${eventName}.${key}: ${value}`);
   }
-  if (key.startsWith('has_') || key === 'happened_at_changed') {
+  if (key.startsWith('has_') || key === 'happened_at_changed' || key === 'continuation') {
     if (typeof value !== 'boolean') throw new Error(`Analytics property must be boolean: ${key}`);
   }
 }

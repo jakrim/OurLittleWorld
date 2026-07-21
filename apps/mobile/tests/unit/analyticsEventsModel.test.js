@@ -42,6 +42,12 @@ const requiredEventNames = [
   'gift_redeemed',
   'purchase_started',
   'purchase_completed',
+  'tonight_opened',
+  'tonight_item_decided',
+  'tonight_completed',
+  'tonight_notification_scheduled',
+  'collection_correction_applied',
+  'shared_annotation_saved',
 ];
 
 afterEach(() => {

@@ -8,7 +8,9 @@ export const CATEGORY_DEFAULTS: Record<string, { route: string; enabled: boolean
   partner_activity: { route: '/prompt', enabled: true },
   new_moments: { route: '/review', enabled: true },
   suggested_firsts: { route: '/firsts', enabled: true },
-  tonight_picks: { route: '/tonight', enabled: true },
+  // Tonight queues contain private, device-local discovery state. The server
+  // must never manufacture this event without proof that a real queue exists.
+  tonight_picks: { route: '/tonight', enabled: false },
   letter_openable: { route: '/letters', enabled: true },
   circle_joined: { route: '/invite', enabled: true },
   billing_quota: { route: '/purchase', enabled: true },
@@ -70,6 +72,7 @@ function categoryEnabled({
   preferences: CadenceRow[];
 }) {
   if (event.category === TRANSACTIONAL_CATEGORY) return true;
+  if (event.category === 'tonight_picks') return false;
   const row = preferences.find((pref) => pref.user_id === recipientUserId && pref.category === event.category);
   return row?.enabled ?? CATEGORY_DEFAULTS[event.category]?.enabled ?? true;
 }

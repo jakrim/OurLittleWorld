@@ -25,8 +25,10 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 - Delete the auth user after the family deletion transaction is accepted.
 - Delete family-owned content from app tables where no other writer remains:
   moments, moment media rows, firsts, letters, prompt responses, digests, memories,
-  invites, reactions, notifications, push tokens, ritual settings, recognition trust,
-  and local/server reference metadata.
+  invites, reactions, separately authored annotations, grounded context facts,
+  automatic collections and memberships, saved-event groups and memberships,
+  notifications, push tokens, ritual settings, recognition trust, and local/server
+  reference metadata.
 - Delete stored media derivatives and originals controlled by the app: Supabase
   Storage objects, Cloudflare Stream assets, and R2 objects.
 - Leave billing/legal records required for tax, fraud, refund, chargeback, legal, or
@@ -42,8 +44,11 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 - Keep shared family book content for remaining writers. Content saved into the
   family book remains family-owned unless a separate legal/privacy request requires
   specific authored rows to be removed.
-- Anonymize or null author references where feasible without breaking the remaining
-  family's book.
+- Preserve family-owned collections, context, event grouping, originals, and other
+  writers' annotations. Delete the requester's private device ledger and local drafts;
+  anonymize or null their shared author references where feasible without breaking
+  the remaining family's record. Do not reassign their words or voice to another
+  writer.
 - Billing ownership must be transferred, canceled, or left with the remaining billing
   owner according to the provider state before deleting provider identifiers.
 
@@ -52,7 +57,8 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 - Remove family membership/invites for the requester.
 - Delete the requester's auth user, push tokens, and notification rows.
 - Do not delete family moments, firsts, digests, letters, media, billing state, or
-  gift entitlements.
+  gift entitlements. Circle members never own private candidate ledgers, collection
+  corrections, or shared annotations.
 
 ## Billing, Gifts, And Legal Retention
 
@@ -85,6 +91,9 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 - Unit or integration tests cover role classification and no cross-family deletion.
 - A storage deletion test proves only app-owned objects for the target family are
   selected.
+- Shared annotation voice objects and temporary private voice drafts follow their
+  owning record/device cleanup path; exact-match grouping digests are deleted with
+  their family event groups and never appear in a user export.
 - The flow clears push tokens and notification rows.
 - The flow preserves required billing/legal records while deleting memory content.
 - Product copy states that camera-roll originals are not deleted.

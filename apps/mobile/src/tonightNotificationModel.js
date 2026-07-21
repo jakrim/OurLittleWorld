@@ -2,7 +2,7 @@ import { NOTIFICATION_DAILY_HARD_CAP } from './notificationSettingsModel.js';
 import { isWithinQuietHours } from './suggestedFirstNotifierModel.js';
 
 export const TONIGHT_NOTIFICATION_CATEGORY = 'tonight_picks';
-export const TONIGHT_NOTIFICATION_ROUTE = '/tonight';
+export const TONIGHT_NOTIFICATION_ROUTE = '/tonight?source=notification';
 export const TONIGHT_NOTIFICATION_LOCAL_TIME = '20:00';
 
 export function tonightNotificationCopy(session) {

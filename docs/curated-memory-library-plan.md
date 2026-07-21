@@ -1,8 +1,27 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Releases 0–4 plus shared-archive trust stabilization implemented and verified locally; final backlog reconciliation and release-readiness proof remain
+Status: locally complete on July 21, 2026. Releases 0–4, the shared-archive trust
+stabilization slice, and final navigation/measurement/operations reconciliation are
+implemented, simulator reviewed, tested, and committed. Production rollout and the
+explicit physical-device gates remain external and were not performed.
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
+
+## Implementation outcome
+
+This document began as an audit. The diagnosis and target sections below preserve the
+reasoning that shaped the work; the delivery statuses, implementation ledger, current
+product state, architecture, sprint progress, and operations runbook record current
+truth.
+
+The missing center is now implemented locally: durable private candidate persistence,
+a deterministic Tonight ritual, first-year catch-up, automatic factual collections,
+grounded source-linked context, separately authored partner enrichment, conservative
+post-Keep duplicate grouping, a single Today owner, and privacy-safe measurement.
+Scene/activity labels remain deliberately gated because the existing heuristic is not
+a validated visual model. This is a completed evidence-based product decision, not
+unfinished scaffolding. The remaining work is production rollout proof, not another
+local feature release.
 
 ## Executive decision
 
@@ -483,6 +502,10 @@ Add:
 
 Goal: make the desired product technically possible before redesigning the surface.
 
+Status: complete locally on July 18, 2026. The private ledger, independent scan and
+review progress, deterministic queue, protected Tonight slice, migration/restart
+proof, and 5,000-candidate performance fixture were implemented in commit `b70ecc5`.
+
 Build:
 
 - persistent candidate, cluster, decision, and queue tables in `mediaDb.js`;
@@ -635,23 +658,23 @@ Acceptance:
 - no unsaved candidate from one parent's phone is visible to the other;
 - shared duplicate grouping preserves both parents' authorship and originals.
 
-## Implementation backlog by priority
+## Implementation ledger by priority
 
-| Priority | Epic | Primary code areas | Definition of done |
+| Priority | Epic | Status | Evidence / decision |
 | --- | --- | --- | --- |
-| P0 | Durable candidate ledger | `mediaDb.js`, `scanController.js`, `libraryScanLauncher.js`, new candidate models/stores | Full scan and review state survive restart; history remains reachable |
-| P0 | Queue engine | new `nightlyReviewModel.js`, queue store, deterministic fixtures | Stable 3–7 item queue with no repeats and reason codes |
-| P0 | Tonight route and UI | `TodayScreen.js`, new `TonightScreen.js`, router, video components | Complete keep/enrich flow without leaving the pager |
-| P0 | Trust and identity regression suite | matcher models, daily curation, review fixtures | Unrelated-face and one-bad-reference cases cannot become default keeps |
-| P1 | Inline text/voice/emoji | moments APIs, voice upload, reactions, new annotations migration | Draft-safe, writer-attributed enrichment from Tonight |
-| P1 | Historical catch-up ranking | daily curation, photo stack, video ranking | Coverage + distinctness + quality at 5,000-photo scale |
-| P1 | Nightly notifications | settings model, notification events, edge function cadence | Family-local scheduled push only when a queue is ready |
-| P1 | Navigation cut | Today, Our World, route guards, partner reveal | One obvious ritual; archive features live in Our World |
-| P2 | Automatic collections | new collection models/migrations, Our World, search | Auto-filed, editable, source-aware collections |
-| P2 | Visual suggestion model | native/on-device media analysis | Validated scene/activity suggestions with fallbacks |
-| P2 | Factual context graph | Firsts, moments, caption/context models | Source-linked milestone adjacency with invalidation |
-| P2 | Partner duplicate grouping | upload metadata, shared presentation models | One coherent event presentation without destructive merging |
-| P2 | Measurement and operations | analytics contract/calls, dashboards, QA fixtures | Review, trust, performance, and time-saved metrics available |
+| P0 | Durable candidate ledger | Simulator verified | SQLite schema v3 foundation; restart, checkpoint independence, overlapping scan, migration, privacy, and 5,000-item tests |
+| P0 | Queue engine | Simulator verified | Deterministic quality-bounded 0–7 queue, fixed reasons, no-repeat lifecycle, transactional resume |
+| P0 | Tonight route and UI | Simulator verified | Photo/video pager, Keep/Skip, picker, error/retry, completion, resume, and advanced Review escape |
+| P0 | Trust and identity regression suite | Implemented | Consensus admission, unrelated-face, polluted-reference, uncertain/default, skip/calibration, and identity/duplicate-separation regressions |
+| P1 | Inline text/voice/emoji | Simulator verified | Private writer drafts, canonical idempotent enrichment, cleanup, permission/interruption/retry proof |
+| P1 | Historical catch-up ranking | Simulator verified | Stable family-timezone anchors, standouts, videos, adaptive pacing, Keep going, library reconciliation, truthful 365 days |
+| P1 | Nightly notifications | Implemented; physical delivery gate external | Real-queue local scheduler, DST/quiet-hour/cap/deep-link tests; remote cadence refuses device-private Tonight readiness |
+| P1 | Navigation cut | Simulator verified | One Today owner, one Our World archive owner, no primary print/book nudge, Review remains advanced |
+| P2 | Automatic collections | Simulator verified | Family-owned factual derivation, selected defaults, reversible corrections, provenance, search and bounded paging |
+| P2 | Visual suggestion model | Deliberately deferred with evidence | Existing heuristic is not validated visual understanding; factual collections are the safe complete fallback |
+| P2 | Factual context graph | Simulator verified | Date/age/place/confirmed-First sources, trigger invalidation, no fabricated development claims |
+| P2 | Partner duplicate grouping | Simulator verified | Exact post-Keep grouping, sanitized bounded reads, both originals/authors preserved |
+| P2 | Measurement and operations | Implemented; production observation external | Consent-gated coarse events, notification boundary, dashboards/alerts/rollout/rollback runbook; no private content fields |
 
 ## Success metrics
 
@@ -735,15 +758,17 @@ Before release:
 - Do not call time/keyword heuristics “AI vision” in product claims.
 - Do not let category feedback alter child-identity matching.
 
-## Immediate next build slice
+## Next action: controlled production-readiness proof
 
-The first implementation slice should include only:
+No additional local product slice is required by this plan. Follow
+`docs/curated-memory-operations.md` and keep the release boundaries separate:
 
-1. local candidate persistence and separate analyzed/reviewed state;
-2. deterministic queue generation from recent plus historical candidates;
-3. `/tonight` pager with keep/skip and inline one-line text;
-4. crash/relaunch resume;
-5. Today simplification and notification deep-link correction;
-6. a 5,000-item power-user fixture and physical-device verification plan.
+1. compatible-client and legacy-identifier adoption gate;
+2. non-production migration/RLS/export/deletion rehearsal;
+3. signed-build synthetic and two-writer proof;
+4. seven-day physical-device large-library, iCloud, Low Power Mode, notification,
+   video, and false-positive validation;
+5. explicitly authorized staged production migrations, services, build, and rollout.
 
-Voice, categories, partner annotations, and milestone context should follow on the same architecture, but they should not delay proving that the app can reliably find, retain, pace, and resurface the right memories.
+Production migrations, deployment, notification delivery, TestFlight/App Store work,
+and real-account mutation were not authorized or performed during this program.

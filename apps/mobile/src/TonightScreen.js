@@ -25,7 +25,7 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
@@ -84,6 +84,13 @@ import {
   listSavedEventCompanions,
   SHARED_LOOKBACK_QUERY_LIMIT,
 } from './sharedEnrichment';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import {
+  tonightCompletionProperties,
+  tonightDecisionProperties,
+  tonightOpenProperties,
+} from './curatedMemoryAnalyticsModel';
 
 const SAVE_STEP_LABELS = {
   media: 'Saving this memory…',
@@ -95,6 +102,7 @@ const SAVE_STEP_LABELS = {
 
 export default function TonightScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
@@ -119,6 +127,8 @@ export default function TonightScreen() {
   const [lookbackOpen, setLookbackOpen] = useState(false);
   const [lookbackMembers, setLookbackMembers] = useState({});
   const detailsScrollRef = useRef(null);
+  const trackedOpenRef = useRef(null);
+  const trackedCompletionRef = useRef(null);
 
   const loadLookback = useCallback(async () => {
     if (!canCurate || !family?.id) return null;
@@ -185,6 +195,20 @@ export default function TonightScreen() {
   useFocusEffect(useCallback(() => {
     load();
   }, [load]));
+
+  useEffect(() => {
+    if (loading || !family?.id || !writer) return;
+    const key = session?.sessionId || `empty:${family.id}`;
+    if (trackedOpenRef.current === key) return;
+    trackedOpenRef.current = key;
+    trackAnalyticsEvent(
+      'tonight_opened',
+      tonightOpenProperties(session, {
+        openSource: params?.source === 'notification' ? 'notification' : params?.source === 'today' ? 'today' : 'direct',
+      }),
+      tonightAnalyticsContext({ family, entitlement }),
+    );
+  }, [entitlement, family, loading, params?.source, session, writer]);
 
   useEffect(() => {
     let alive = true;
@@ -280,22 +304,36 @@ export default function TonightScreen() {
 
   const refreshAfterDecision = useCallback((next, decision, committedItem = null) => {
     if (next?.completed) {
+      const completedSession = {
+        ...next,
+        completed: true,
+        status: 'completed',
+        currentPosition: next?.itemCount || 0,
+        items: (session?.items || next?.items || []).map((item) => (
+          item.position === activeItem?.position
+            ? {
+                ...item,
+                ...(committedItem || {}),
+                state: decision,
+                commitState: 'done',
+              }
+            : item
+        )),
+      };
       cancelTonightNotificationForSession({
         familyId: family.id,
         userId: user.id,
         session,
       }).catch(() => {});
-      setSession((current) => ({
-        ...current,
-        completed: true,
-        status: 'completed',
-        currentPosition: current?.itemCount || 0,
-        items: (current?.items || []).map((item) => (
-          item.position === activeItem?.position
-            ? { ...(committedItem || item), state: decision, commitState: 'done', draftText: '', draftVoice: null }
-            : item
-        )),
-      }));
+      setSession(completedSession);
+      if (trackedCompletionRef.current !== next.sessionId) {
+        trackedCompletionRef.current = next.sessionId;
+        trackAnalyticsEvent(
+          'tonight_completed',
+          tonightCompletionProperties(completedSession),
+          tonightAnalyticsContext({ family, entitlement }),
+        );
+      }
     } else {
       setSession(readTonightSession({ familyId: family.id, userId: user.id }) || next);
     }
@@ -303,7 +341,7 @@ export default function TonightScreen() {
     setError('');
     setSaveStep(null);
     setCatchup(getTonightCatchupSummary({ familyId: family.id, userId: user.id }));
-  }, [activeItem?.position, family?.id, session, user?.id]);
+  }, [activeItem?.position, entitlement, family, session, user?.id]);
 
   const keepGoing = () => {
     if (busy || !family?.id || !user?.id) return;
@@ -377,6 +415,11 @@ export default function TonightScreen() {
         userId: user.id,
         position: activeItem.position,
       });
+      trackAnalyticsEvent(
+        'tonight_item_decided',
+        tonightDecisionProperties(committed || activeItem, 'kept', { retried: keepNeedsRetry }),
+        tonightAnalyticsContext({ family, entitlement }),
+      );
       refreshAfterDecision(next, 'kept', committed);
     } catch (saveError) {
       const unavailableFailure = isUnavailableError(saveError);
@@ -394,6 +437,11 @@ export default function TonightScreen() {
           assetIds: [activeItem.assetId],
           reason: 'The original is waiting in iCloud.',
         });
+        trackAnalyticsEvent(
+          'tonight_item_decided',
+          tonightDecisionProperties(activeItem, 'unavailable', { retried: keepNeedsRetry }),
+          tonightAnalyticsContext({ family, entitlement }),
+        );
       }
       setSession(readTonightSession({ familyId: family.id, userId: user.id }));
       setError(parentError(saveError, 'This memory did not finish saving. Your draft is safe; try Keep again.'));
@@ -412,6 +460,11 @@ export default function TonightScreen() {
       position: activeItem.position,
     });
     if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
+    trackAnalyticsEvent(
+      'tonight_item_decided',
+      tonightDecisionProperties(activeItem, 'skipped'),
+      tonightAnalyticsContext({ family, entitlement }),
+    );
     refreshAfterDecision(next, 'skipped');
   };
 
@@ -656,6 +709,7 @@ export default function TonightScreen() {
           membersById={lookbackMembers}
           theme={theme}
           onSaved={loadLookback}
+          analyticsSurface="tonight"
         />
         <Button variant="ghost" onPress={() => setLookbackOpen(false)}>Done for tonight</Button>
       </Screen>
@@ -1113,6 +1167,16 @@ function completionContext(summary) {
   if (summary.withVoice) details.push(`${summary.withVoice} with your voice`);
   if (summary.withReaction) details.push(`${summary.withReaction} favorited or reacted to`);
   return `${details.join(' · ')}. Everything confirmed is now in your shared family world.`;
+}
+
+function tonightAnalyticsContext({ family, entitlement }) {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'unknown',
+    plan_state: entitlement?.isActive ? 'active' : 'lapsed',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
 }
 
 const styles = StyleSheet.create({

@@ -428,7 +428,8 @@ family-owned memory. Nothing was pushed, deployed, submitted, or changed in prod
   correction cleanup.
 - Remote contracts: migrations `20260720210000_private_shared_media_identity.sql` and
   `20260720211000_shared_archive_write_and_authorship.sql`; pgTAP coverage in
-  `shared_media_identity_migration_test.sql`, `shared_archive_trust_test.sql`, and the
+  `tests/migration/shared_media_identity_migration_test.pgtap`,
+  `shared_archive_trust_test.sql`, and the
   updated `read_only_circle_rls_test.sql`.
 - Model/migration proof: `mediaDbSchema.test.js`, `mediaUploadMetadataModel.test.js`,
   and `sharedArchiveTrustContracts.test.js`.
@@ -644,6 +645,99 @@ and synthetic non-personal media.
   slice owns that correction along with navigation/archive ownership, privacy-safe
   operations instrumentation, notification operations/runbooks, and complete backlog
   reconciliation.
+
+## Curated Memory Library — final stabilization and roadmap reconciliation (2026-07-21)
+
+Status: implemented, critically reviewed, simulator verified, and locally complete.
+No branch push, deploy, production migration, production notification, TestFlight,
+App Store, credential, or live-data action was performed.
+
+### Product, privacy, and operating decisions
+
+- Today is now the single daily owner: it keeps repair, permission, billing, trust,
+  First, and real Tonight work in priority order, then ends with one `Our World`
+  payoff. The duplicate recent timeline, months, Places, On This Day, and print/book
+  readiness affordances were removed from Today. Our World remains the archive owner;
+  dense Review remains an advanced utility. The protected root route now resolves to
+  this canonical destination instead of mounting another Today instance.
+- Curated-memory measurement is live only through the existing consent-gated,
+  allowlisted wrapper. Fixed events cover Tonight open/decision/completion, successful
+  local queue scheduling, collection correction, and shared annotation save. Payloads
+  contain coarse source, media kind, count/age/time buckets, and outcome enums only.
+  Draft text, voice paths, private asset/session/candidate identifiers, candidate
+  reasons, face evidence, fingerprints, collection names, and annotation content are
+  rejected before transport. No person profiles were introduced.
+- Tonight notification readiness stays on device because the private queue stays on
+  device. Local scheduling requires a real non-empty active writer queue and uses
+  `/tonight?source=notification`; the server cadence now refuses `tonight_picks` even
+  if a stale remote preference is enabled. This prevents a remote system from
+  claiming private queue readiness it cannot prove.
+- Developer authentication no longer contains a personal email fallback. A synthetic
+  `EXPO_PUBLIC_OLW_DEV_LOGIN_EMAIL` must be explicitly configured. Remaining manual QA
+  names use non-personal fixtures. The photo-detail overlay caps only the media-overlay
+  typography at a readable multiplier so maximum Dynamic Type does not cover the
+  photo or controls; the scrollable story sheet continues to honor full Dynamic Type.
+- `docs/curated-memory-operations.md` is the rollout/rollback and on-call front door.
+  It defines queue/notification/false-positive/privacy dashboards, release cohorts,
+  physical-device gates, safe rollback boundaries, and deletion/export/lapse checks.
+  Account-deletion and export policies now include annotations, grounded facts,
+  collections, event groups, authored tombstones, and local candidate/draft cleanup.
+- The visual scene/activity suggestion backlog is deliberately complete as a gated
+  decision: the existing heuristic is not validated visual understanding. The app
+  ships deterministic factual collections and parent corrections instead of
+  speculative activity, emotion, relationship, or developmental labels.
+
+### Verification and measured bounds
+
+- Focused final navigation/analytics/privacy/notification tests passed `50/50`; the
+  grounded-plus-curated contract run passed `24/24`; the post-review privacy rerun
+  passed `42/42` after removing candidate reasons from analytics. Full mobile
+  TypeScript and unit tests passed `430/430`; `pnpm test` passed both packages. CI
+  Expo lint, repository lint, repository typecheck, and the production web build
+  passed.
+- `pnpm db:reset:migrations` replayed every local migration and database lint found no
+  errors. The ordinary pgTAP suite passed `94/94`. The host-side restart fixture at
+  `supabase/tests/migration/shared_media_identity_migration_test.pgtap` passed `6/6`,
+  including legacy identifier rotation, private metadata scrubbing, relationship
+  preservation, and a second idempotent migration execution. It lives outside the
+  container-run `*.sql` suite because that container cannot include host migration
+  files. Deno checks passed and notification cadence tests passed `4/4`.
+- No schema, batch, candidate-query, or archive-query bound changed in this slice.
+  The established measured envelopes remain: 5,000 private candidates in bounded
+  80-row writes and 900-row queue reads; 0–7 primary cards; 5,000 shared moments in
+  500-row archive/export pages; 180 kept-lookback rows; 12 duplicate companions; and
+  the Release 4 5,000-row context refresh/database measurements. The new analytics
+  mapper is constant-space per event and adds no database storage.
+- Synthetic iPhone 17 proof used local Supabase and a disposable `River` family.
+  Verified: canonical root → Today; no empty Tonight card; one Our World payoff;
+  large 500-moment Our World fixture; light/dark appearance; Reduce Motion; maximum
+  accessibility text on photo detail; notification-source deep link into an honest
+  no-queue Tonight state; and safe return to Today. Earlier release evidence retains
+  the complete queued photo/video, voice, retry, termination, collection, two-writer,
+  Circle, lapsed, export, and deletion-policy journeys. Final evidence root:
+  `tmp/evidence/curated-memory-library-final-2026-07-21/`.
+- Expo MCP remained attached elsewhere and direct Mac control was unavailable while
+  the host was locked. Maestro, `simctl`, the isolated iPhone 17, local Edge runtime,
+  and synthetic fixtures were used without interrupting other projects. The temporary
+  local Metro/Edge processes were stopped after proof.
+
+### Final ledger and external-only gates
+
+- Releases 0–4 plus the shared-archive trust and final stabilization slices are
+  implemented and locally committed as coherent changes. Every P0/P1/P2 plan item is
+  implemented, simulator verified, deliberately deferred with evidence, or marked as
+  an external production gate in `docs/curated-memory-library-plan.md`.
+- External-only gates are: a signed non-personal video-plus-voice Cloudflare success
+  and retry; one physical-device Tonight notification tap; personal-scale identity
+  calibration/false-positive observation; staged production migrations with opaque
+  identity audit; production analytics consent/ingestion/dashboard observation; and
+  controlled notification operations. These require credentials, signed runtime, or
+  production authorization and do not represent unfinished local feature work.
+- Safest rollout: signed test family proof → database backup and preflight → opaque
+  identity/authorship migrations → client cohort with remote Tonight still disabled →
+  collection/context migrations → consented coarse analytics observation → local
+  Tonight notification cohort → wider release only after identity, retry, export,
+  lapse, Circle, deletion, and rollback dashboards remain healthy.
 
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 

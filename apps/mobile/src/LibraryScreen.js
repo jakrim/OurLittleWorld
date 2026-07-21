@@ -67,6 +67,8 @@ import {
 } from './collections';
 import { collectionKindLabel } from './automaticCollectionModel';
 import { listFamilyAnnotationExport } from './sharedEnrichment';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
 const TIMELINE_RENDER_LIMIT = 500;
@@ -479,6 +481,11 @@ export default function LibraryScreen() {
         visible: false,
       });
       setCollectionMoments((current) => current.filter((moment) => moment.id !== momentId));
+      trackAnalyticsEvent('collection_correction_applied', {
+        surface: 'collections',
+        correction: 'excluded',
+        collection_kind: analyticsCollectionKind(selectedCollection.kind),
+      }, libraryAnalyticsContext({ family, entitlement }));
       Alert.alert('Removed from this collection', 'The memory is still safely kept in Our World.', [
         { text: 'Done', style: 'cancel' },
         {
@@ -491,6 +498,11 @@ export default function LibraryScreen() {
                 momentId,
                 visible: true,
               });
+              trackAnalyticsEvent('collection_correction_applied', {
+                surface: 'collections',
+                correction: 'restored',
+                collection_kind: analyticsCollectionKind(selectedCollection.kind),
+              }, libraryAnalyticsContext({ family, entitlement }));
               openCollection(selectedCollection);
             } catch (undoError) {
               Alert.alert('Could not restore memory', undoError?.message || String(undoError));
@@ -501,7 +513,7 @@ export default function LibraryScreen() {
     } catch (collectionError) {
       Alert.alert('Could not update collection', collectionError?.message || String(collectionError));
     }
-  }, [canManageLibrary, family?.id, openCollection, selectedCollection]);
+  }, [canManageLibrary, entitlement, family, openCollection, selectedCollection]);
 
   const openCameraRollTools = () => {
     if (!canManageLibrary) return;
@@ -2388,6 +2400,31 @@ function formatDailyAlbumDate(value) {
 function countText(value, singular, pluralValue) {
   const count = Number(value || 0);
   return `${count.toLocaleString()} ${countLabel(count, singular, pluralValue)}`;
+}
+
+function analyticsCollectionKind(kind) {
+  const map = {
+    year: 'date',
+    month: 'date',
+    media: 'media',
+    author: 'author',
+    first: 'first',
+    place: 'place',
+    favorite: 'favorite',
+    reaction: 'reaction',
+    life_stage: 'first_year',
+  };
+  return map[kind] || 'unknown';
+}
+
+function libraryAnalyticsContext({ family, entitlement }) {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'unknown',
+    plan_state: entitlement?.isActive ? 'active' : 'lapsed',
+    platform: analyticsPlatform('ios'),
+    environment: analyticsEnvironment(),
+  };
 }
 
 const styles = StyleSheet.create({

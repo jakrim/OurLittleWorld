@@ -44,7 +44,7 @@ test('first candidate wins for a photo moment inside an incomplete goal window',
     goals,
     firsts: [{ goal_key: 'word', title: 'First word', done: true }],
     birthdayISO: stepsAgeBirthday,
-    babyName: 'Reuben',
+    babyName: 'River',
     now,
   });
   assert.equal(nudge.kind, 'first');
@@ -101,13 +101,13 @@ test('letter nudge follows a voice moment', () => {
     goals,
     firsts: [{ goal_key: 'word', done: true }, { goal_key: 'steps', done: true }],
     birthdayISO: stepsAgeBirthday,
-    babyName: 'Reuben',
+    babyName: 'River',
     now,
   });
   assert.equal(nudge.kind, 'letter');
   assert.equal(nudge.route.pathname, '/letter-compose');
   assert.equal(nudge.route.params.sourceMomentId, 'moment-3');
-  assert.match(nudge.route.params.body, /Reuben/);
+  assert.match(nudge.route.params.body, /River/);
   assert.doesNotMatch(nudge.route.params.body, /becoming|felt|happy|first time/i);
 });
 
@@ -121,7 +121,7 @@ test('text-only moment can become a one-line letter with source context', () => 
     goals,
     firsts: [],
     birthdayISO: stepsAgeBirthday,
-    babyName: 'Reuben',
+    babyName: 'River',
     now,
   });
   assert.equal(nudge.kind, 'letter');

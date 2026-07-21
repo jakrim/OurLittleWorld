@@ -621,7 +621,7 @@ export default function TimelineScreen() {
           photos={placePhotos}
           onOpenPhoto={onOpenPhoto}
           onLongPressPhoto={onLongPressPhoto}
-          babyName={family?.babyName || 'Reuben'}
+          babyName={family?.babyName || 'Baby'}
         />
       ) : (
         <FlatList

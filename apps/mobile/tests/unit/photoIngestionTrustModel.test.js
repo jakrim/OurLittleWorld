@@ -18,7 +18,7 @@ const highSkip = (assetId) => ({ assetId, score: 0.91, verdict: 'skip' });
 test('first scan requires review before auto-save', () => {
   const model = buildPhotoIngestionTrustModel({
     pendingReviewCount: 4,
-    babyName: 'Reuben',
+    babyName: 'River',
     childId: 'child-a',
   });
 
@@ -155,7 +155,7 @@ test('co-parent or new-device scope starts with review on this device', () => {
   const model = buildPhotoIngestionTrustModel({
     calibration: { autoSaveEnabled: true },
     hasDeviceReference: false,
-    babyName: 'Reuben',
+    babyName: 'River',
   });
 
   assert.equal(model.state, 'review_required');

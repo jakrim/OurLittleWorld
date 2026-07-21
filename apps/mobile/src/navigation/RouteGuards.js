@@ -14,7 +14,6 @@ import FamilyOnboardingScreen from '../FamilyOnboardingScreen';
 import FirstLookRevealScreen from '../FirstLookRevealScreen';
 import PurchaseScreen from '../PurchaseScreen';
 import SetupScreen from '../SetupScreen';
-import TodayScreen from '../TodayScreen';
 import WelcomeScreen from '../WelcomeScreen';
 
 export function CenteredSpinner() {
@@ -64,7 +63,7 @@ export function AppGate() {
   if (gate.reason === 'needs-setup') return <SetupScreen />;
   if (gate.reason === 'needs-first-look') return <FirstLookRevealScreen />;
   if (gate.reason === 'needs-subscription') return <PurchaseScreen />;
-  return <TodayScreen />;
+  return <RouteRedirect href={gate.href || '/timeline'} />;
 }
 
 export function AuthRoute({ children }) {

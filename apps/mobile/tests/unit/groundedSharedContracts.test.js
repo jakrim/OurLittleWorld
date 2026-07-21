@@ -4,13 +4,19 @@ import test from 'node:test';
 
 const source = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 
-test('private shared-enrichment drafts have no network, analytics, logging, or error-reporting transport', () => {
+test('private shared-enrichment drafts have no network, logging, or error-reporting transport', () => {
   const draftStore = source('../../src/sharedAnnotationDraftStore.js');
   const draftModel = source('../../src/sharedAnnotationDraftModel.js');
   const component = source('../../src/SharedMomentEnrichmentCard.js');
-  const combined = `${draftStore}\n${draftModel}\n${component}`;
 
-  assert.doesNotMatch(combined, /from ['"]\.\/supabase|trackAnalytics|PostHog|Sentry|console\./i);
+  assert.doesNotMatch(`${draftStore}\n${draftModel}`, /from ['"]\.\/supabase|trackAnalytics|PostHog|Sentry|console\./i);
+  assert.doesNotMatch(component, /from ['"]\.\/supabase|PostHog|Sentry|console\./i);
+  assert.match(component, /trackAnalyticsEvent\('shared_annotation_saved',\s*\{\s*surface:\s*analyticsSurface,\s*annotation_kind:/s);
+  const eventCall = component.slice(
+    component.indexOf("trackAnalyticsEvent('shared_annotation_saved'"),
+    component.indexOf('await onSaved?.()'),
+  );
+  assert.doesNotMatch(eventCall, /\b(text|voice|uri|moment_id|asset_id|draft_text)\s*:/i);
   assert.match(draftStore, /shared-annotation-drafts-v1/);
   assert.match(draftModel, /familyId.*userId.*momentId/s);
 });

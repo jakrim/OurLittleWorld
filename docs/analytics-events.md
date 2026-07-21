@@ -1,9 +1,10 @@
 # Analytics Events
 
 Status: event-name contract, mobile allowlisted wrapper, consent-aware dedicated
-PostHog HTTP transport, and initial onboarding, permission, moment, purchase, gift,
-website CTA, and checkout emissions are implemented. Delivery remains disabled
-without a dedicated Our Little World project token and a `granted` consent state.
+PostHog HTTP transport, and onboarding, permission, moment, Tonight, collection,
+shared-annotation, purchase, gift, website CTA, and checkout emissions are
+implemented. Delivery remains disabled without a dedicated Our Little World project
+token and a `granted` consent state.
 
 Goal: measure activation, weekly habit, assistant acceptance, Book payoff, gift
 intent, and purchase conversion without collecting private memory content.
@@ -50,7 +51,8 @@ Allowed shared property enums:
 
 - `surface`: `welcome`, `setup`, `today`, `add`, `review`, `book`,
   `moment_detail`, `firsts`, `letters`, `digest`, `settings`, `purchase`,
-  `gift`, `web_pricing`, `web_gift`, `notification`, `unknown`
+  `gift`, `web_pricing`, `web_gift`, `notification`, `tonight`, `our_world`,
+  `collections`, `unknown`
 - `child_age_band`: `prenatal`, `0_3m`, `3_6m`, `6_12m`, `12_24m`,
   `24m_plus`, `unknown`
 - `count_bucket`: `0`, `1`, `2_4`, `5_9`, `10_24`, `25_plus`
@@ -89,6 +91,12 @@ Allowed shared property enums:
 | `gift_redeemed` | Gift, website, or partner code redemption succeeds. | `surface`, `redemption_type`, `plan_state_after` | `redemption_type`: `gift`, `website`, `partner`; `plan_state_after`: `gift`, `active`, `unknown` |
 | `purchase_started` | User starts checkout or in-app purchase. | `surface`, `purchase_source`, `product_key`, `purchase_channel` | `purchase_source`: `paywall`, `pricing`, `gift`, `settings`, `book_export`; `product_key`: `family_month`, `family_year`, `vault_month`, `vault_year`, `gift_year`, `gift_vault_year`, `unknown`; `purchase_channel`: `in_app`, `web_checkout`, `partner`, `unknown` |
 | `purchase_completed` | Checkout or purchase completes successfully. | `surface`, `product_key`, `purchase_channel`, `plan_state_after` | `plan_state_after`: `trialing`, `active`, `gift`, `unknown`; other enums as above |
+| `tonight_opened` | A protected Tonight route resolves to a real, empty, resumed, or completed session. | `surface`, `open_source`, `queue_count_bucket`, `resume_state` | `open_source`: `today`, `notification`, `direct`, `unknown`; `resume_state`: `new`, `resumed`, `completed`, `empty`; count uses `count_bucket` |
+| `tonight_item_decided` | Keep, Skip, or unavailable resolution is durably applied to a Tonight item. | `surface`, `decision`, `media_kind`, `has_enrichment`, `retry_state` | `decision`: `kept`, `skipped`, `unavailable`; `retry_state`: `first_try`, `retry`; the private candidate reason is intentionally omitted |
+| `tonight_completed` | The final card decision durably completes a Tonight session. | `surface`, `kept_count_bucket`, `skipped_count_bucket`, `unavailable_count_bucket`, `enriched_count_bucket`, `duration_bucket`, `continuation` | Counts use `count_bucket`; duration is a fixed coarse band; `continuation`: boolean |
+| `tonight_notification_scheduled` | The device schedules a local notification for a real non-empty resumable queue. | `surface`, `queue_count_bucket`, `schedule_day` | `schedule_day`: `same_local_day`, `next_local_day`; count uses `count_bucket` |
+| `collection_correction_applied` | A parent excludes or restores an automatic factual collection membership. | `surface`, `correction`, `collection_kind` | `correction`: `excluded`, `restored`; collection kind is a fixed factual enum |
+| `shared_annotation_saved` | A separately authored text or voice contribution finishes its canonical save. | `surface`, `annotation_kind` | `annotation_kind`: `text`, `voice`, `mixed` |
 
 ## J2 Wrapper Requirements
 
@@ -130,3 +138,9 @@ The central analytics wrapper must:
   itself never enters analytics.
 - Website landing/CTA, checkout-start, gift-start, checkout-complete, and
   gift-complete events. Success-page beacons never read claim or redemption codes.
+- Tonight open, durable card decision, completion, and real-queue local notification
+  scheduling. Candidate/session IDs, private asset IDs, reason evidence, draft text,
+  voice paths, reactions, and retry identities never enter the event.
+- Reversible factual collection corrections and successful shared annotations. The
+  collection key, moment ID, annotation text, audio path, and author-written content
+  are excluded; only fixed category/action enums are emitted.

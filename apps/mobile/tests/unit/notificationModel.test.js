@@ -6,6 +6,7 @@ import { normalizeNotificationRoute, notificationPromptStorageKey } from '../../
 test('notification deep links allow only protected push routes', () => {
   assert.equal(normalizeNotificationRoute('/digest'), '/digest');
   assert.equal(normalizeNotificationRoute('/tonight'), '/tonight');
+  assert.equal(normalizeNotificationRoute('/tonight?source=notification'), '/tonight?source=notification');
   assert.equal(normalizeNotificationRoute('prompt?day=2026-07-06'), '/prompt?day=2026-07-06');
   assert.equal(normalizeNotificationRoute('ourlittleworld://digest'), '/digest');
   assert.equal(normalizeNotificationRoute('ourlittleworld://push/review'), '/review');
