@@ -44,6 +44,54 @@ test('one strongest daily anchor and distinct event survive while burst lookalik
   assert.equal(queue.find((item) => item.assetId === 'best-burst').reasonCode, 'best_burst');
 });
 
+test('daily anchors are stable across scan order and one day cannot crowd out other uncovered days', () => {
+  const rows = [
+    candidate('day-a-best', NOW - 10 * 86400000, 0.96, { localDay: '2026-07-08', coverageNeeded: true }),
+    candidate('day-a-other', NOW - 10 * 86400000 + 60000, 0.8, { localDay: '2026-07-08', coverageNeeded: true, eventClusterKey: 'a-other' }),
+    candidate('day-b-best', NOW - 11 * 86400000, 0.9, { localDay: '2026-07-07', coverageNeeded: true }),
+    candidate('day-c-best', NOW - 12 * 86400000, 0.88, { localDay: '2026-07-06', coverageNeeded: true }),
+  ];
+  const first = buildNightlyQueue(rows, { nowMs: NOW, seed: 'coverage-fair', maxItems: 3 });
+  const second = buildNightlyQueue([...rows].reverse(), { nowMs: NOW, seed: 'coverage-fair', maxItems: 3 });
+
+  assert.deepEqual(second, first);
+  assert.deepEqual(new Set(first.map((item) => rows.find((row) => row.assetId === item.assetId).localDay)).size, 3);
+  assert.equal(first.some((item) => item.assetId === 'day-a-best'), true);
+  assert.equal(first.some((item) => item.assetId === 'day-a-other'), false);
+});
+
+test('a second item from a day must clear the standout floor', () => {
+  const rows = [
+    candidate('anchor', NOW - 10 * 86400000, 0.9, { localDay: '2026-07-08' }),
+    candidate('merely-eligible', NOW - 10 * 86400000 + 60000, 0.3, { localDay: '2026-07-08', eventClusterKey: 'other' }),
+  ];
+  const queue = buildNightlyQueue(rows, { nowMs: NOW, seed: 'no-padding' });
+  assert.deepEqual(queue.map((item) => item.assetId), ['anchor']);
+});
+
+test('persisted fingerprints suppress a 30-minute lookalike run but preserve a distinct standout', () => {
+  const base = NOW - 20 * 86400000;
+  const nearDuplicates = Array.from({ length: 14 }, (_, index) => candidate(
+    `lookalike-${index}`,
+    base + index * 60000,
+    0.95 - index / 100,
+    {
+      localDay: '2026-06-28',
+      eventClusterKey: `separate-time-window-${index}`,
+      visualFingerprint: [1, 0, 0, 1],
+    },
+  ));
+  const distinct = candidate('distinct-event', base + 20 * 60000, 0.9, {
+    localDay: '2026-06-28',
+    eventClusterKey: 'distinct-event',
+    visualFingerprint: [0, 1, 1, 0],
+  });
+  const queue = buildNightlyQueue([...nearDuplicates, distinct], { nowMs: NOW, seed: 'fingerprints' });
+
+  assert.equal(queue.filter((item) => item.assetId.startsWith('lookalike-')).length, 1);
+  assert.equal(queue.some((item) => item.assetId === 'distinct-event'), true);
+});
+
 test('uncovered calendar days outrank already represented archive days', () => {
   const queue = buildNightlyQueue([
     candidate('covered-great', NOW - 5 * 86400000, 0.99, { coverageNeeded: false }),

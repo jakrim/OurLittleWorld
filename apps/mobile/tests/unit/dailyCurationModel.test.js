@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 
 import {
@@ -119,6 +120,33 @@ test('first-year coverage uses local calendar days for the July 23 birthday', ()
   assert.equal(album.firstYearDays[0].dayNumber, 359);
   assert.equal(album.firstYearDays.at(-1).dayKey, '2025-07-23');
   assert.equal(album.firstYearDays.find((day) => day.dayKey === '2025-07-24').records.length, 0);
+  assert.deepEqual(album.firstYearTargetBand, { lower: 456, upper: 556 });
+});
+
+test('5,000 lightweight saved moments group into a virtualizable 365-day model quickly', () => {
+  const start = new Date(2025, 6, 23, 12);
+  const records = Array.from({ length: 5000 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + (index % 365));
+    return {
+      key: `saved-${index}`,
+      capturedAt: date.toISOString(),
+      imageCount: index % 11 === 0 ? 0 : 1,
+      videoCount: index % 11 === 0 ? 1 : 0,
+    };
+  });
+  const started = performance.now();
+  const album = buildSavedDailyAlbum(records, {
+    babyBirthday: '2025-07-23',
+    now: new Date(2026, 6, 22, 12),
+    recentLimit: 365,
+  });
+  const durationMs = performance.now() - started;
+
+  console.info(`release2-performance saved_album_5000_ms=${durationMs.toFixed(1)} day_models=${album.days.length} record_count=${album.savedMemoryCount}`);
+  assert.equal(album.days.length, 365);
+  assert.equal(album.savedMemoryCount, 5000);
+  assert.ok(durationMs < 500, `saved album grouping took ${durationMs.toFixed(1)}ms`);
 });
 
 test('saved moments become lightweight daily records without losing playable media counts', () => {
@@ -145,4 +173,28 @@ test('first-year day numbers use calendar dates instead of daylight-saving-hour 
 
   assert.equal(album.firstYearElapsedDays, 4);
   assert.equal(album.firstYearDays[0].dayNumber, 4);
+});
+
+test('saved day grouping follows the family timezone instead of the current device timezone', () => {
+  const records = [{ key: 'late', capturedAt: '2026-07-20T03:30:00Z', imageCount: 1, videoCount: 0 }];
+  const newYork = buildSavedDailyAlbum(records, { timezone: 'America/New_York' });
+  const london = buildSavedDailyAlbum(records, { timezone: 'Europe/London' });
+  assert.equal(newYork.days[0].dayKey, '2026-07-19');
+  assert.equal(london.days[0].dayKey, '2026-07-20');
+});
+
+test('elapsed first-year day follows the family timezone at midnight rollover', () => {
+  const now = new Date('2026-07-20T01:00:00.000Z');
+  const newYork = buildSavedDailyAlbum([], {
+    babyBirthday: '2026-07-19',
+    now,
+    timezone: 'America/New_York',
+  });
+  const london = buildSavedDailyAlbum([], {
+    babyBirthday: '2026-07-19',
+    now,
+    timezone: 'Europe/London',
+  });
+  assert.equal(newYork.firstYearElapsedDays, 1);
+  assert.equal(london.firstYearElapsedDays, 2);
 });

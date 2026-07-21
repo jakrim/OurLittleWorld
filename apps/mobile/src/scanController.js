@@ -285,6 +285,7 @@ export function markSaved(ids) {
  *     onICloudWait: async ({ assetIds }) => {},
  *     onICloudReady: async ({ assetIds }) => {},
  *     onCandidates: async ({ matches, scanKey }) => {},
+ *     onAssetsSeen: async ({ assetIds, scanKey }) => {},
  *   })
  *
  *   reference: { embedding: number[] }  – the baby's face embedding
@@ -310,6 +311,7 @@ export async function start({
   onICloudWait,
   onICloudReady,
   onCandidates,
+  onAssetsSeen,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -388,6 +390,12 @@ export async function start({
       }
       if (!freshAssets.length) return;
       await reportICloudStatus(freshAssets);
+      if (onAssetsSeen) {
+        const sourceAssetIds = [...new Set(
+          freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean),
+        )];
+        if (sourceAssetIds.length) await onAssetsSeen({ assetIds: sourceAssetIds, scanKey });
+      }
 
       const candidates = freshAssets
         .filter((a) => !a.cloudWaitOnly && (a.localUri || a.uri) && !skipSet.has(a.sourceAssetId || a.id))

@@ -2,6 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { deepLinkToSubscriptions } from 'expo-iap';
 
 import { supabase } from './supabase';
+export { hasReadOnlyArchiveAccess, READ_ONLY_ARCHIVE_STATUSES } from './entitlementAccessModel';
 
 export const SUPPORT_EMAIL = 'support@ourlittleworld.me';
 export const FAMILY_MONTHLY_PRODUCT_ID = 'olw.family.monthly';

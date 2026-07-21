@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../../src/navigation/RouteGuards';
 
 export default function MomentDetailRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowReadOnlyArchive>
       <MomentDetailScreen />
     </ProtectedRoute>
   );

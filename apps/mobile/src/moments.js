@@ -20,6 +20,7 @@ import { attachmentTarget } from './mediaAttachmentTarget';
 import { supabase } from './supabase';
 import { normalizeMomentTags } from './tagModel';
 import { archivePageRanges } from './archivePaginationModel';
+import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -29,6 +30,9 @@ const FULL_QUALITY = 0.86;
 const THUMB_QUALITY = 0.74;
 const VIDEO_POSTER_QUALITY = 0.8;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+export const MOMENT_DAY_INDEX_MAX_MOMENTS = 5000;
+export const MOMENT_DAY_INDEX_MAX_MEDIA = 20000;
+export const MOMENT_DAY_INDEX_PAGE_SIZE = 500;
 
 const MIME_EXT = {
   'image/jpeg': 'jpg',
@@ -802,6 +806,113 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   }
 
   return hydrateMomentRows(familyId, rows);
+}
+
+export async function listMomentDayArchive(familyId, {
+  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  momentLimit = MOMENT_DAY_INDEX_MAX_MOMENTS,
+  mediaLimit = MOMENT_DAY_INDEX_MAX_MEDIA,
+} = {}) {
+  if (!familyId) return [];
+  const moments = [];
+  const mediaRows = [];
+  const safeMomentLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MOMENTS, Number(momentLimit || 0)));
+  const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
+  for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
+    const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
+    const { data, error } = await supabase
+      .from('moments')
+      .select('id, captured_at, moment_media (id, media_type, metadata, sort_order)')
+      .eq('family_id', familyId)
+      .order('captured_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + take - 1);
+    if (error) throw error;
+    const page = data || [];
+    for (const moment of page) {
+      moments.push({ id: moment.id, captured_at: moment.captured_at });
+      for (const media of moment.moment_media || []) {
+        if (mediaRows.length >= safeMediaLimit) break;
+        mediaRows.push({ ...media, moment_id: moment.id });
+      }
+    }
+    if (page.length < take) break;
+  }
+  if (!moments.length) return [];
+
+  const days = buildMomentDayIndexRows({ moments, mediaRows, timezone });
+  const signed = await signPaths(days.map((day) => day.coverPath).filter(Boolean));
+  return days.map((day) => ({
+    key: `saved-day:${day.day}`,
+    capturedAt: day.capturedAt,
+    imageCount: day.imageCount,
+    videoCount: day.videoCount,
+    thumbUrl: signed.get(day.coverPath) || null,
+    moment: { id: day.coverMomentId, captured_at: day.capturedAt },
+  }));
+}
+
+export async function getFamilyArchiveCounts(familyId) {
+  if (!familyId) return { moments: 0, photos: 0, videos: 0, voiceNotes: 0 };
+  const count = async (query) => {
+    const { count: value, error } = await query;
+    if (error) throw error;
+    return Number(value || 0);
+  };
+  const [moments, photos, videos, voiceNotes] = await Promise.all([
+    count(supabase.from('moments').select('id', { count: 'exact', head: true }).eq('family_id', familyId)),
+    count(supabase.from('moment_media').select('id', { count: 'exact', head: true }).eq('family_id', familyId).eq('media_type', 'image')),
+    count(supabase.from('moment_media').select('id', { count: 'exact', head: true }).eq('family_id', familyId).eq('media_type', 'video')),
+    count(supabase.from('voice_notes').select('id', { count: 'exact', head: true }).eq('family_id', familyId)),
+  ]);
+  return { moments, photos, videos, voiceNotes };
+}
+
+export async function listMomentDayDetails(familyId, {
+  day,
+  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  momentLimit = MOMENT_DAY_INDEX_MAX_MOMENTS,
+  mediaLimit = MOMENT_DAY_INDEX_MAX_MEDIA,
+} = {}) {
+  if (!familyId) return [];
+  const range = utcRangeForLocalDay(day, timezone);
+  if (!range) return [];
+  const moments = [];
+  const mediaRows = [];
+  const safeMomentLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MOMENTS, Number(momentLimit || 0)));
+  const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
+  for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
+    const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
+    const { data, error } = await supabase
+      .from('moments')
+      .select('id, captured_at, moment_media (id, media_type, metadata, sort_order)')
+      .eq('family_id', familyId)
+      .gte('captured_at', range.start)
+      .lt('captured_at', range.end)
+      .order('captured_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + take - 1);
+    if (error) throw error;
+    const page = data || [];
+    for (const moment of page) {
+      moments.push({ id: moment.id, captured_at: moment.captured_at });
+      for (const media of moment.moment_media || []) {
+        if (mediaRows.length >= safeMediaLimit) break;
+        mediaRows.push({ ...media, moment_id: moment.id });
+      }
+    }
+    if (page.length < take) break;
+  }
+  const rows = buildMomentDayDetailRows({ moments, mediaRows });
+  const signed = await signPaths(rows.map((row) => row.coverPath).filter(Boolean));
+  return rows.map((row) => ({
+    key: row.key,
+    capturedAt: row.capturedAt,
+    imageCount: row.imageCount,
+    videoCount: row.videoCount,
+    thumbUrl: signed.get(row.coverPath) || null,
+    moment: { id: row.momentId, captured_at: row.capturedAt },
+  }));
 }
 
 export async function getMomentDetail({ familyId, momentId }) {

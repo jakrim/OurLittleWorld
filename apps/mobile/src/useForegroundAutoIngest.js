@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { AppState, NativeModules } from 'react-native';
+import { AppState } from 'react-native';
 
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
@@ -11,6 +11,7 @@ import { readReferenceProfile } from './recognitionReferences';
 import { hasReferenceProfile, shouldStartForegroundAutoIngest } from './foregroundAutoIngestModel';
 import { startLibraryScan } from './libraryScanLauncher';
 import { registerBackgroundAutoIngestTask } from './backgroundAutoIngestTask';
+import { readAutoIngestPowerGate } from './scanPowerPolicy';
 import * as Scan from './scanController';
 
 const AUTO_INGEST_ATTEMPT_DEBOUNCE_MS = 15000;
@@ -33,9 +34,10 @@ export default function useForegroundAutoIngest({ enabled = true } = {}) {
     runningRef.current = true;
 
     try {
+      const powerGate = await readAutoIngestPowerGate();
+      if (powerGate.shouldPause) return;
       const permission = await getLibraryPermissionStatus();
       if (!permission.granted) return;
-      if (await isLowPowerModeEnabled()) return;
 
       const [profile, checkpoint, pendingChange] = await Promise.all([
         readReferenceProfile({ familyId: family.id, userId: user.id }),
@@ -69,20 +71,4 @@ export default function useForegroundAutoIngest({ enabled = true } = {}) {
     });
     return () => sub.remove();
   }, [enabled, entitlement?.isActive, family?.me?.role, maybeStart]);
-}
-
-async function isLowPowerModeEnabled() {
-  const battery = NativeModules.ExpoBattery;
-  try {
-    if (typeof battery?.isLowPowerModeEnabledAsync === 'function') {
-      return !!(await battery.isLowPowerModeEnabledAsync());
-    }
-    if (typeof battery?.getPowerStateAsync === 'function') {
-      const state = await battery.getPowerStateAsync();
-      return !!(state?.lowPowerMode || state?.lowPowerModeEnabled);
-    }
-  } catch {
-    // If the optional native battery API is unavailable, don't block ingest.
-  }
-  return false;
 }

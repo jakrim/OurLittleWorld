@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 2;
+export const MEDIA_DB_SCHEMA_VERSION = 3;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -174,6 +174,39 @@ export const TONIGHT_ENRICHMENT_MIGRATION_SQL = `
     on nightly_review_enrichment (family_id, user_id, session_id, position);
 `;
 
+export const FIRST_YEAR_CATCHUP_MIGRATION_SQL = `
+  alter table discovery_candidates add column capture_timezone text;
+  alter table discovery_candidates add column last_seen_scan_key text;
+  alter table discovery_candidates add column last_seen_at text;
+  alter table discovery_candidates add column unavailable_code text
+    check (unavailable_code is null or unavailable_code in (
+      'icloud_pending', 'deleted', 'limited_revoked', 'missing_after_full_scan'
+    ));
+  update discovery_candidates
+    set capture_timezone = coalesce(capture_timezone, 'legacy-local'),
+        last_seen_scan_key = coalesce(last_seen_scan_key, scan_key),
+        last_seen_at = coalesce(last_seen_at, last_analyzed_at),
+        unavailable_code = case
+          when availability = 'icloud_pending' then 'icloud_pending'
+          else unavailable_code
+        end;
+
+  create index if not exists discovery_candidates_scope_seen_idx
+    on discovery_candidates (family_id, user_id, last_seen_scan_key, capture_time_ms);
+  create index if not exists discovery_candidates_scope_availability_idx
+    on discovery_candidates (family_id, user_id, availability, unavailable_code, capture_time_ms desc);
+
+  create table if not exists family_saved_day_facts (
+    family_id text not null,
+    local_day text not null,
+    saved_count integer not null check (saved_count > 0),
+    refreshed_at text not null,
+    primary key (family_id, local_day)
+  );
+  create index if not exists family_saved_day_facts_scope_day_idx
+    on family_saved_day_facts (family_id, local_day);
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -181,6 +214,10 @@ export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'lifecycle_state',
   'scorer_version',
   'last_analyzed_at',
+  'capture_timezone',
+  'last_seen_scan_key',
+  'last_seen_at',
+  'unavailable_code',
 ]);
 
 export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
@@ -193,6 +230,13 @@ export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
   'canonical_moment_id',
   'media_commit_state',
   'voice_commit_state',
+]);
+
+export const MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS = Object.freeze([
+  'family_id',
+  'local_day',
+  'saved_count',
+  'refreshed_at',
 ]);
 
 export function applyMediaDbMigrations(database) {
@@ -222,6 +266,16 @@ export function applyMediaDbMigrations(database) {
       throw new Error(`Local Tonight enrichment migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
+  if (currentVersion < 3) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(FIRST_YEAR_CATCHUP_MIGRATION_SQL);
+        database.execSync('pragma user_version = 3;');
+      });
+    } catch (error) {
+      throw new Error(`Local first-year catch-up migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
   assertCandidateLedgerSchema(database);
   return MEDIA_DB_SCHEMA_VERSION;
 }
@@ -238,5 +292,12 @@ export function assertCandidateLedgerSchema(database) {
   const missingEnrichment = MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS.filter((column) => !enrichmentColumns.has(column));
   if (missingEnrichment.length) {
     throw new Error(`Local Tonight enrichment store is incomplete; missing columns: ${missingEnrichment.join(', ')}. Restart the app after freeing device storage.`);
+  }
+  const savedDayRows = database.getAllSync('pragma table_info(family_saved_day_facts)');
+  const savedDayColumns = new Set((savedDayRows || []).map((row) => row.name));
+  const missingSavedDayColumns = MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS
+    .filter((column) => !savedDayColumns.has(column));
+  if (missingSavedDayColumns.length) {
+    throw new Error(`Local saved-day coverage store is incomplete; missing columns: ${missingSavedDayColumns.join(', ')}. Restart the app after freeing device storage.`);
   }
 }

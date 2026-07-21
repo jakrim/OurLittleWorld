@@ -14,6 +14,70 @@ test('scan persistence happens batch-by-batch before live state and checkpoint c
   assert.match(launcher, /if \(finalState\?\.phase !== 'done'\) return;/);
   assert.match(launcher, /persistScanCandidates/);
   assert.match(launcher, /listCachedAnalysisAssetIds/);
+  assert.match(controller, /await onAssetsSeen\(\{ assetIds: sourceAssetIds, scanKey \}\)/);
+  assert.match(launcher, /if \(change\?\.requiresFullLibraryScan\) \{[\s\S]*reconcileCompletedFullScan/);
+  assert.match(launcher, /if \(!change\?\.requiresFullLibraryScan\) \{[\s\S]*cachedAnalysisIds/);
+  assert.match(launcher, /getFamilyRitualSettings/);
+  assert.match(launcher, /captureTimezone/);
+  assert.match(launcher, /birthdayISO: family\.babyBirthday,[\s\S]*captureTimezone/);
+});
+
+test('family saved-day coverage fetches only bounded date facts before queue creation', () => {
+  const coverage = source('savedDayCoverage.js');
+  const today = source('TodayScreen.js');
+  const tonight = source('TonightScreen.js');
+  assert.match(coverage, /SAVED_DAY_COVERAGE_PAGE_SIZE = 500/);
+  assert.match(coverage, /\.select\('captured_at'\)/);
+  assert.doesNotMatch(coverage, /asset_id|local_identifier|fingerprint|identity|media_url/i);
+  assert.ok(today.indexOf('await refreshFamilySavedDayCoverage') < today.indexOf('const session = ensureNightlySession'));
+  assert.ok(tonight.indexOf('await refreshFamilySavedDayCoverage') < tonight.indexOf('next = ensureNightlySession'));
+});
+
+test('365-day browsing uses a lightweight bounded archive instead of hydrating 5,000 rich moments', () => {
+  const moments = source('moments.js');
+  const daily = source('DailyAlbumScreen.js');
+  const start = moments.indexOf('export async function listMomentDayArchive');
+  const end = moments.indexOf('export async function getFamilyArchiveCounts', start);
+  const indexPath = moments.slice(start, end);
+  const detailStart = moments.indexOf('export async function listMomentDayDetails', end);
+  const detailEnd = moments.indexOf('export async function getMomentDetail', detailStart);
+  const detailPath = moments.slice(detailStart, detailEnd);
+  assert.match(indexPath, /MOMENT_DAY_INDEX_MAX_MOMENTS/);
+  assert.match(indexPath, /\.select\('id, captured_at, moment_media \(id, media_type, metadata, sort_order\)'\)/);
+  assert.doesNotMatch(indexPath, /voice_notes|moment_tags|moment_reactions|local_identifier/);
+  assert.match(detailPath, /utcRangeForLocalDay/);
+  assert.match(detailPath, /\.select\('id, captured_at, moment_media \(id, media_type, metadata, sort_order\)'\)/);
+  assert.doesNotMatch(detailPath, /voice_notes|moment_tags|moment_reactions|local_identifier/);
+  assert.match(daily, /listMomentDayArchive/);
+  assert.match(daily, /\/daily-album\/\[day\]/);
+  assert.doesNotMatch(daily, /listMomentArchive/);
+  const library = source('LibraryScreen.js');
+  assert.match(library, /LIBRARY_RICH_ARCHIVE_LIMIT = 500/);
+  assert.match(library, /listMomentDayArchive/);
+  assert.doesNotMatch(library, /listMomentArchive\(family\.id, \{ limit: 5000 \}\)/);
+});
+
+test('Keep going uses the completed session day and never creates a second notification', () => {
+  const ledger = source('candidateLedgerStore.js');
+  const tonight = source('TonightScreen.js');
+  const start = ledger.indexOf('export function startTonightContinuation');
+  const end = ledger.indexOf('function createNightlySession', start);
+  const continuation = ledger.slice(start, end);
+  assert.match(continuation, /completedSessionId/);
+  assert.match(continuation, /const day = completed\.local_day/);
+  assert.match(continuation, /continuation: true/);
+  assert.match(ledger, /seed not like '%:more:%'/);
+  assert.match(tonight, /testID="tonight-keep-going"/);
+  assert.doesNotMatch(continuation, /Notification|maybeScheduleTonightNotification/);
+});
+
+test('burst alternate finalization supersedes the original and reconciles effective availability', () => {
+  const ledger = source('candidateLedgerStore.js');
+  assert.match(ledger, /decidedAssetId !== item\.asset_id[\s\S]*lifecycle_state = 'superseded'/);
+  assert.match(ledger, /e\.selected_asset_id = \?/);
+  assert.match(ledger, /coalesce\(\([\s\S]*e\.selected_asset_id[\s\S]*\), asset_id\)/);
+  assert.match(ledger, /promoteUnavailableClusterRepresentatives/);
+  assert.match(ledger, /representative\.availability <> 'available'/);
 });
 
 test('scan and review progress use independent stores', () => {
@@ -38,10 +102,45 @@ test('private photo access fails closed for Circle and lapsed states before Phot
   assert.ok(launcher.indexOf("reason: 'role-cannot-scan'") < launcher.indexOf('const permission ='));
   assert.ok(launcher.indexOf("reason: 'inactive-entitlement'") < launcher.indexOf('const permission ='));
   assert.ok(background.indexOf("reason: 'inactive-entitlement'") < background.indexOf('const permission ='));
+  assert.ok(background.indexOf('const powerGate =') < background.indexOf('const permission ='));
+  assert.ok(foreground.indexOf('const powerGate =') < foreground.indexOf('const permission ='));
   assert.match(foreground, /!entitlement\?\.isActive/);
   assert.match(foreground, /\['creator', 'partner'\]/);
   assert.match(manual, /const canScan = writer && entitlement\?\.isActive === true/);
   assert.match(manual, /if \(!family \|\| !user \|\| billingLoading \|\| !canScan\) return;[\s\S]*await startLibraryScan/);
+  assert.doesNotMatch(manual, /readAutoIngestPowerGate|low-power-mode/);
+});
+
+test('Today and Library gate photo observers and write utilities behind writer entitlement', () => {
+  const today = source('TodayScreen.js');
+  const library = source('LibraryScreen.js');
+
+  assert.match(today, /const canUsePrivateDiscovery = !billingLoading[\s\S]*entitlement\?\.isActive === true[\s\S]*writer/);
+  assert.match(today, /useMediaLibraryChangeObserver\(\{[\s\S]*enabled: canUsePrivateDiscovery/);
+  assert.match(library, /const canManageLibrary = !billingLoading[\s\S]*entitlement\?\.isActive === true[\s\S]*writer/);
+  assert.match(library, /useMediaLibraryChangeObserver\(\{[\s\S]*enabled: canManageLibrary/);
+  assert.match(library, /if \(canManageLibrary\) \{\s*silentlyRepairUploadsForOwner/);
+  assert.match(library, /if \(!canManageLibrary\) return;\s*setShowLocalPhotos/);
+  assert.match(library, /onOpenCameraRoll=\{canManageLibrary \? openCameraRollTools : null\}/);
+  assert.match(library, /onRepair=\{repairUploadQueue\}/);
+});
+
+test('lapsed families can browse saved archive routes but cannot enter write routes', () => {
+  const guards = source('navigation/RouteGuards.js');
+  const libraryRoute = readFileSync(new URL('../../app/library.jsx', import.meta.url), 'utf8');
+  const dayRoute = readFileSync(new URL('../../app/daily-album/[day].jsx', import.meta.url), 'utf8');
+  const addRoute = readFileSync(new URL('../../app/add.jsx', import.meta.url), 'utf8');
+  const appShell = source('ui/AppShell.js');
+  const bottomTabs = source('ui/BottomTabs.js');
+  const library = source('LibraryScreen.js');
+  assert.match(guards, /reason: 'read-only-archive', href: '\/library'/);
+  assert.match(guards, /!allowReadOnlyArchive && gate\.reason === 'read-only-archive'/);
+  assert.match(libraryRoute, /ProtectedRoute allowReadOnlyArchive/);
+  assert.match(dayRoute, /ProtectedRoute allowReadOnlyArchive/);
+  assert.doesNotMatch(addRoute, /allowReadOnlyArchive/);
+  assert.match(appShell, /entitlement\?\.isActive === true[\s\S]*family\?\.me\?\.role/);
+  assert.match(bottomTabs, /tab\.key !== 'add' \|\| canAdd/);
+  assert.match(library, /Saved letters remain available to read/);
 });
 
 test('Tonight keep uses the established tag upload and memory-note path', () => {
@@ -125,8 +224,8 @@ test('Today and Tonight require an active entitlement before queue reads or writ
   const review = source('ReviewMatchesScreen.js');
   const route = readFileSync(new URL('../../app/tonight.jsx', import.meta.url), 'utf8');
 
-  assert.match(today, /billingLoading \|\| !entitlement\?\.isActive/);
-  assert.ok(tonight.indexOf('if (!canCurate') < tonight.indexOf('const next = readTonightSession'));
+  assert.match(today, /const canUsePrivateDiscovery = !billingLoading[\s\S]*entitlement\?\.isActive === true/);
+  assert.ok(tonight.indexOf('if (!canCurate') < tonight.indexOf('let next = readTonightSession'));
   assert.match(tonight, /entitlement\?\.isActive === true/);
   assert.match(review, /const canCurate = writer && entitlement\?\.isActive === true/);
   assert.match(route, /ProtectedRoute allowMissingSubscription/);

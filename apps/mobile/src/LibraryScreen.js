@@ -24,6 +24,7 @@ import {
 } from './ui';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { createPhotoBookExport } from './archiveExport';
 import { EXPORT_PREVIEW_LIMITATIONS } from './archiveExportModel';
 import { EXPORT_POLICY_COPY } from './exportPolicyCopy';
@@ -36,7 +37,7 @@ import {
   listSharedTagged,
   silentlyRepairUploadsForOwner,
 } from './photoSync';
-import { listMomentArchive } from './moments';
+import { getFamilyArchiveCounts, listMomentArchive, listMomentDayArchive } from './moments';
 import { countLabel } from './plural';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { AUTO_SAVE_CORRECTION_COPY } from './autoSaveCorrectionModel';
@@ -57,9 +58,11 @@ import { Family } from './families';
 import { listFamilyLibraryConnections } from './familyLibrarySync';
 import { buildFamilyLibrarySyncModel } from './familyLibrarySyncModel';
 import { buildSavedDailyAlbum } from './dailyCurationModel';
+import { deviceTimeZone, getFamilyRitualSettings } from './ritualSettings';
 
 const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
 const TIMELINE_RENDER_LIMIT = 500;
+const LIBRARY_RICH_ARCHIVE_LIMIT = 500;
 
 export default function LibraryScreen() {
   const router = useRouter();
@@ -68,10 +71,20 @@ export default function LibraryScreen() {
   const { width: viewportWidth } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canManageLibrary = !billingLoading
+    && entitlement?.isActive === true
+    && writer
+    && !!family?.id
+    && !!user?.id;
   const [segment, setSegment] = useState(() => normalizeLibrarySegment(params.segment) || 'photos');
   const [scrollResetKey, setScrollResetKey] = useState(0);
   const [shared, setShared] = useState([]);
   const [moments, setMoments] = useState([]);
+  const [dailyArchiveRecords, setDailyArchiveRecords] = useState([]);
+  const [archiveCounts, setArchiveCounts] = useState(null);
+  const [archiveTimezone, setArchiveTimezone] = useState(deviceTimeZone() || 'UTC');
   const [firsts, setFirsts] = useState([]);
   const [letters, setLetters] = useState([]);
   const [promptResponses, setPromptResponses] = useState([]);
@@ -98,11 +111,11 @@ export default function LibraryScreen() {
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
-    enabled: !!family?.id && !!user?.id,
+    enabled: canManageLibrary,
   });
   const iCloudRetry = useICloudRetryCount({
-    familyId: family?.id,
-    userId: user?.id,
+    familyId: canManageLibrary ? family.id : null,
+    userId: canManageLibrary ? user.id : null,
     refreshKey: `${pendingChange?.changedAt || ''}:${uploadQueue.total}`,
   });
   const manualQaFixture = useMemo(
@@ -135,6 +148,13 @@ export default function LibraryScreen() {
 
   const loadShared = useCallback(async () => {
     if (!family?.id) return;
+    const ritualSettings = await getFamilyRitualSettings({
+      familyId: family.id,
+      family: { babyBirthday: family?.babyBirthday },
+    }).catch(() => null);
+    const familyTimezone = ritualSettings?.timezone && ritualSettings.timezone !== 'local'
+      ? ritualSettings.timezone
+      : deviceTimeZone() || 'UTC';
     const [
       sharedRows,
       tagRows,
@@ -147,18 +167,24 @@ export default function LibraryScreen() {
       uploadStatus,
       memberRows,
       connectionRows,
+      dayRows,
+      countRows,
     ] = await Promise.all([
       listSharedTagged(family.id, { limit: 90 }).catch(() => []),
       Tags.all(family.id).catch(() => ({})),
-      listMomentArchive(family.id, { limit: 5000 }).catch(() => []),
+      listMomentArchive(family.id, { limit: LIBRARY_RICH_ARCHIVE_LIMIT }).catch(() => []),
       Firsts.list(family.id).catch(() => []),
       Letters.list(family.id).catch(() => []),
       DailyPrompts.listResponses(family.id).catch(() => []),
-      user?.id ? getRecentAutoSaves({ familyId: family.id, userId: user.id }).catch(() => []) : [],
-      user?.id ? getImportCalibration({ familyId: family.id, userId: user.id }).catch(() => null) : null,
-      getUploadQueueStatus({ familyId: family.id }).catch(() => ({ total: 0, pending: 0, uploading: 0, failed: 0, lastError: null })),
+      canManageLibrary ? getRecentAutoSaves({ familyId: family.id, userId: user.id }).catch(() => []) : [],
+      canManageLibrary ? getImportCalibration({ familyId: family.id, userId: user.id }).catch(() => null) : null,
+      canManageLibrary
+        ? getUploadQueueStatus({ familyId: family.id }).catch(() => ({ total: 0, pending: 0, uploading: 0, failed: 0, lastError: null }))
+        : { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null },
       Family.members(family.id).catch(() => []),
       listFamilyLibraryConnections(family.id).catch(() => []),
+      listMomentDayArchive(family.id, { momentLimit: 5000, timezone: familyTimezone }).catch(() => []),
+      getFamilyArchiveCounts(family.id).catch(() => null),
     ]);
     setShared(sharedRows);
     setMoments(momentRows);
@@ -171,10 +197,13 @@ export default function LibraryScreen() {
     setUploadQueue(uploadStatus);
     setFamilyMembers(memberRows);
     setLibraryConnections(connectionRows);
-  }, [family?.id, user?.id]);
+    setDailyArchiveRecords(dayRows);
+    setArchiveCounts(countRows);
+    setArchiveTimezone(familyTimezone);
+  }, [canManageLibrary, family?.babyBirthday, family?.id, user?.id]);
 
   const loadLocalInitial = useCallback(async () => {
-    if (!family?.id) return;
+    if (!canManageLibrary) return;
     setLoading(true);
     try {
       const perm = await ensureLibraryPermission();
@@ -192,12 +221,12 @@ export default function LibraryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [family?.id]);
+  }, [canManageLibrary]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     loadShared();
-    if (family?.id) {
+    if (canManageLibrary) {
       silentlyRepairUploadsForOwner({ familyId: family.id })
         .then((result) => {
           if (active && result?.attempted) loadShared();
@@ -207,14 +236,19 @@ export default function LibraryScreen() {
     return () => {
       active = false;
     };
-  }, [family?.id, loadShared]));
+  }, [canManageLibrary, family?.id, loadShared]));
 
   useEffect(() => {
+    if (!canManageLibrary) {
+      setShowLocalPhotos(false);
+      setLocal([]);
+      return;
+    }
     if (segment === 'photos' && showLocalPhotos && local.length === 0) loadLocalInitial();
-  }, [loadLocalInitial, local.length, segment, showLocalPhotos]);
+  }, [canManageLibrary, loadLocalInitial, local.length, segment, showLocalPhotos]);
 
   const loadMore = async () => {
-    if (loading || !hasNext) return;
+    if (!canManageLibrary || loading || !hasNext) return;
     setLoading(true);
     try {
       const page = await fetchPhotosPage({ after: cursor });
@@ -227,6 +261,7 @@ export default function LibraryScreen() {
   };
 
   const openLocal = (photo) => {
+    if (!canManageLibrary) return;
     const params = { assetId: photo.id, uri: photo.uri };
     if (photo.creationTime != null) params.creationTime = String(photo.creationTime);
     router.push({ pathname: '/photo/[assetId]', params });
@@ -250,17 +285,20 @@ export default function LibraryScreen() {
     lapsedSubscriptionPolicy: null,
   }), [effectiveFirsts, effectiveLetters, effectiveMoments, effectivePromptResponses, effectiveShared, effectiveUploadQueue, family?.babyBirthday]);
   const archiveRecords = bookHome.records;
-  const archiveStats = bookHome.stats;
+  const archiveStats = manualQaFixture || !archiveCounts
+    ? bookHome.stats
+    : { ...bookHome.stats, ...archiveCounts };
   const archiveSections = bookHome.chapters;
   const presentationSections = useMemo(
     () => limitArchiveSectionsForTimeline(archiveSections, TIMELINE_RENDER_LIMIT),
     [archiveSections],
   );
   const dailyAlbum = useMemo(
-    () => buildSavedDailyAlbum(archiveRecords, {
+    () => buildSavedDailyAlbum(manualQaFixture ? archiveRecords : dailyArchiveRecords, {
       babyBirthday: family?.babyBirthday,
+      timezone: archiveTimezone,
     }),
-    [archiveRecords, family?.babyBirthday],
+    [archiveRecords, archiveTimezone, dailyArchiveRecords, family?.babyBirthday, manualQaFixture],
   );
   const yearSummaries = bookHome.yearSummaries;
   const recentAutoSaveRows = useMemo(
@@ -279,7 +317,7 @@ export default function LibraryScreen() {
     [effectiveImportCalibration, effectiveRecentAutoSaves, family?.babyName],
   );
   const setAutoSaveMode = useCallback(async (mode) => {
-    if (!family?.id || !user?.id || savingAutoSavePreference) return;
+    if (!canManageLibrary || savingAutoSavePreference) return;
     if (mode === photoTrustModel.autoSaveSetting?.value) return;
     const enabled = mode === AUTO_SAVE_MODE_AUTO;
     setSavingAutoSavePreference(true);
@@ -309,6 +347,7 @@ export default function LibraryScreen() {
       setSavingAutoSavePreference(false);
     }
   }, [
+    canManageLibrary,
     family?.id,
     photoTrustModel.autoSaveSetting?.value,
     savingAutoSavePreference,
@@ -325,11 +364,11 @@ export default function LibraryScreen() {
   const libraryTileSize = useMemo(() => libraryTileSizeForWidth(viewportWidth), [viewportWidth]);
   const utilityVisibility = useMemo(
     () => buildBookUtilityVisibility({
-      uploadQueue: effectiveUploadQueue,
-      iCloudRetry: effectiveICloudRetry,
-      pendingChange: effectivePendingChange,
+      uploadQueue: canManageLibrary ? effectiveUploadQueue : null,
+      iCloudRetry: canManageLibrary ? effectiveICloudRetry : null,
+      pendingChange: canManageLibrary ? effectivePendingChange : null,
     }),
-    [effectiveICloudRetry, effectivePendingChange, effectiveUploadQueue],
+    [canManageLibrary, effectiveICloudRetry, effectivePendingChange, effectiveUploadQueue],
   );
   const familyLibraryModel = useMemo(
     () => buildFamilyLibrarySyncModel({
@@ -364,12 +403,13 @@ export default function LibraryScreen() {
   };
 
   const openCameraRollTools = () => {
+    if (!canManageLibrary) return;
     setShowLocalPhotos(true);
     if (!local.length) loadLocalInitial();
   };
 
   const removeShared = async () => {
-    if (!family?.id || !actionPhoto) return;
+    if (!canManageLibrary || !actionPhoto) return;
     const photo = actionPhoto;
     setActionPhoto(null);
     try {
@@ -385,7 +425,7 @@ export default function LibraryScreen() {
   };
 
   const removeRecentAutoSave = async (row) => {
-    if (!family?.id || !user?.id || !row?.assetId) return;
+    if (!canManageLibrary || !row?.assetId) return;
     try {
       const result = await removeAutoSavedMemory({
         familyId: family.id,
@@ -411,12 +451,12 @@ export default function LibraryScreen() {
         openShared(photo);
       },
     },
-    {
+    ...(canManageLibrary ? [{
       icon: 'trash-outline',
       label: 'Remove from Our World',
       destructive: true,
       onPress: removeShared,
-    },
+    }] : []),
   ] : [];
 
   const shareArchiveSummary = async () => {
@@ -436,7 +476,7 @@ export default function LibraryScreen() {
   };
 
   const repairUploadQueue = async () => {
-    if (!family?.id || repairingUploads) return;
+    if (!canManageLibrary || repairingUploads) return;
     setRepairingUploads(true);
     try {
       const result = await backfillPendingForOwner({ familyId: family.id });
@@ -502,12 +542,13 @@ export default function LibraryScreen() {
         <BookHome
           childName={family?.babyName}
           model={bookHome}
-          onAdd={() => router.push('/add')}
+          canWrite={canManageLibrary}
+          onAdd={canManageLibrary ? () => router.push('/add') : null}
           onOpenFirsts={() => router.push('/firsts')}
           onOpenLetters={() => router.push('/letters')}
-          onWriteLetter={() => router.push({ pathname: '/letter-compose', params: { source: 'world' } })}
-          onWriteNote={() => router.push({ pathname: '/add', params: { intent: 'partner-note' } })}
-          onRecordVoice={() => router.push({ pathname: '/add', params: { intent: 'voice' } })}
+          onWriteLetter={canManageLibrary ? () => router.push({ pathname: '/letter-compose', params: { source: 'world' } }) : null}
+          onWriteNote={canManageLibrary ? () => router.push({ pathname: '/add', params: { intent: 'partner-note' } }) : null}
+          onRecordVoice={canManageLibrary ? () => router.push({ pathname: '/add', params: { intent: 'voice' } }) : null}
           theme={theme}
         />
       ) : null}
@@ -549,7 +590,12 @@ export default function LibraryScreen() {
               tileSize={libraryTileSize}
               theme={theme}
             />
-            {!archiveRecords.length ? <ArchiveEmptyState onAdd={() => router.push('/add')} theme={theme} /> : null}
+            {!archiveRecords.length ? (
+              <ArchiveEmptyState
+                onAdd={canManageLibrary ? () => router.push('/add') : null}
+                theme={theme}
+              />
+            ) : null}
             <BookToolsPanel
               hasUtilityDetails={utilityVisibility.hasSecondaryDetails}
               utilityDetailCount={utilityVisibility.secondaryDetailCount}
@@ -558,7 +604,7 @@ export default function LibraryScreen() {
               onOpenPlaces={() => openSegment('places')}
               onOpenSearch={() => openSegment('search')}
               onOpenExport={() => openSegment('export')}
-              onOpenCameraRoll={openCameraRollTools}
+              onOpenCameraRoll={canManageLibrary ? openCameraRollTools : null}
               onToggleUtilityDetails={() => setShowUtilityDetails((value) => !value)}
               theme={theme}
             />
@@ -576,19 +622,26 @@ export default function LibraryScreen() {
                 ) : null}
               </View>
             ) : null}
-            <PhotoTrustPanel
-              model={photoTrustModel.bookAlert}
-              onAction={(route) => route ? router.push(route) : null}
-              onSetMode={setAutoSaveMode}
-              savingPreference={savingAutoSavePreference}
-              theme={theme}
-            />
+            {canManageLibrary ? (
+              <PhotoTrustPanel
+                model={photoTrustModel.bookAlert}
+                onAction={(route) => route ? router.push(route) : null}
+                onSetMode={setAutoSaveMode}
+                savingPreference={savingAutoSavePreference}
+                theme={theme}
+              />
+            ) : null}
             <FamilyLibraryPanel
               model={familyLibraryModel}
-              onScan={() => router.push('/scan')}
+              onScan={canManageLibrary ? () => router.push('/scan') : null}
               theme={theme}
             />
-            <RecentAutoSavedPanel rows={recentAutoSaveRows} onRemove={removeRecentAutoSave} onOpen={openMoment} theme={theme} />
+            <RecentAutoSavedPanel
+              rows={recentAutoSaveRows}
+              onRemove={canManageLibrary ? removeRecentAutoSave : null}
+              onOpen={openMoment}
+              theme={theme}
+            />
             {showLocalPhotos ? (
               <LocalCameraRollPanel
                 visible
@@ -682,7 +735,9 @@ export default function LibraryScreen() {
         visible={!!actionPhoto}
         onClose={() => setActionPhoto(null)}
         actions={photoSheetActions}
-        subtitle={actionPhoto ? 'Remove only from Our Little World; the original stays in Photos.' : undefined}
+        subtitle={actionPhoto && canManageLibrary
+          ? 'Remove only from Our Little World; the original stays in Photos.'
+          : undefined}
       />
     </AppShell>
   );
@@ -701,7 +756,7 @@ function libraryTileSizeForWidth(width) {
   return Math.max(68, Math.floor((boundedWidth - (space.xs * (columns - 1))) / columns));
 }
 
-function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWriteLetter, onWriteNote, onRecordVoice, theme }) {
+function BookHome({ childName, model, canWrite, onAdd, onOpenFirsts, onOpenLetters, onWriteLetter, onWriteNote, onRecordVoice, theme }) {
   const chapter = model?.currentMonthChapter || null;
   const stats = model?.stats || {};
   const firstsSummary = model?.firstsSummary || { count: 0, latest: null };
@@ -711,7 +766,9 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
   const title = chapter?.title || 'Start your family record.';
   const body = chapter
     ? `${chapter.ageLabel ? `${chapter.ageLabel}. ` : ''}${worldMonthSummary(chapter.summary)} kept this month.`
-    : 'Keep a photo, a note between parents, a voice, a First, or a letter to begin.';
+    : canWrite
+      ? 'Keep a photo, a note between parents, a voice, a First, or a letter to begin.'
+      : 'Your saved family archive remains available here in read-only mode.';
 
   return (
     <View style={styles.bookHomeStack}>
@@ -736,7 +793,7 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
             Photos, words, voices, Firsts, and letters all belong to the same private family record.
           </Caption>
         ) : null}
-        {!hasSavedMoments ? (
+        {!hasSavedMoments && canWrite ? (
           <Button
             size="md"
             fullWidth={false}
@@ -750,24 +807,28 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
       </Card>
 
       <View style={styles.bookEntryGrid}>
-        <BookEntryCard
-          icon="chatbubbles-outline"
-          eyebrow="Between parents"
-          title="Leave a note"
-          detail="Private to the two family writers"
-          body="Write something your co-parent can find in the shared timeline."
-          onPress={onWriteNote}
-          theme={theme}
-        />
-        <BookEntryCard
-          icon="mic-outline"
-          eyebrow="Voice notes"
-          title="Keep a voice"
-          detail={model?.voiceSummary?.count ? countText(model.voiceSummary.count, 'voice note') : 'No recording needed to begin'}
-          body="Record the sound of this season and keep the original audio."
-          onPress={onRecordVoice}
-          theme={theme}
-        />
+        {canWrite ? (
+          <BookEntryCard
+            icon="chatbubbles-outline"
+            eyebrow="Between parents"
+            title="Leave a note"
+            detail="Private to the two family writers"
+            body="Write something your co-parent can find in the shared timeline."
+            onPress={onWriteNote}
+            theme={theme}
+          />
+        ) : null}
+        {canWrite ? (
+          <BookEntryCard
+            icon="mic-outline"
+            eyebrow="Voice notes"
+            title="Keep a voice"
+            detail={model?.voiceSummary?.count ? countText(model.voiceSummary.count, 'voice note') : 'No recording needed to begin'}
+            body="Record the sound of this season and keep the original audio."
+            onPress={onRecordVoice}
+            theme={theme}
+          />
+        ) : null}
         <BookEntryCard
           icon="sparkles-outline"
           eyebrow="Firsts"
@@ -775,7 +836,9 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
           detail={firstsLatestDetail(firstsSummary)}
           body={firstsSummary.count
             ? 'Review milestones saved with their moments.'
-            : `Start ${childName || 'your baby'}'s firsts from a moment when it belongs.`}
+            : canWrite
+              ? `Start ${childName || 'your baby'}'s firsts from a moment when it belongs.`
+              : 'Confirmed Firsts already saved by your family will appear here.'}
           onPress={onOpenFirsts}
           theme={theme}
         />
@@ -783,10 +846,12 @@ function BookHome({ childName, model, onAdd, onOpenFirsts, onOpenLetters, onWrit
           icon="mail-outline"
           eyebrow="Letters to baby"
           title={lettersCollectionTitle(lettersSummary)}
-          detail={lettersStateDetail(lettersSummary)}
+          detail={lettersSummary.count || canWrite
+            ? lettersStateDetail(lettersSummary)
+            : 'Saved letters remain available to read.'}
           body={lettersLatestDetail(lettersSummary)}
           onPress={onOpenLetters}
-          actionLabel="Write"
+          actionLabel={canWrite ? 'Write' : null}
           onAction={onWriteLetter}
           theme={theme}
         />
@@ -947,13 +1012,15 @@ function BookToolsPanel({
           onPress={onOpenExport}
           theme={theme}
         />
-        <BookToolButton
-          icon="images-outline"
-          title="Camera roll"
-          body={localVisible ? 'Browsing below.' : 'Open local photos.'}
-          onPress={onOpenCameraRoll}
-          theme={theme}
-        />
+        {onOpenCameraRoll ? (
+          <BookToolButton
+            icon="images-outline"
+            title="Camera roll"
+            body={localVisible ? 'Browsing below.' : 'Open local photos.'}
+            onPress={onOpenCameraRoll}
+            theme={theme}
+          />
+        ) : null}
       </View>
       {hasUtilityDetails ? (
         <Pressable
@@ -1252,19 +1319,25 @@ function ArchiveEmptyState({ onAdd, theme }) {
         <View style={styles.resultText}>
           <Eyebrow>Your family record</Eyebrow>
           <Title style={styles.cardTitle}>Nothing here yet.</Title>
-          <Body>Add a photo, note, voice, First, or letter. Review likely photos whenever discovery finds something worth a look.</Body>
+          <Body>
+            {onAdd
+              ? 'Add a photo, note, voice, First, or letter. Review likely photos whenever discovery finds something worth a look.'
+              : 'Your family archive is available in read-only mode.'}
+          </Body>
         </View>
         <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
       </View>
-      <Button
-        size="md"
-        fullWidth={false}
-        style={styles.cardButton}
-        onPress={onAdd}
-        icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
-      >
-        Add first moment
-      </Button>
+      {onAdd ? (
+        <Button
+          size="md"
+          fullWidth={false}
+          style={styles.cardButton}
+          onPress={onAdd}
+          icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
+        >
+          Add first moment
+        </Button>
+      ) : null}
     </Card>
   );
 }
@@ -1391,20 +1464,24 @@ function RecentAutoSavedPanel({ rows, onRemove, onOpen, theme }) {
                 Assistant added · {formatDateLabel(row.savedAt || row.creationTime)}
               </Caption>
             </View>
-            <Pressable
-              onPress={() => onRemove(row)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${row.title} from recently added photos`}
-              style={[styles.removeAutoButton, { backgroundColor: theme.semantic.cardAlt }]}
-            >
-              <Ionicons name="remove-circle-outline" size={18} color={theme.colors.danger || theme.semantic.primary} />
-            </Pressable>
+            {onRemove ? (
+              <Pressable
+                onPress={() => onRemove(row)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${row.title} from recently added photos`}
+                style={[styles.removeAutoButton, { backgroundColor: theme.semantic.cardAlt }]}
+              >
+                <Ionicons name="remove-circle-outline" size={18} color={theme.colors.danger || theme.semantic.primary} />
+              </Pressable>
+            ) : null}
           </View>
         ))}
       </View>
       <Caption style={styles.searchMeta}>
-        Remove anything that does not belong; the original stays in Photos, and auto-save pauses with a correction.
+        {onRemove
+          ? 'Remove anything that does not belong; the original stays in Photos, and auto-save pauses with a correction.'
+          : 'These saved memories remain available in your read-only family archive.'}
       </Caption>
     </Card>
   );
@@ -1522,7 +1599,7 @@ function FamilyLibraryPanel({ model, onScan, theme }) {
               <Caption style={styles.bookEntryDetail}>{parent.title}</Caption>
               <Caption>{parent.detail}</Caption>
             </View>
-            {parent.canScan ? (
+            {parent.canScan && onScan ? (
               <Button size="sm" variant="quiet" fullWidth={false} onPress={onScan}>
                 Scan
               </Button>

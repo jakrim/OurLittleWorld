@@ -5,6 +5,7 @@ import { useFocusEffect } from 'expo-router/react-navigation';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { useAuth } from '../AuthContext';
+import { useBilling } from '../BillingContext';
 import { useFamily } from '../FamilyContext';
 import { hasUnreadNotifications } from '../notifications';
 import AppHeader from './AppHeader';
@@ -29,6 +30,10 @@ export default function AppShell({
 }) {
   const router = useRouter();
   const theme = useTheme();
+  const { entitlement } = useBilling();
+  const { family } = useFamily();
+  const canAdd = entitlement?.isActive === true
+    && ['creator', 'partner'].includes(family?.me?.role);
   const activityUnread = useActivityUnread(showActivityButton);
   const scrollRef = useRef(null);
   const [jumpTopVisible, setJumpTopVisible] = useState(false);
@@ -106,7 +111,7 @@ export default function AppShell({
           </Pressable>
         ) : null}
         <BottomSafeBar style={styles.bottomSafeBar}>
-          <BottomTabs active={active} onAddPress={() => router.push('/add')} />
+          <BottomTabs active={active} canAdd={canAdd} onAddPress={() => router.push('/add')} />
         </BottomSafeBar>
       </KeyboardAvoidingView>
     </Screen>

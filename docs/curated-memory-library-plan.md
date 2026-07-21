@@ -1,7 +1,7 @@
 # Our Little World — Curated Memory Library Audit and Delivery Plan
 
 Date: July 18, 2026
-Status: Releases 0 and 1 implemented and verified locally; Release 2 historical catch-up remains planned
+Status: Releases 0, 1, and 2 implemented and verified locally; Release 3 automatic collections is next
 Scope: Mobile product, on-device media discovery, shared family archive, Supabase data model, notifications, and release verification
 
 ## Executive decision
@@ -532,6 +532,14 @@ Acceptance:
 ### Release 2 — First-year catch-up engine
 
 Goal: turn a large existing library into a paced first-year record.
+
+Status: complete locally on July 20, 2026. Stable family-timezone daily anchors,
+adaptive three/five/seven-card pacing, bounded Keep going, changed-library and
+unavailable-asset reconciliation, battery-aware discovery, family-union saved-day
+coverage, truthful target-band progress, a virtualized 365-day album, and same-day
+standout browsing are implemented. Lapsed families retain browse-only archive access
+while Add, scanning, queues, and writes remain unavailable. No remote migration,
+production data action, deploy, push, or store submission occurred.
 
 Build:
 

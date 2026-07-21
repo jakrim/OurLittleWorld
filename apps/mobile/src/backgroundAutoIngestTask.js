@@ -12,6 +12,7 @@ import { startLibraryScan } from './libraryScanLauncher';
 import * as Scan from './scanController';
 import { supabase } from './supabase';
 import { getFamilyEntitlement } from './billing';
+import { readAutoIngestPowerGate } from './scanPowerPolicy';
 
 export const BACKGROUND_AUTO_INGEST_TASK = 'olw-background-auto-ingest';
 
@@ -111,6 +112,9 @@ export async function runBackgroundAutoIngest({ nowMs = Date.now() } = {}) {
   // lapsed family remains a read-only archive and discovery stays paused.
   const entitlement = await getFamilyEntitlement(family.id);
   if (!entitlement?.isActive) return { started: false, reason: 'inactive-entitlement' };
+
+  const powerGate = await readAutoIngestPowerGate();
+  if (powerGate.shouldPause) return { started: false, reason: powerGate.reason };
 
   const permission = await getLibraryPermissionStatus();
   if (!permission.granted) return { started: false, reason: 'missing-photo-permission' };

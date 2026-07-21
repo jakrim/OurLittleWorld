@@ -30,7 +30,8 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   (`postSaveNudgeStore`, `catchupDismissals`, `firstSuggestionStore`,
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
   queue and owns the private discovery-candidate ledger plus nightly review sessions.
-  `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations;
+  `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations (current
+  schema version 3);
   `candidateLedgerStore.js` scopes every row by family and parent and never imports a
   remote or analytics transport. Server state is Supabase via `rituals.js`,
   `moments.js`, `photoSync.js`.
@@ -74,7 +75,12 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   media state is capped at 600, and current scorer-version rows are reused on later
   scans. Checkpoint advancement still occurs only after a completed scan and never
   consumes or hides the independent historical review backlog. Creator/partner role
-  and active entitlement checks happen before Photos permission or reads.
+  and active entitlement checks happen before Photos permission or reads. Full or
+  changed-library scans persist asset last-seen provenance and reconcile deleted or
+  unavailable media after successful completion; bounded iCloud retries can restore
+  availability without a full rescan. Automatic foreground/background discovery
+  pauses in low-power mode through Expo Battery, while an absent optional native
+  module fails open only for older development clients.
 - **Two-parent libraries:** discovery is intentionally per `(family_id, user_id)`.
   Each writer has an independent local reference profile, scan checkpoint, Photos
   permission, trust calibration, and upload repair path. `family_library_connections`
@@ -133,8 +139,13 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   capture, quality, identity, availability, cluster, scorer-version, and reason
   evidence into explicit lifecycle states. `nightlyQueueModel.js` deterministically
   selects zero to seven quality-bounded cards, mixing recent and historical coverage
-  and retaining qualifying video without quota padding. SQLite schema version 2
-  persists ordered session items plus a separately constrained
+  and retaining qualifying video without quota padding. Stable daily anchors are
+  ranked against family-union saved-day coverage in the family ritual timezone;
+  completed primary sessions pace from three to five to seven cards, and an optional
+  continuation is capped at three without counting as another evening or notification.
+  SQLite schema version 3 persists capture timezone, scan last-seen/availability
+  provenance, unavailable reason, and a family-scoped saved-day fact cache in addition
+  to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
   selected burst alternate, stable retry/canonical identities, per-step commit state,
   and private-file cleanup state. The item row retains the 280-character text draft.
@@ -149,21 +160,27 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `tonightNotifications.js` schedules locally only for a real queue after writer,
   entitlement, preference, quiet-hour, timezone, duplicate, completion, and daily-cap
   checks; notification data is limited to coarse queue state/count/date and `/tonight`.
-  A lapsed family remains read-only and Circle members cannot read private discovery.
+  Canceled, expired, and past-due families retain explicitly allowlisted browse-only
+  archive routes, while global navigation removes Add and discovery/queue/write gates
+  remain closed. A never-subscribed family still enters purchase setup. Circle members
+  cannot read private discovery.
 - **Family presentation:** `familyPhotoPresentationModel.js` folds only uncaptioned
   photo-only records inside the conservative three-second fallback burst, selects the
   clearest representative, and keeps expansion available in timeline and search.
   Places collapse media into saved events before rendering. Prompt sheets may show one
   clear photo already saved on the relevant day. Weekly recap rendering de-duplicates
   representative media by moment before applying its four-event limit.
-  `buildSavedDailyAlbum` supplies inclusive first-year photo-day coverage and recent
-  day representatives to Our World. `/daily-album` virtualizes every elapsed
-  first-year day, including honest gap rows, and exposes each day's saved moments.
+  `buildSavedDailyAlbum` supplies inclusive, family-timezone first-year photo-day
+  coverage to Our World. `/daily-album` virtualizes every elapsed first-year day,
+  including honest gap rows. `/daily-album/[day]` uses an exact local-day UTC range
+  and a nested family-scoped media query so every same-day standout and video remains
+  individually browsable without a global media truncation bug.
   Moment detail pages horizontally through every saved photo and video; videos use
-  native controls and full-screen playback. Our World reads the curated archive with
-  stable 500-row pagination rather than silently truncating a power-user family after
-  the first 500 moments; its general timeline renders a bounded recent window while
-  the dedicated day list remains the full first-year browsing surface.
+  native controls and full-screen playback. Our World hydrates a bounded latest-500
+  rich window for context-heavy timeline/search/export compatibility, obtains exact
+  family media counts separately, and reads up to 5,000 lightweight day-index rows.
+  The dedicated day list/detail is the full first-year browsing surface; collection-
+  backed search beyond the rich recent window is a Release 3 responsibility.
 - **Upload/storage:** `photoSync.js` uploads resized full+thumb JPEGs to the private
   `family-photos` bucket as `photo_tags` rows; moments media in `moment_media`
   (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is

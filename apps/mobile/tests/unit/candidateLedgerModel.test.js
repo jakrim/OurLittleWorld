@@ -45,6 +45,19 @@ test('uncertain and unavailable media do not enter the eligible lane', () => {
   assert.equal(unavailable.availability, 'icloud_pending');
 });
 
+test('candidate capture day is derived once from an explicit timezone basis', () => {
+  const capture = '2026-07-20T03:30:00Z';
+  const newYork = normalizeDiscoveryCandidate({
+    assetId: 'timezone-new-york', creationTime: capture, score: 0.9, captureQuality: 0.8,
+  }, { captureTimezone: 'America/New_York' });
+  const london = normalizeDiscoveryCandidate({
+    assetId: 'timezone-london', creationTime: capture, score: 0.9, captureQuality: 0.8,
+  }, { captureTimezone: 'Europe/London' });
+  assert.equal(newYork.localDay, '2026-07-19');
+  assert.equal(newYork.captureTimezone, 'America/New_York');
+  assert.equal(london.localDay, '2026-07-20');
+});
+
 test('cluster representative is deterministic and quality-led', () => {
   const base = new Date(2026, 4, 2, 9).getTime();
   const candidates = [

@@ -52,6 +52,7 @@ import { ensureNightlySession, getTonightSummary } from './candidateLedgerStore'
 import { getNotificationPreferences } from './notificationSettings';
 import { getFamilyRitualSettings } from './ritualSettings';
 import { maybeScheduleTonightNotification } from './tonightNotifications';
+import { refreshFamilySavedDayCoverage } from './savedDayCoverage';
 
 const EMPTY_UPLOAD_QUEUE = { total: 0, pending: 0, uploading: 0, failed: 0, lastError: null };
 const EMPTY_PHOTO_TRUST_INPUTS = { calibration: null, recentAutoSaves: [] };
@@ -62,6 +63,12 @@ export default function TodayScreen() {
   const { family } = useFamily();
   const { user } = useAuth();
   const { entitlement, loading: billingLoading } = useBilling();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canUsePrivateDiscovery = !billingLoading
+    && entitlement?.isActive === true
+    && writer
+    && !!family?.id
+    && !!user?.id;
   const [segment, setSegment] = useState('timeline');
   const [actionPhoto, setActionPhoto] = useState(null);
   const [uploadQueue, setUploadQueue] = useState(EMPTY_UPLOAD_QUEUE);
@@ -70,12 +77,12 @@ export default function TodayScreen() {
   const { pendingChange } = useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
-    enabled: !!family?.id && !!user?.id,
+    enabled: canUsePrivateDiscovery,
   });
   const scanState = Scan.useScanState();
   const iCloudRetry = useICloudRetryCount({
-    familyId: family?.id,
-    userId: user?.id,
+    familyId: canUsePrivateDiscovery ? family.id : null,
+    userId: canUsePrivateDiscovery ? user.id : null,
     refreshKey: `${scanState.phase}:${scanState.autoSaveErrors}:${scanState.autoSavedCount}:${pendingChange?.changedAt || ''}:${uploadQueue.total}`,
   });
   const {
@@ -181,7 +188,7 @@ export default function TodayScreen() {
   );
   useFocusEffect(useCallback(() => {
     let alive = true;
-    if (!family?.id) {
+    if (!canUsePrivateDiscovery) {
       setUploadQueue(EMPTY_UPLOAD_QUEUE);
       return () => {
         alive = false;
@@ -197,31 +204,47 @@ export default function TodayScreen() {
     return () => {
       alive = false;
     };
-  }, [family?.id]));
+  }, [canUsePrivateDiscovery, family?.id]));
   // Device-local suggestion state (not part of the shared cached payload).
   const [suggestionState, setSuggestionState] = useState(null);
   useFocusEffect(useCallback(() => {
     let alive = true;
-    if (family?.id && user?.id) {
+    if (canUsePrivateDiscovery) {
       readFirstSuggestionState({ familyId: family.id, userId: user.id })
         .then((state) => { if (alive) setSuggestionState(state); });
+    } else {
+      setSuggestionState(null);
     }
     return () => { alive = false; };
-  }, [family?.id, user?.id]));
+  }, [canUsePrivateDiscovery, family?.id, user?.id]));
   useFocusEffect(useCallback(() => {
-    if (billingLoading || !entitlement?.isActive || !family?.id || !user?.id
-      || !['creator', 'partner'].includes(family?.me?.role)) {
+    let alive = true;
+    if (!canUsePrivateDiscovery) {
       setTonightSummary(null);
-      return undefined;
+      return () => { alive = false; };
     }
-    try {
-      const session = ensureNightlySession({ familyId: family.id, userId: user.id });
-      setTonightSummary(getTonightSummary({ familyId: family.id, userId: user.id }));
-      if (session?.status === 'active' && !session.completed) {
-        Promise.all([
+    (async () => {
+      try {
+        const [preferences, ritualSettings] = await Promise.all([
           getNotificationPreferences({ familyId: family.id, userId: user.id }),
           getFamilyRitualSettings({ familyId: family.id, family }),
-        ]).then(([preferences, ritualSettings]) => maybeScheduleTonightNotification({
+        ]);
+        await refreshFamilySavedDayCoverage({
+          familyId: family.id,
+          timezone: ritualSettings.timezone,
+        }).catch(() => null);
+        if (!alive) return;
+        const session = ensureNightlySession({
+          familyId: family.id,
+          userId: user.id,
+          timezone: ritualSettings.timezone === 'local' ? undefined : ritualSettings.timezone,
+        });
+        setTonightSummary(getTonightSummary({
+          familyId: family.id,
+          userId: user.id,
+          timezone: session?.timezone,
+        }));
+        if (session?.status === 'active' && !session.completed) await maybeScheduleTonightNotification({
           familyId: family.id,
           userId: user.id,
           session,
@@ -230,17 +253,17 @@ export default function TodayScreen() {
           entitlementActive: entitlement.isActive,
           timezone: session.timezone || ritualSettings.timezone,
           targetTime: ritualSettings.dailyPromptTime,
-        })).catch(() => {});
+        });
+      } catch {
+        console.warn('tonight queue summary unavailable');
+        if (alive) setTonightSummary(null);
       }
-    } catch {
-      console.warn('tonight queue summary unavailable');
-      setTonightSummary(null);
-    }
-    return undefined;
-  }, [billingLoading, entitlement?.isActive, family, user?.id]));
+    })();
+    return () => { alive = false; };
+  }, [canUsePrivateDiscovery, entitlement?.isActive, family, user?.id]));
   useFocusEffect(useCallback(() => {
     let alive = true;
-    if (!family?.id || !user?.id) {
+    if (!canUsePrivateDiscovery) {
       setPhotoTrustInputs(EMPTY_PHOTO_TRUST_INPUTS);
       return () => { alive = false; };
     }
@@ -251,7 +274,7 @@ export default function TodayScreen() {
       if (alive) setPhotoTrustInputs({ calibration, recentAutoSaves });
     });
     return () => { alive = false; };
-  }, [family?.id, user?.id]));
+  }, [canUsePrivateDiscovery, family?.id, user?.id]));
   const firstSuggestion = useMemo(
     () => (suggestionState ? selectTodaySuggestion(suggestionState, { goalRows }) : null),
     [goalRows, suggestionState],

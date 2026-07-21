@@ -1,6 +1,7 @@
 import { areLookalikes } from './bestPhotoCandidateModel.js';
 import { isPinnedMatch, qualityValue } from './photoStackModel.js';
 import { shouldAutoSaveMatch } from './scanQualityModel.js';
+import { firstYearTargetBand, localDayInTimeZone } from './firstYearCatchupModel.js';
 
 export const DAILY_CURATION_MIN_IDENTITY_SCORE = 0.62;
 export const DAILY_CURATION_STANDOUT_QUALITY = 0.68;
@@ -58,11 +59,13 @@ export function buildSavedDailyAlbum(records = [], {
   babyBirthday = null,
   now = new Date(),
   recentLimit = 14,
+  timezone = null,
 } = {}) {
   const byDay = new Map();
   for (const record of records || []) {
     if (Number(record?.imageCount || 0) <= 0 && Number(record?.videoCount || 0) <= 0) continue;
-    const dayKey = curationDayKey(record?.capturedAt || record?.moment?.captured_at || record?.photo?.creation_time);
+    const capturedAt = record?.capturedAt || record?.moment?.captured_at || record?.photo?.creation_time;
+    const dayKey = stableSavedDayKey(capturedAt, timezone);
     if (!dayKey) continue;
     if (!byDay.has(dayKey)) byDay.set(dayKey, []);
     byDay.get(dayKey).push(record);
@@ -81,7 +84,7 @@ export function buildSavedDailyAlbum(records = [], {
       };
     });
   const birthday = parseLocalDate(babyBirthday);
-  const today = parseLocalDate(now);
+  const today = parseLocalDate(stableSavedDayKey(now, timezone));
   const elapsedDays = birthday && today
     ? Math.max(0, Math.floor((calendarDayOrdinal(today) - calendarDayOrdinal(birthday)) / 86400000) + 1)
     : 0;
@@ -120,8 +123,20 @@ export function buildSavedDailyAlbum(records = [], {
     videoDayCount: days.filter((day) => day.videos.length > 0).length,
     firstYearElapsedDays,
     firstYearPhotoDays,
+    savedMemoryCount: days.reduce((sum, day) => sum + day.records.length, 0),
+    firstYearTargetBand: firstYearTargetBand(firstYearElapsedDays),
     firstYearComplete: firstYearPhotoDays >= FIRST_YEAR_DAY_COUNT,
   };
+}
+
+function stableSavedDayKey(value, timezone) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return String(value);
+  if (!timezone) return curationDayKey(value);
+  try {
+    return localDayInTimeZone(value, timezone);
+  } catch {
+    return '';
+  }
 }
 
 export function dailyArchiveRecordsFromMoments(moments = []) {

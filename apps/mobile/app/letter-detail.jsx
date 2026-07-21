@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function LetterDetailRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowReadOnlyArchive>
       <LetterDetailSheetScreen />
     </ProtectedRoute>
   );

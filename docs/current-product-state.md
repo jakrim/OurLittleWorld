@@ -84,13 +84,21 @@ Our Little World is the private digital place where parents keep the life they a
   the daily anchor, preserve distinct standouts and special videos, and show combined
   saved-day coverage from both parents.
 - Pace historical catch-up through a deterministic Tonight queue that resumes until
-  complete, never pads with weak media, and stays secondary to repair and trust-safety
-  actions when those need attention.
+  complete, adapts from three to five to seven cards as completed evenings build,
+  offers a bounded optional Keep going session, never pads with weak media, and stays
+  secondary to repair and trust-safety actions when those need attention.
+- Treat capture days and saved-day coverage in the family's ritual timezone. The
+  lightweight first-year archive can represent 5,000 saved moments without hydrating
+  their full context graphs, while a bounded day-detail query keeps every same-day
+  standout and special video individually browsable.
 - Let both parents independently contribute from their own phone without turning
   either person's private camera roll into shared family data.
 - Let either parent restart only their device's photo-discovery profile without
   deleting the family's already-saved moments, notes, or shared media.
 - Keep gift purchase, redemption, subscription, export, and deletion behavior consistent across mobile and web without allowing monetization or print output to dominate daily use.
+- Preserve browse-only Today and Our World access for canceled, expired, and past-due
+  families. Those states hide Add and cannot start discovery, queues, uploads, or
+  other write paths; families that never activated a plan still enter purchase setup.
 
 ## Verification Personas
 

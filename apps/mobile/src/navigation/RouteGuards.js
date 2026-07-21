@@ -5,6 +5,7 @@ import { useRootNavigationState, useRouter } from 'expo-router';
 
 import { useAuth } from '../AuthContext';
 import { useBilling } from '../BillingContext';
+import { hasReadOnlyArchiveAccess } from '../entitlementAccessModel';
 import { useFamily } from '../FamilyContext';
 import { firstLookStorageKey, shouldShowFirstLook } from '../reveal';
 import { BrandMark, useTheme } from '../ui';
@@ -79,6 +80,7 @@ export function ProtectedRoute({
   allowIncompleteSetup = false,
   allowFirstLook = false,
   allowMissingSubscription = false,
+  allowReadOnlyArchive = false,
 }) {
   const gate = useAppGate();
 
@@ -88,6 +90,7 @@ export function ProtectedRoute({
   if (!allowIncompleteSetup && gate.reason === 'needs-setup') return <RouteRedirect href="/setup" />;
   if (!allowFirstLook && gate.reason === 'needs-first-look') return <RouteRedirect href="/first-look" />;
   if (!allowMissingSubscription && gate.reason === 'needs-subscription') return <RouteRedirect href="/purchase" />;
+  if (!allowReadOnlyArchive && gate.reason === 'read-only-archive') return <RouteRedirect href="/library" />;
 
   return children;
 }
@@ -162,8 +165,11 @@ export function useAppGate() {
   if (shouldShowFirstLook({ family, user }) && !firstLookSeen) {
     return { loading: false, reason: 'needs-first-look', href: '/first-look' };
   }
-  if (!entitlement?.isActive) {
+  if (!hasReadOnlyArchiveAccess(entitlement)) {
     return { loading: false, reason: 'needs-subscription', href: '/purchase' };
+  }
+  if (!entitlement?.isActive) {
+    return { loading: false, reason: 'read-only-archive', href: '/library' };
   }
   return { loading: false, reason: 'ready', href: '/timeline' };
 }

@@ -10,9 +10,12 @@ import { CANDIDATE_BATCH_SIZE } from '../../src/candidateLedgerModel.js';
 
 import {
   CANDIDATE_LEDGER_MIGRATION_SQL,
+  FIRST_YEAR_CATCHUP_MIGRATION_SQL,
   applyMediaDbMigrations,
+  assertCandidateLedgerSchema,
   MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS,
   MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS,
+  MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS,
   MEDIA_DB_SCHEMA_VERSION,
   TONIGHT_ENRICHMENT_MIGRATION_SQL,
 } from '../../src/mediaDbSchema.js';
@@ -23,7 +26,7 @@ test('candidate ledger migration succeeds on a fresh database and is repeatable'
     migrate(dbPath);
     assert.equal(query(dbPath, 'pragma user_version;'), String(MEDIA_DB_SCHEMA_VERSION));
     const tables = query(dbPath, "select name from sqlite_master where type='table' order by name;").split('\n');
-    for (const table of ['discovery_candidates', 'candidate_clusters', 'candidate_cluster_members', 'nightly_review_sessions', 'nightly_review_items', 'nightly_review_enrichment']) {
+    for (const table of ['discovery_candidates', 'candidate_clusters', 'candidate_cluster_members', 'nightly_review_sessions', 'nightly_review_items', 'nightly_review_enrichment', 'family_saved_day_facts']) {
       assert.ok(tables.includes(table), `${table} exists`);
     }
     const columns = query(dbPath, 'pragma table_info(discovery_candidates);')
@@ -82,6 +85,21 @@ test('mixed Tonight drafts and stable retry identities survive reopen and remain
       from nightly_review_enrichment where family_id='family-a' and user_id='parent-a';`), 'asset-alt|retry-1|failed');
     assert.equal(query(dbPath, "select count(*) from nightly_review_enrichment where user_id='parent-b';"), '0');
     assert.throws(() => run(dbPath, `update nightly_review_enrichment set draft_reaction_code='made-up' where session_id='session-draft';`));
+  });
+});
+
+test('current version 2 ledger upgrades in place with stable capture day and scan presence fields', () => {
+  withDatabase((dbPath) => {
+    migrateV2(dbPath);
+    run(dbPath, candidateInsert({ familyId: 'family-a', userId: 'parent-a', assetId: 'asset-v2', state: 'eligible' }));
+    run(dbPath, "update discovery_candidates set local_day='2025-07-23', scan_key='scan-v2' where asset_id='asset-v2';");
+    run(dbPath, `begin immediate; ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} pragma user_version = 3; commit;`);
+
+    assert.equal(query(dbPath, 'pragma user_version;'), '3');
+    assert.equal(query(dbPath, `select local_day || '|' || capture_timezone || '|' || last_seen_scan_key
+      from discovery_candidates where asset_id='asset-v2';`), '2025-07-23|legacy-local|scan-v2');
+    run(dbPath, `begin immediate; pragma user_version = 3; commit;`);
+    assert.equal(query(dbPath, "select count(*) from discovery_candidates where asset_id='asset-v2';"), '1');
   });
 });
 
@@ -185,7 +203,15 @@ test('partial corrupt migration is diagnosable instead of silently accepted', ()
     const columns = new Set(query(dbPath, 'pragma table_info(discovery_candidates);')
       .split('\n').filter(Boolean).map((line) => line.split('|')[1]));
     const missing = MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS.filter((column) => !columns.has(column));
-    assert.deepEqual(missing, ['lifecycle_state', 'scorer_version', 'last_analyzed_at']);
+    assert.deepEqual(missing, [
+      'lifecycle_state',
+      'scorer_version',
+      'last_analyzed_at',
+      'capture_timezone',
+      'last_seen_scan_key',
+      'last_seen_at',
+      'unavailable_code',
+    ]);
   });
 });
 
@@ -198,6 +224,18 @@ test('migration wrapper turns partial or storage failures into actionable diagno
     () => applyMediaDbMigrations(database),
     /migration failed safely.*freeing device storage/i,
   );
+});
+
+test('schema validation rejects a version 3 database missing saved-day coverage', () => {
+  const database = {
+    getAllSync: (sql) => {
+      if (sql.includes('discovery_candidates')) return MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS.map((name) => ({ name }));
+      if (sql.includes('nightly_review_enrichment')) return MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS.map((name) => ({ name }));
+      if (sql.includes('family_saved_day_facts')) return [];
+      return MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS.map((name) => ({ name }));
+    },
+  };
+  assert.throws(() => assertCandidateLedgerSchema(database), /saved-day coverage store is incomplete/i);
 });
 
 test('private ledger implementation has no Supabase, analytics, Sentry or PostHog transport', () => {
@@ -226,30 +264,49 @@ test('5,000 private candidates ingest and query within a bounded page', () => {
       ) values ${rows.join(',')}; commit;`);
     }
     const insertMs = performance.now() - insertStarted;
+    run(dbPath, `insert into family_saved_day_facts (family_id, local_day, saved_count, refreshed_at)
+      select 'family-load', local_day, 1, '2026-07-20'
+      from discovery_candidates where family_id='family-load' group by local_day limit 168;`);
     const queryStarted = performance.now();
-    const selected = query(dbPath, `with ranked as (
-      select asset_id, local_day, row_number() over (partition by local_day order by capture_quality desc, identity_score desc, capture_time_ms desc, asset_id asc) as day_rank
-      from discovery_candidates where family_id='family-load' and user_id='parent-load' and lifecycle_state='eligible'
-    ) select count(*) from (select asset_id from ranked where day_rank <= 2 limit 900);`);
+    const selected = query(dbPath, `with scoped as (
+      select c.*, not exists (
+        select 1 from family_saved_day_facts f where f.family_id=c.family_id and f.local_day=c.local_day
+      ) as coverage_needed
+      from discovery_candidates c where c.family_id='family-load' and c.user_id='parent-load'
+        and c.lifecycle_state='eligible' and c.availability='available'
+    ), ranked as (
+      select *, row_number() over (
+        partition by local_day order by capture_quality desc, identity_score desc, capture_time_ms desc, asset_id asc
+      ) as day_rank from scoped
+    ) select count(*) from (
+      select asset_id from ranked where day_rank=1 or (day_rank=2 and capture_quality>=0.55)
+      order by coverage_needed desc, day_rank asc, capture_quality desc limit 900
+    );`);
     const queryMs = performance.now() - queryStarted;
     const databaseBytes = statSync(dbPath).size;
 
-    console.info(`release1-performance migration_ms=${migrationMs.toFixed(1)} insert_5000_ms=${insertMs.toFixed(1)} query_5000_ms=${queryMs.toFixed(1)} database_bytes=${databaseBytes} query_page_limit=900 ingest_batch_size=${CANDIDATE_BATCH_SIZE}`);
+    console.info(`release2-performance migration_ms=${migrationMs.toFixed(1)} insert_5000_ms=${insertMs.toFixed(1)} coverage_query_5000_ms=${queryMs.toFixed(1)} database_bytes=${databaseBytes} query_page_limit=900 ingest_batch_size=${CANDIDATE_BATCH_SIZE}`);
 
-    assert.equal(selected, '168');
+    assert.ok(Number(selected) > 0 && Number(selected) <= 672);
     assert.ok(insertMs < 2500, `insert took ${insertMs.toFixed(1)}ms`);
-    assert.ok(queryMs < 1000, `query took ${queryMs.toFixed(1)}ms`);
+    assert.ok(queryMs < 250, `coverage query took ${queryMs.toFixed(1)}ms`);
     assert.ok(databaseBytes < 8 * 1024 * 1024, 'database stays below 8 MB for compact fixture rows');
   });
 });
 
 function migrate(dbPath) {
+  if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
   run(dbPath, `begin immediate; ${CANDIDATE_LEDGER_MIGRATION_SQL} pragma user_version = 1; commit;`);
+}
+
+function migrateV2(dbPath) {
+  migrateV1(dbPath);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} pragma user_version = 2; commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {

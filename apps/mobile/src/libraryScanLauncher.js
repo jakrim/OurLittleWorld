@@ -10,8 +10,13 @@ import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iClou
 import { publishFamilyLibraryConnection } from './familyLibrarySync';
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
 import { isMediaPolicyError } from './mediaPolicy';
+import { deviceTimeZone, getFamilyRitualSettings } from './ritualSettings';
 import {
   markCandidatesUnavailable,
+  markCandidatesDeleted,
+  markCandidatesSeen,
+  reconcileCompletedFullScan,
+  listDurableICloudRetryAssetIds,
   listCachedAnalysisAssetIds,
   persistScanCandidates,
   restoreCandidatesAvailable,
@@ -59,6 +64,12 @@ export async function startLibraryScan({
     } catch {
       console.warn('deleted local asset reconciliation failed');
     }
+    markCandidatesDeleted({
+      familyId: family.id,
+      userId: user.id,
+      assetIds: change.deletedAssetIds,
+      limited: permission.accessPrivileges === 'limited',
+    });
   }
 
   const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
@@ -76,14 +87,19 @@ export async function startLibraryScan({
   });
   const extraAssetIds = change?.requiresFullLibraryScan
     ? []
-    : change?.insertedAssetIds || [];
+    : [...(change?.insertedAssetIds || []), ...(change?.updatedAssetIds || [])];
   const iCloudRetry = await readICloudRetryQueue({
     familyId: family.id,
     userId: user.id,
   }).catch(() => ({ assetIds: [] }));
+  const durableICloudRetryAssetIds = listDurableICloudRetryAssetIds({
+    familyId: family.id,
+    userId: user.id,
+  });
   const targetedAssetIds = [...new Set([
     ...extraAssetIds,
     ...(iCloudRetry.assetIds || []),
+    ...durableICloudRetryAssetIds,
   ])];
 
   const skip = await listSavedAssetIds({
@@ -95,7 +111,12 @@ export async function startLibraryScan({
     userId: user.id,
     sinceMs,
   });
-  for (const assetId of cachedAnalysisIds) skip.add(assetId);
+  const updatedAssetIds = new Set(change?.updatedAssetIds || []);
+  if (!change?.requiresFullLibraryScan) {
+    for (const assetId of cachedAnalysisIds) {
+      if (!updatedAssetIds.has(assetId)) skip.add(assetId);
+    }
+  }
 
   const autoSaveConfig = await getAutoSaveConfig({
     familyId: family.id,
@@ -140,6 +161,14 @@ export async function startLibraryScan({
     status: 'scanning',
   }).catch(() => {});
 
+  const ritualSettings = await getFamilyRitualSettings({
+    familyId: family.id,
+    family,
+  }).catch(() => null);
+  const captureTimezone = ritualSettings?.timezone && ritualSettings.timezone !== 'local'
+    ? ritualSettings.timezone
+    : deviceTimeZone() || 'UTC';
+
   const scanPromise = Scan.start({
     reference: ref,
     referenceProfile: profile,
@@ -172,9 +201,25 @@ export async function startLibraryScan({
       scanKey,
       matches,
       birthdayISO: family.babyBirthday,
+      captureTimezone,
+    }),
+    onAssetsSeen: ({ assetIds, scanKey }) => markCandidatesSeen({
+      familyId: family.id,
+      userId: user.id,
+      assetIds,
+      scanKey,
     }),
     onComplete: async (finalState) => {
       if (finalState?.phase !== 'done') return;
+      if (change?.requiresFullLibraryScan) {
+        reconcileCompletedFullScan({
+          familyId: family.id,
+          userId: user.id,
+          scanKey: finalState.scanKey,
+          sinceMs,
+          limited: permission.accessPrivileges === 'limited',
+        });
+      }
       await writeScanCheckpoint({
         familyId: family.id,
         userId: user.id,

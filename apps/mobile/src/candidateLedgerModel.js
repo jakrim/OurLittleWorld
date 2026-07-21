@@ -1,5 +1,6 @@
 import { curationDayKey } from './dailyCurationModel.js';
 import { qualityValue } from './photoStackModel.js';
+import { localDayInTimeZone } from './firstYearCatchupModel.js';
 
 export const CANDIDATE_SCORER_VERSION = 'curated-ledger-v1';
 export const CANDIDATE_BATCH_SIZE = 80;
@@ -34,6 +35,7 @@ export function normalizeDiscoveryCandidate(match, {
   minIdentityScore = 0.75,
   scorerVersion = CANDIDATE_SCORER_VERSION,
   birthdayISO = null,
+  captureTimezone = resolvedTimeZone(),
 } = {}) {
   const assetId = String(match?.assetId || match?.asset_id || '').trim();
   if (!assetId) return null;
@@ -57,7 +59,8 @@ export function normalizeDiscoveryCandidate(match, {
     previewUri: match?.uri || match?.previewUri || match?.localUri || null,
     availability,
     captureTimeMs: captureTimeMs || null,
-    localDay: curationDayKey(captureTimeMs) || null,
+    localDay: captureTimeMs ? localDayInTimeZone(captureTimeMs, captureTimezone) : null,
+    captureTimezone,
     width: integerOrNull(match?.width),
     height: integerOrNull(match?.height),
     durationSec: normalizedDurationSec(match?.duration ?? match?.durationSec),
@@ -84,9 +87,12 @@ export function normalizeDiscoveryCandidate(match, {
     selectionReasonCode: initialReasonCode(match, mediaType, captureTimeMs, birthdayISO),
     lifecycleState: availability === 'available' ? (eligible ? 'eligible' : 'rejected') : 'unavailable',
     scanKey: scanKey || null,
+    lastSeenScanKey: scanKey || null,
     firstSeenAt: stamp,
+    lastSeenAt: stamp,
     lastAnalyzedAt: stamp,
     unavailableReason: match?.unavailableReason || null,
+    unavailableCode: availability === 'icloud_pending' ? 'icloud_pending' : null,
     qualityScore: qualityValue(match),
   };
 }
@@ -180,4 +186,8 @@ function privateEvidenceJson(value) {
   } catch {
     return null;
   }
+}
+
+function resolvedTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }

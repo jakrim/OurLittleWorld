@@ -38,6 +38,7 @@ import {
   failTonightKeep,
   finishTonightKeep,
   listTonightBurstAlternates,
+  getTonightCatchupSummary,
   markTonightItemShown,
   markCandidatesUnavailable,
   readTonightSession,
@@ -47,10 +48,11 @@ import {
   saveTonightReactionDraft,
   saveTonightVoiceDraft,
   selectTonightBurstAlternate,
+  startTonightContinuation,
   skipTonightItem,
 } from './candidateLedgerStore';
 import { parentReasonLabel } from './nightlyQueueModel';
-import { getAssetDetails } from './photos';
+import { getAssetDetails, getLibraryPermissionStatus } from './photos';
 import { commitTonightMemory } from './tonightCommit';
 import {
   summarizeTonightCompletion,
@@ -62,6 +64,8 @@ import {
   persistTonightVoiceDraft,
 } from './tonightVoiceDrafts';
 import { cancelTonightNotificationForSession } from './tonightNotifications';
+import { getFamilyRitualSettings } from './ritualSettings';
+import { refreshFamilySavedDayCoverage } from './savedDayCoverage';
 import { Body, Button, Caption, Eyebrow, Field, Hero, Screen, Spacer, space, useTheme } from './ui';
 
 const SAVE_STEP_LABELS = {
@@ -79,6 +83,7 @@ export default function TonightScreen() {
   const { entitlement, loading: billingLoading } = useBilling();
   const writer = ['creator', 'partner'].includes(family?.me?.role);
   const canCurate = writer && entitlement?.isActive === true;
+  const canUsePrivateDiscovery = !billingLoading && canCurate && !!family?.id && !!user?.id;
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 200);
   const [session, setSession] = useState(null);
@@ -90,18 +95,35 @@ export default function TonightScreen() {
   const [draft, setDraft] = useState('');
   const [burstOpen, setBurstOpen] = useState(false);
   const [saveStep, setSaveStep] = useState(null);
+  const [catchup, setCatchup] = useState(null);
+  const [photoAccess, setPhotoAccess] = useState(null);
   const detailsScrollRef = useRef(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (billingLoading) return;
     if (!canCurate || !family?.id || !user?.id) {
       setLoading(false);
       return;
     }
     try {
-      const next = readTonightSession({ familyId: family.id, userId: user.id })
-        || ensureNightlySession({ familyId: family.id, userId: user.id });
+      let next = readTonightSession({ familyId: family.id, userId: user.id });
+      if (!next) {
+        const ritualSettings = await getFamilyRitualSettings({
+          familyId: family.id,
+          family: { babyBirthday: family?.babyBirthday },
+        });
+        await refreshFamilySavedDayCoverage({
+          familyId: family.id,
+          timezone: ritualSettings.timezone,
+        }).catch(() => null);
+        next = ensureNightlySession({
+          familyId: family.id,
+          userId: user.id,
+          timezone: ritualSettings.timezone === 'local' ? undefined : ritualSettings.timezone,
+        });
+      }
       setSession(next);
+      setCatchup(getTonightCatchupSummary({ familyId: family.id, userId: user.id }));
       setError('');
       cleanupOrphanedTonightVoiceDrafts(
         (next?.items || []).map((item) => item.draftVoice?.uri).filter(Boolean),
@@ -111,11 +133,22 @@ export default function TonightScreen() {
     } finally {
       setLoading(false);
     }
-  }, [billingLoading, canCurate, family?.id, user?.id]);
+  }, [billingLoading, canCurate, family?.babyBirthday, family?.id, user?.id]);
 
   useFocusEffect(useCallback(() => {
     load();
   }, [load]));
+
+  useEffect(() => {
+    let alive = true;
+    if (!canUsePrivateDiscovery) return undefined;
+    getLibraryPermissionStatus()
+      .then((permission) => {
+        if (alive) setPhotoAccess(permission?.accessPrivileges || null);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [canUsePrivateDiscovery]);
 
   const activeItem = useMemo(() => {
     if (!session?.items?.length) return null;
@@ -202,7 +235,32 @@ export default function TonightScreen() {
     setDraft('');
     setError('');
     setSaveStep(null);
+    setCatchup(getTonightCatchupSummary({ familyId: family.id, userId: user.id }));
   }, [activeItem?.position, family?.id, session, user?.id]);
+
+  const keepGoing = () => {
+    if (busy || !family?.id || !user?.id) return;
+    setBusy(true);
+    setError('');
+    try {
+      const next = startTonightContinuation({
+        familyId: family.id,
+        userId: user.id,
+        completedSessionId: session.sessionId,
+        timezone: session.timezone,
+      });
+      if (next) {
+        setSession(next);
+        setCatchup(getTonightCatchupSummary({ familyId: family.id, userId: user.id }));
+      } else {
+        setCatchup({ ...(catchup || {}), hasMore: false, remainingStrongCount: 0 });
+      }
+    } catch (continuationError) {
+      setError(parentError(continuationError, 'No more strong memories are ready right now.'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const keep = async () => {
     if (!activeItem || busy || recording) return;
@@ -473,7 +531,22 @@ export default function TonightScreen() {
             ? completionContext(summary)
             : 'The choices are saved. There is nothing else you need to finish tonight.'}
         </Body>
+        {photoAccess === 'limited' ? (
+          <Caption style={styles.completionNote} align="center">
+            This is based only on the photos you selected for Our Little World.
+          </Caption>
+        ) : null}
+        {catchup?.hasMore ? (
+          <Caption style={styles.completionNote} align="center">
+            More strong memories are ready whenever you want another small set.
+          </Caption>
+        ) : null}
+        {error ? <Caption style={[styles.error, { color: theme.colors.danger }]}>{error}</Caption> : null}
         <Spacer h={space.xl} />
+        {catchup?.hasMore ? (
+          <Button onPress={keepGoing} loading={busy} testID="tonight-keep-going">Keep going</Button>
+        ) : null}
+        {catchup?.hasMore ? <Spacer h={space.sm} /> : null}
         <Button onPress={() => router.replace('/timeline')} testID="tonight-complete">Back to Today</Button>
       </Screen>
     );
@@ -515,7 +588,12 @@ export default function TonightScreen() {
 
         <View style={[styles.mediaFrame, { backgroundColor: theme.semantic.cardAlt }]} testID="tonight-media-card">
           {unavailable ? (
-            <UnavailableCard onRetry={retryAvailability} busy={busy} theme={theme} />
+            <UnavailableCard
+              onRetry={retryAvailability}
+              busy={busy}
+              theme={theme}
+              reason={activeItem.unavailableReason}
+            />
           ) : activeItem.mediaType === 'video' ? (
             <TonightVideo uri={activeItem.localUri} posterUri={activeItem.previewUri} theme={theme} />
           ) : (
@@ -768,14 +846,25 @@ function BurstChooser({ open, onToggle, alternates, onSelect, disabled, theme })
   );
 }
 
-function UnavailableCard({ onRetry, busy, theme }) {
+function UnavailableCard({ onRetry, busy, theme, reason }) {
+  const removed = /no longer|could not be found/i.test(String(reason || ''));
   return (
     <View style={styles.unavailable}>
-      <Ionicons name="cloud-download-outline" size={38} color={theme.semantic.primary} />
-      <Hero maxFontSizeMultiplier={1.25} style={styles.unavailableTitle}>The original is waiting.</Hero>
-      <Body maxFontSizeMultiplier={1.3} align="center">Open it once in Photos if iCloud needs a moment, then try again.</Body>
-      <Spacer h={space.sm} />
-      <Button size="md" variant="ghost" onPress={onRetry} loading={busy}>Try original again</Button>
+      <Ionicons name={removed ? 'images-outline' : 'cloud-download-outline'} size={38} color={theme.semantic.primary} />
+      <Hero maxFontSizeMultiplier={1.25} style={styles.unavailableTitle}>
+        {removed ? 'This one left Photos.' : 'The original is waiting.'}
+      </Hero>
+      <Body maxFontSizeMultiplier={1.3} align="center">
+        {removed
+          ? 'You can skip it here. Anything already kept remains safely in Our World.'
+          : 'Open it once in Photos if iCloud needs a moment, then try again.'}
+      </Body>
+      {!removed ? (
+        <>
+          <Spacer h={space.sm} />
+          <Button size="md" variant="ghost" onPress={onRetry} loading={busy}>Try original again</Button>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -842,6 +931,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl },
   centerTitle: { textAlign: 'center', marginVertical: space.md, fontSize: 34, lineHeight: 40 },
+  completionNote: { marginTop: space.md, maxWidth: 340 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, minHeight: 52 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   mediaFrame: { flex: 1, minHeight: 290, overflow: 'hidden' },

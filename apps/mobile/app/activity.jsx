@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function ActivityRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowReadOnlyArchive>
       <ActivitySheetScreen />
     </ProtectedRoute>
   );

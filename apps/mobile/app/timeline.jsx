@@ -8,7 +8,7 @@ export default function TimelineRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'none' }} />
-      <ProtectedRoute>
+      <ProtectedRoute allowReadOnlyArchive>
         <TodayScreen />
       </ProtectedRoute>
     </>

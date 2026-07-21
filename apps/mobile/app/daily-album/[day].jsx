@@ -1,15 +1,15 @@
 import React from 'react';
 import { Stack } from 'expo-router';
 
-import DailyAlbumScreen from '../src/DailyAlbumScreen';
-import { ProtectedRoute } from '../src/navigation/RouteGuards';
+import DailyAlbumDayScreen from '../../src/DailyAlbumDayScreen';
+import { ProtectedRoute } from '../../src/navigation/RouteGuards';
 
-export default function DailyAlbumRoute() {
+export default function DailyAlbumDayRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'slide_from_right' }} />
       <ProtectedRoute allowReadOnlyArchive>
-        <DailyAlbumScreen />
+        <DailyAlbumDayScreen />
       </ProtectedRoute>
     </>
   );

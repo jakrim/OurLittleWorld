@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -18,11 +18,9 @@ import {
   useTheme,
 } from './ui';
 import { useFamily } from './FamilyContext';
-import { listMomentArchive } from './moments';
-import {
-  buildSavedDailyAlbum,
-  dailyArchiveRecordsFromMoments,
-} from './dailyCurationModel';
+import { listMomentDayArchive } from './moments';
+import { buildSavedDailyAlbum } from './dailyCurationModel';
+import { getFamilyRitualSettings } from './ritualSettings';
 
 const DAILY_ARCHIVE_LIMIT = 5000;
 
@@ -30,7 +28,8 @@ export default function DailyAlbumScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { family } = useFamily();
-  const [moments, setMoments] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -38,9 +37,19 @@ export default function DailyAlbumScreen() {
     let alive = true;
     setLoading(true);
     setError(false);
-    listMomentArchive(family?.id, { limit: DAILY_ARCHIVE_LIMIT })
+    getFamilyRitualSettings({
+      familyId: family?.id,
+      family: { babyBirthday: family?.babyBirthday },
+    })
+      .then((settings) => {
+        const zone = settings?.timezone && settings.timezone !== 'local'
+          ? settings.timezone
+          : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        if (alive) setTimezone(zone);
+        return listMomentDayArchive(family?.id, { momentLimit: DAILY_ARCHIVE_LIMIT, timezone: zone });
+      })
       .then((rows) => {
-        if (alive) setMoments(rows || []);
+        if (alive) setRecords(rows || []);
       })
       .catch(() => {
         if (alive) setError(true);
@@ -51,18 +60,19 @@ export default function DailyAlbumScreen() {
     return () => {
       alive = false;
     };
-  }, [family?.id]);
+  }, [family?.babyBirthday, family?.id]);
 
-  const model = useMemo(() => buildSavedDailyAlbum(
-    dailyArchiveRecordsFromMoments(moments),
-    { babyBirthday: family?.babyBirthday, recentLimit: 365 },
-  ), [family?.babyBirthday, moments]);
+  const model = useMemo(() => buildSavedDailyAlbum(records, {
+    babyBirthday: family?.babyBirthday,
+    recentLimit: 365,
+    timezone,
+  }), [family?.babyBirthday, records, timezone]);
   const days = model.firstYearDays.length ? model.firstYearDays : model.days;
   const childName = family?.babyName || 'Baby';
 
-  const openRecord = (record) => {
-    if (!record?.moment?.id) return;
-    router.push({ pathname: '/moment/[momentId]', params: { momentId: record.moment.id } });
+  const openDay = (dayKey) => {
+    if (!dayKey) return;
+    router.push({ pathname: '/daily-album/[day]', params: { day: dayKey, timezone } });
   };
 
   return (
@@ -72,7 +82,7 @@ export default function DailyAlbumScreen() {
         data={days}
         keyExtractor={(day) => day.dayKey}
         renderItem={({ item }) => (
-          <DailyDayCard day={item} onOpen={openRecord} theme={theme} />
+          <DailyDayCard day={item} onOpen={openDay} theme={theme} />
         )}
         ListHeaderComponent={(
           <View style={styles.header}>
@@ -98,6 +108,11 @@ export default function DailyAlbumScreen() {
               <Caption style={styles.coverageCaption}>
                 One strongest eligible photo anchors a day. Distinct standouts and special videos stay beside it. Empty days remain honest.
               </Caption>
+              {model.firstYearElapsedDays ? (
+                <Caption style={styles.coverageCaption}>
+                  For this part of the first year, about {model.firstYearTargetBand.lower.toLocaleString()}–{model.firstYearTargetBand.upper.toLocaleString()} distinct photos and videos are a planning range—not a goal or limit.
+                </Caption>
+              ) : null}
             </Card>
             {loading ? (
               <View style={styles.loading}>
@@ -117,7 +132,7 @@ export default function DailyAlbumScreen() {
           <View style={styles.empty}>
             <PhotoPlaceholder style={styles.emptyPhoto} />
             <Title>No saved photo days yet.</Title>
-            <Body>Run photo review to let Our Little World find the first daily anchors.</Body>
+            <Body>Tonight will begin adding strong daily memories here when they are ready.</Body>
           </View>
         ) : null}
         contentContainerStyle={styles.content}
@@ -134,6 +149,7 @@ function DailyDayCard({ day, onOpen, theme }) {
   const hasMedia = day.records?.length > 0;
   const photoCount = day.records?.reduce((sum, record) => sum + Number(record.imageCount || 0), 0) || 0;
   const videoCount = day.records?.reduce((sum, record) => sum + Number(record.videoCount || 0), 0) || 0;
+  const cover = day.records?.[0] || null;
   return (
     <View style={[styles.dayCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
       <View style={styles.dayHeader}>
@@ -148,38 +164,31 @@ function DailyDayCard({ day, onOpen, theme }) {
         )}
       </View>
       {hasMedia ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.mediaRail}
+        <Pressable
+          onPress={() => onOpen(day.dayKey)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open all memories from ${formatDayTitle(day.dayKey)}`}
+          style={[styles.dayOpenRow, { backgroundColor: theme.semantic.cardAlt }]}
         >
-          {day.records.map((record) => (
-            <Pressable
-              key={record.key}
-              onPress={() => onOpen(record)}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${formatDayTitle(day.dayKey)} memory`}
-              style={[styles.mediaTile, { backgroundColor: theme.semantic.cardAlt }]}
-            >
-              {record.thumbUrl ? (
-                <Image source={{ uri: record.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              ) : (
-                <PhotoPlaceholder seed={record.key} style={StyleSheet.absoluteFill} />
-              )}
-              <View style={styles.mediaScrim} />
-              {record.videoCount ? (
-                <View style={styles.playBadge}>
-                  <Ionicons name="play" size={13} color={theme.colors.onPrimary} />
-                </View>
-              ) : null}
-              {record.imageCount + record.videoCount > 1 ? (
-                <View style={styles.countBadge}>
-                  <Caption style={styles.countText}>{record.imageCount + record.videoCount}</Caption>
-                </View>
-              ) : null}
-            </Pressable>
-          ))}
-        </ScrollView>
+          <View style={[styles.mediaTile, { backgroundColor: theme.semantic.cardAlt }]}>
+            {cover?.thumbUrl ? (
+              <Image source={{ uri: cover.thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            ) : (
+              <PhotoPlaceholder seed={cover?.key || day.dayKey} style={StyleSheet.absoluteFill} />
+            )}
+            <View style={styles.mediaScrim} />
+            {videoCount ? (
+              <View style={styles.playBadge}>
+                <Ionicons name="play" size={13} color={theme.colors.onPrimary} />
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.dayOpenCopy}>
+            <Body>See this day</Body>
+            <Caption>{formatCounts(photoCount, videoCount)}</Caption>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.semantic.textMuted} />
+        </Pressable>
       ) : (
         <View style={[styles.gapRow, { backgroundColor: theme.semantic.cardAlt }]}>
           <Ionicons name="ellipse-outline" size={18} color={theme.semantic.textMuted} />
@@ -283,9 +292,15 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginTop: 3,
   },
-  mediaRail: {
-    gap: space.sm,
-    paddingRight: space.xs,
+  dayOpenRow: {
+    borderRadius: radius.lg,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  dayOpenCopy: {
+    flex: 1,
   },
   mediaTile: {
     width: 116,
@@ -309,24 +324,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  countBadge: {
-    position: 'absolute',
-    right: space.sm,
-    bottom: space.sm,
-    minWidth: 30,
-    height: 26,
-    borderRadius: 13,
-    paddingHorizontal: 7,
-    backgroundColor: glass.mediaChrome,
-    borderColor: glass.mediaChromeBorder,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  countText: {
-    color: glass.inverseTextBody,
-    fontWeight: '800',
   },
   gapRow: {
     minHeight: 60,

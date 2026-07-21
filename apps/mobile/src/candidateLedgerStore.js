@@ -5,12 +5,25 @@ import {
   CANDIDATE_SCORER_VERSION,
   normalizeDiscoveryCandidate,
 } from './candidateLedgerModel';
-import { buildNightlyQueue, NIGHTLY_QUEUE_GENERATION_VERSION } from './nightlyQueueModel';
+import {
+  buildNightlyQueue,
+  NIGHTLY_QUEUE_GENERATION_VERSION,
+  NIGHTLY_QUEUE_IDENTITY_FLOOR,
+  NIGHTLY_QUEUE_QUALITY_FLOOR,
+} from './nightlyQueueModel';
+import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
 export const NIGHTLY_BURST_ALTERNATE_LIMIT = 12;
 export const NIGHTLY_BURST_ALTERNATE_MIN_QUALITY = 0.55;
+export const DURABLE_ICLOUD_RETRY_LIMIT = 50;
+export const CANDIDATE_UNAVAILABLE_CODES = Object.freeze([
+  'icloud_pending',
+  'deleted',
+  'limited_revoked',
+  'missing_after_full_scan',
+]);
 export const TONIGHT_REACTION_CODES = Object.freeze(['spark', 'seen']);
 export const TONIGHT_COMMIT_STEPS = Object.freeze(['media', 'text', 'voice', 'reaction']);
 export const TONIGHT_COMMIT_STEP_STATES = Object.freeze(['idle', 'saving', 'saved', 'failed', 'skipped']);
@@ -33,10 +46,18 @@ export function listCachedAnalysisAssetIds({
   return new Set(rows.map((row) => row.asset_id).filter(Boolean));
 }
 
-export function persistScanCandidates({ familyId, userId, scanKey, matches = [], now = new Date(), birthdayISO = null }) {
+export function persistScanCandidates({
+  familyId,
+  userId,
+  scanKey,
+  matches = [],
+  now = new Date(),
+  birthdayISO = null,
+  captureTimezone = resolvedTimeZone(),
+}) {
   assertScope(familyId, userId);
   const normalized = matches
-    .map((match) => normalizeDiscoveryCandidate(match, { scanKey, now, birthdayISO }))
+    .map((match) => normalizeDiscoveryCandidate(match, { scanKey, now, birthdayISO, captureTimezone }))
     .filter(Boolean);
   if (!normalized.length) return { persisted: 0, clusters: 0 };
   const database = getMediaDatabase();
@@ -52,8 +73,15 @@ export function persistScanCandidates({ familyId, userId, scanKey, matches = [],
   return { persisted: normalized.length, clusters: clusterCount };
 }
 
-export function markCandidatesUnavailable({ familyId, userId, assetIds = [], reason = 'icloud_pending' }) {
+export function markCandidatesUnavailable({
+  familyId,
+  userId,
+  assetIds = [],
+  reason = 'Waiting for the original to download from iCloud.',
+  code = 'icloud_pending',
+}) {
   assertScope(familyId, userId);
+  if (!CANDIDATE_UNAVAILABLE_CODES.includes(code)) throw new Error('Unknown candidate availability reason');
   const ids = [...new Set(assetIds.filter(Boolean))];
   if (!ids.length) return 0;
   const database = getMediaDatabase();
@@ -68,21 +96,130 @@ export function markCandidatesUnavailable({ familyId, userId, assetIds = [], rea
       database.runSync(
         `insert into discovery_candidates (
            family_id, user_id, asset_id, media_type, availability, scorer_version,
-           lifecycle_state, scan_key, first_seen_at, last_analyzed_at, unavailable_reason
-         ) values (?, ?, ?, 'image', 'icloud_pending', ?, 'unavailable', null, ?, ?, ?)
+           lifecycle_state, scan_key, first_seen_at, last_analyzed_at, unavailable_reason, unavailable_code
+         ) values (?, ?, ?, 'image', ?, ?, 'unavailable', null, ?, ?, ?, ?)
          on conflict(family_id, user_id, asset_id) do update set
-           availability = 'icloud_pending', lifecycle_state = 'unavailable',
-           unavailable_reason = excluded.unavailable_reason, last_analyzed_at = excluded.last_analyzed_at`,
-        [familyId, userId, assetId, CANDIDATE_SCORER_VERSION, stamp, stamp, reason],
+           availability = excluded.availability, lifecycle_state = 'unavailable',
+           unavailable_reason = excluded.unavailable_reason, unavailable_code = excluded.unavailable_code,
+           local_uri = null, preview_uri = case when excluded.availability = 'unavailable' then null else preview_uri end,
+           last_analyzed_at = excluded.last_analyzed_at`,
+        [familyId, userId, assetId, code === 'icloud_pending' ? 'icloud_pending' : 'unavailable',
+          CANDIDATE_SCORER_VERSION, stamp, stamp, reason, code],
       );
       database.runSync(
         `update nightly_review_items set item_state = 'unavailable', last_error_code = 'asset_unavailable', updated_at = ?
-         where family_id = ? and user_id = ? and asset_id = ? and item_state in ('queued', 'shown')`,
-        [stamp, familyId, userId, assetId],
+         where family_id = ? and user_id = ? and item_state in ('queued', 'shown')
+           and (
+             exists (
+               select 1 from nightly_review_enrichment e
+               where e.session_id = nightly_review_items.session_id
+                 and e.position = nightly_review_items.position and e.selected_asset_id = ?
+             )
+             or (asset_id = ? and not exists (
+               select 1 from nightly_review_enrichment e
+               where e.session_id = nightly_review_items.session_id
+                 and e.position = nightly_review_items.position and e.selected_asset_id is not null
+             ))
+           )`,
+        [stamp, familyId, userId, assetId, assetId],
+      );
+    }
+    promoteUnavailableClusterRepresentatives(database, { familyId, userId, stamp });
+  });
+  return ids.length;
+}
+
+export function markCandidatesDeleted({ familyId, userId, assetIds = [], limited = false }) {
+  return markCandidatesUnavailable({
+    familyId,
+    userId,
+    assetIds,
+    code: limited ? 'limited_revoked' : 'deleted',
+    reason: limited
+      ? 'This photo is no longer shared with Our Little World.'
+      : 'This photo is no longer in Photos.',
+  });
+}
+
+export function markCandidatesSeen({ familyId, userId, assetIds = [], scanKey, seenAt = new Date() }) {
+  assertScope(familyId, userId);
+  if (!scanKey) return 0;
+  const ids = [...new Set(assetIds.filter(Boolean))];
+  if (!ids.length) return 0;
+  const database = getMediaDatabase();
+  const stamp = seenAt.toISOString();
+  database.withTransactionSync(() => {
+    for (const assetId of ids) {
+      database.runSync(
+        `update discovery_candidates set last_seen_scan_key = ?, last_seen_at = ?
+         where family_id = ? and user_id = ? and asset_id = ?`,
+        [scanKey, stamp, familyId, userId, assetId],
       );
     }
   });
   return ids.length;
+}
+
+export function reconcileCompletedFullScan({
+  familyId,
+  userId,
+  scanKey,
+  sinceMs = null,
+  limited = false,
+  now = new Date(),
+}) {
+  assertScope(familyId, userId);
+  if (!scanKey) return 0;
+  const database = getMediaDatabase();
+  const stamp = now.toISOString();
+  const code = limited ? 'limited_revoked' : 'missing_after_full_scan';
+  const reason = limited
+    ? 'This photo is no longer shared with Our Little World.'
+    : 'This photo could not be found in the completed Photos scan.';
+  let changed = 0;
+  database.withTransactionSync(() => {
+    database.runSync(
+      `update discovery_candidates set availability = 'unavailable', lifecycle_state = 'unavailable',
+         local_uri = null, preview_uri = null, unavailable_reason = ?, unavailable_code = ?, last_analyzed_at = ?
+       where family_id = ? and user_id = ?
+         and lifecycle_state not in ('kept', 'skipped', 'rejected')
+         and (? is null or capture_time_ms >= ?)
+         and coalesce(last_seen_scan_key, '') <> ?`,
+      [reason, code, stamp, familyId, userId, sinceMs, sinceMs, scanKey],
+    );
+    changed = Number(database.getFirstSync('select changes() as count')?.count || 0);
+    database.runSync(
+      `update nightly_review_items set item_state = 'unavailable', last_error_code = 'asset_unavailable', updated_at = ?
+       where family_id = ? and user_id = ? and item_state in ('queued', 'shown')
+         and coalesce((
+           select e.selected_asset_id from nightly_review_enrichment e
+           where e.session_id = nightly_review_items.session_id
+             and e.position = nightly_review_items.position
+         ), asset_id) in (
+           select asset_id from discovery_candidates
+           where family_id = ? and user_id = ? and unavailable_code = ?
+         )`,
+      [stamp, familyId, userId, familyId, userId, code],
+    );
+    promoteUnavailableClusterRepresentatives(database, { familyId, userId, stamp });
+  });
+  return changed;
+}
+
+export function listDurableICloudRetryAssetIds({
+  familyId,
+  userId,
+  limit = DURABLE_ICLOUD_RETRY_LIMIT,
+} = {}) {
+  assertScope(familyId, userId);
+  const bounded = Math.max(1, Math.min(DURABLE_ICLOUD_RETRY_LIMIT, Number(limit || DURABLE_ICLOUD_RETRY_LIMIT)));
+  return getMediaDatabase().getAllSync(
+    `select asset_id from discovery_candidates
+     where family_id = ? and user_id = ? and unavailable_code = 'icloud_pending'
+       and lifecycle_state = 'unavailable'
+     order by coalesce(last_seen_at, first_seen_at) asc, asset_id asc limit ?`,
+    [familyId, userId, bounded],
+  ).map((row) => row.asset_id).filter(Boolean);
 }
 
 export function restoreCandidatesAvailable({ familyId, userId, assetIds = [] }) {
@@ -92,9 +229,9 @@ export function restoreCandidatesAvailable({ familyId, userId, assetIds = [] }) 
   database.withTransactionSync(() => {
     for (const assetId of ids) {
       database.runSync(
-        `update discovery_candidates set availability = 'available',
+       `update discovery_candidates set availability = 'available',
            lifecycle_state = case when lifecycle_state = 'unavailable' then 'discovered' else lifecycle_state end,
-           unavailable_reason = null, last_analyzed_at = ?
+           unavailable_reason = null, unavailable_code = null, last_analyzed_at = ?
          where family_id = ? and user_id = ? and asset_id = ?`,
         [new Date().toISOString(), familyId, userId, assetId],
       );
@@ -112,13 +249,18 @@ export function restoreCandidateMedia({ familyId, userId, assetId, localUri, pre
     database.runSync(
       `update discovery_candidates set availability = 'available', local_uri = ?, preview_uri = ?,
          lifecycle_state = case when lifecycle_state = 'unavailable' then 'shown' else lifecycle_state end,
-         unavailable_reason = null, last_analyzed_at = ?
+         unavailable_reason = null, unavailable_code = null, last_analyzed_at = ?
        where family_id = ? and user_id = ? and asset_id = ?`,
       [localUri, previewUri || localUri, stamp, familyId, userId, assetId],
     );
     database.runSync(
       `update nightly_review_items set item_state = 'shown', last_error_code = null, updated_at = ?
-       where family_id = ? and user_id = ? and asset_id = ? and item_state = 'unavailable'`,
+       where family_id = ? and user_id = ? and item_state = 'unavailable'
+         and coalesce((
+           select e.selected_asset_id from nightly_review_enrichment e
+           where e.session_id = nightly_review_items.session_id
+             and e.position = nightly_review_items.position
+         ), asset_id) = ?`,
       [stamp, familyId, userId, assetId],
     );
   });
@@ -144,17 +286,90 @@ export function ensureNightlySession({
   userId,
   now = new Date(),
   timezone = resolvedTimeZone(),
-  seed = localDay(now),
+  seed = null,
 } = {}) {
   assertScope(familyId, userId);
   const database = getMediaDatabase();
   const existing = readActiveSession(database, familyId, userId);
   if (existing) return hydrateSession(database, existing);
-  const completedToday = readCompletedSessionForDay(database, familyId, userId, localDay(now));
+  const day = localDayInTimeZone(now, timezone);
+  const completedToday = readCompletedSessionForDay(database, familyId, userId, day);
   if (completedToday) return hydrateSession(database, completedToday);
 
+  return createNightlySession(database, {
+    familyId,
+    userId,
+    now,
+    timezone,
+    day,
+    seed: seed || day,
+    continuation: false,
+  });
+}
+
+export function startTonightContinuation({
+  familyId,
+  userId,
+  now = new Date(),
+  timezone = resolvedTimeZone(),
+  completedSessionId = null,
+} = {}) {
+  assertScope(familyId, userId);
+  const database = getMediaDatabase();
+  const active = readActiveSession(database, familyId, userId);
+  if (active) return hydrateSession(database, active);
+  const completed = completedSessionId
+    ? database.getFirstSync(
+      `select * from nightly_review_sessions
+       where session_id = ? and family_id = ? and user_id = ? and status = 'completed'`,
+      [completedSessionId, familyId, userId],
+    )
+    : readCompletedSessionForDay(database, familyId, userId, localDayInTimeZone(now, timezone));
+  if (!completed) throw new Error('Finish the current Tonight set before finding more');
+  const day = completed.local_day;
+  const sessionTimezone = completed.timezone || timezone;
+  const sameDayCount = Number(database.getFirstSync(
+    `select count(*) as count from nightly_review_sessions
+     where family_id = ? and user_id = ? and local_day = ?`,
+    [familyId, userId, day],
+  )?.count || 0);
+  return createNightlySession(database, {
+    familyId,
+    userId,
+    now,
+    timezone: sessionTimezone,
+    day,
+    seed: `${day}:more:${sameDayCount}`,
+    continuation: true,
+  });
+}
+
+function createNightlySession(database, {
+  familyId,
+  userId,
+  now,
+  timezone,
+  day,
+  seed,
+  continuation,
+}) {
+  const stats = candidateBacklogStats(database, familyId, userId);
+  const completedSessionCount = Number(database.getFirstSync(
+    `select count(*) as count from nightly_review_sessions
+     where family_id = ? and user_id = ? and status = 'completed'
+       and seed not like '%:more:%'`,
+    [familyId, userId],
+  )?.count || 0);
+  const maxItems = recommendedNightlySize({
+    eligibleCount: stats.eligibleCount,
+    uncoveredDayCount: stats.uncoveredDayCount,
+    completedSessionCount,
+    continuation,
+  });
+  if (!maxItems) return null;
+
   const candidates = listEligibleCandidates(database, familyId, userId);
-  const queue = buildNightlyQueue(candidates, { nowMs: now.getTime(), seed });
+  const queue = buildNightlyQueue(candidates, { nowMs: now.getTime(), seed, maxItems });
   if (!queue.length) return null;
   const sessionId = uuid();
   const stamp = now.toISOString();
@@ -168,7 +383,7 @@ export function ensureNightlySession({
            session_id, family_id, user_id, local_day, timezone, seed, status,
            generation_version, model_version, current_position, item_count, created_at, updated_at
          ) values (?, ?, ?, ?, ?, ?, 'active', ?, ?, 0, ?, ?, ?)`,
-        [sessionId, familyId, userId, localDay(now), timezone, seed, NIGHTLY_QUEUE_GENERATION_VERSION,
+        [sessionId, familyId, userId, day, timezone, seed, NIGHTLY_QUEUE_GENERATION_VERSION,
           CANDIDATE_SCORER_VERSION, queue.length, stamp, stamp],
       );
       for (const item of queue) {
@@ -194,7 +409,12 @@ export function ensureNightlySession({
   return hydrateSession(database, readActiveSession(database, familyId, userId));
 }
 
-export function getTonightSummary({ familyId, userId }) {
+export function getTonightSummary({
+  familyId,
+  userId,
+  now = new Date(),
+  timezone = resolvedTimeZone(),
+} = {}) {
   if (!familyId || !userId) return null;
   const database = getMediaDatabase();
   const active = readActiveSession(database, familyId, userId);
@@ -206,14 +426,56 @@ export function getTonightSummary({ familyId, userId }) {
     );
     return { sessionId: active.session_id, count: Number(remaining?.count || 0), status: active.status };
   }
-  const completedToday = readCompletedSessionForDay(database, familyId, userId, localDay(new Date()));
+  const completedToday = readCompletedSessionForDay(database, familyId, userId, localDayInTimeZone(now, timezone));
   if (completedToday) return { sessionId: completedToday.session_id, count: 0, status: 'completed' };
-  const eligible = database.getFirstSync(
-    `select count(*) as count from discovery_candidates
-     where family_id = ? and user_id = ? and lifecycle_state = 'eligible' and availability = 'available'`,
+  const stats = candidateBacklogStats(database, familyId, userId);
+  const completedSessionCount = Number(database.getFirstSync(
+    `select count(*) as count from nightly_review_sessions
+     where family_id = ? and user_id = ? and status = 'completed'
+       and seed not like '%:more:%'`,
     [familyId, userId],
-  );
-  return { sessionId: null, count: Math.min(7, Number(eligible?.count || 0)), status: 'available' };
+  )?.count || 0);
+  return {
+    sessionId: null,
+    count: recommendedNightlySize({ ...stats, completedSessionCount }),
+    status: 'available',
+  };
+}
+
+export function getTonightCatchupSummary({ familyId, userId } = {}) {
+  assertScope(familyId, userId);
+  const database = getMediaDatabase();
+  const stats = candidateBacklogStats(database, familyId, userId);
+  const unavailable = Number(database.getFirstSync(
+    `select count(*) as count from discovery_candidates
+     where family_id = ? and user_id = ? and lifecycle_state = 'unavailable'`,
+    [familyId, userId],
+  )?.count || 0);
+  return {
+    remainingStrongCount: stats.eligibleCount,
+    uncoveredEligibleDayCount: stats.uncoveredDayCount,
+    unavailableCount: unavailable,
+    hasMore: stats.eligibleCount > 0,
+  };
+}
+
+export function replaceFamilySavedDayFacts({ familyId, dayCounts = new Map(), refreshedAt = new Date() } = {}) {
+  if (!familyId) throw new Error('A family is required for saved-day coverage');
+  const entries = dayCounts instanceof Map ? [...dayCounts.entries()] : Object.entries(dayCounts || {});
+  const database = getMediaDatabase();
+  const stamp = refreshedAt.toISOString();
+  database.withTransactionSync(() => {
+    database.runSync('delete from family_saved_day_facts where family_id = ?', [familyId]);
+    for (const [day, count] of entries) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day)) || Number(count || 0) <= 0) continue;
+      database.runSync(
+        `insert into family_saved_day_facts (family_id, local_day, saved_count, refreshed_at)
+         values (?, ?, ?, ?)`,
+        [familyId, day, Number(count), stamp],
+      );
+    }
+  });
+  return entries.length;
 }
 
 export function readTonightSession({ familyId, userId }) {
@@ -568,6 +830,38 @@ function finishDecision({ sessionId, familyId, userId, position, decision }) {
     }
     const enrichment = scopedEnrichment(database, { sessionId, familyId, userId, position });
     const decidedAssetId = enrichment?.selected_asset_id || item.asset_id;
+    if (decidedAssetId !== item.asset_id) {
+      database.runSync(
+        `update discovery_candidates set lifecycle_state = 'superseded', superseded_by_asset_id = ?, decided_at = ?
+         where family_id = ? and user_id = ? and asset_id = ?
+           and lifecycle_state in ('queued', 'shown')`,
+        [decidedAssetId, stamp, familyId, userId, item.asset_id],
+      );
+      database.runSync(
+        `update candidate_clusters set representative_asset_id = ?, updated_at = ?
+         where family_id = ? and user_id = ? and cluster_id in (
+           select cluster_id from candidate_cluster_members
+           where family_id = ? and user_id = ? and asset_id = ?
+         )`,
+        [decidedAssetId, stamp, familyId, userId, familyId, userId, item.asset_id],
+      );
+      database.runSync(
+        `update candidate_cluster_members set is_representative = case when asset_id = ? then 1 else 0 end,
+           updated_at = ? where family_id = ? and user_id = ? and cluster_id in (
+             select cluster_id from candidate_cluster_members
+             where family_id = ? and user_id = ? and asset_id = ?
+           )`,
+        [decidedAssetId, stamp, familyId, userId, familyId, userId, item.asset_id],
+      );
+      database.runSync(
+        `update discovery_candidates set representative_asset_id = ?
+         where family_id = ? and user_id = ? and event_cluster_key in (
+           select event_cluster_key from discovery_candidates
+           where family_id = ? and user_id = ? and asset_id = ?
+         )`,
+        [decidedAssetId, familyId, userId, familyId, userId, item.asset_id],
+      );
+    }
     discardedVoiceUri = decision === 'skipped' ? enrichment?.draft_voice_uri || null : null;
     database.runSync(
       `update nightly_review_items set item_state = ?, commit_state = 'done', draft_text = null,
@@ -605,9 +899,12 @@ function listEligibleCandidates(database, familyId, userId) {
   const rows = database.getAllSync(
     `with scoped as (
        select c.*, not exists (
+         select 1 from family_saved_day_facts f
+         where f.family_id = c.family_id and f.local_day = c.local_day
+       ) and not exists (
          select 1 from media_items m
          where m.family_id = c.family_id and m.moment_id is not null
-           and (date(m.creation_time, 'localtime') = c.local_day or substr(m.creation_time, 1, 10) = c.local_day)
+           and substr(m.creation_time, 1, 10) = c.local_day
        ) as coverage_needed
        from discovery_candidates c
        where c.family_id = ? and c.user_id = ? and c.lifecycle_state = 'eligible' and c.availability = 'available'
@@ -615,14 +912,48 @@ function listEligibleCandidates(database, familyId, userId) {
      ), ranked as (
        select *, row_number() over (
          partition by local_day order by capture_quality desc, identity_score desc, capture_time_ms desc, asset_id asc
-       ) as day_rank
+       ) as day_rank,
+       row_number() over (
+         partition by local_day, media_type order by capture_quality desc, identity_score desc,
+           video_presence_ratio desc, capture_time_ms desc, asset_id asc
+       ) as media_day_rank
        from scoped
      )
-     select * from ranked where day_rank <= 2 or media_type = 'video'
-     order by capture_time_ms desc, asset_id asc limit ?`,
-    [familyId, userId, NIGHTLY_CANDIDATE_QUERY_LIMIT],
+     select * from ranked
+     where day_rank = 1 or (day_rank = 2 and capture_quality >= ?) or (media_type = 'video' and media_day_rank <= 2)
+     order by coverage_needed desc, day_rank asc, capture_quality desc, identity_score desc,
+       capture_time_ms desc, asset_id asc limit ?`,
+    [familyId, userId, NIGHTLY_BURST_ALTERNATE_MIN_QUALITY, NIGHTLY_CANDIDATE_QUERY_LIMIT],
   );
   return rows.map(mapCandidateRow);
+}
+
+function candidateBacklogStats(database, familyId, userId) {
+  const row = database.getFirstSync(
+    `select count(*) as eligible_count,
+      count(distinct case when not exists (
+         select 1 from family_saved_day_facts f
+         where f.family_id = c.family_id and f.local_day = c.local_day
+       ) and not exists (
+         select 1 from media_items m
+         where m.family_id = c.family_id and m.moment_id is not null
+           and substr(m.creation_time, 1, 10) = c.local_day
+       ) then c.local_day end) as uncovered_day_count
+     from discovery_candidates c
+     where c.family_id = ? and c.user_id = ? and c.lifecycle_state = 'eligible'
+       and c.availability = 'available'
+       and (c.representative_asset_id is null or c.representative_asset_id = c.asset_id)
+       and c.identity_score >= ? and (
+         (c.media_type = 'image' and c.capture_quality >= ?)
+         or (c.media_type = 'video' and c.duration_sec >= 2 and c.capture_quality >= ?
+           and (c.video_presence_ratio >= 0.66 or c.identity_score >= 0.9))
+       )`,
+    [familyId, userId, NIGHTLY_QUEUE_IDENTITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR],
+  );
+  return {
+    eligibleCount: Number(row?.eligible_count || 0),
+    uncoveredDayCount: Number(row?.uncovered_day_count || 0),
+  };
 }
 
 function readActiveSession(database, familyId, userId) {
@@ -786,9 +1117,11 @@ function mapCandidateRow(row) {
     identityScore: Number(row.identity_score || 0),
     captureQuality: Number(row.capture_quality || 0),
     videoPresenceRatio: Number(row.video_presence_ratio || 0),
+    visualFingerprint: parseJsonArray(row.visual_fingerprint_json),
     eventClusterKey: row.event_cluster_key,
     clusterMemberCount: Number(row.cluster_member_count || 1),
     coverageNeeded: Number(row.coverage_needed || 0) === 1,
+    dayRank: Number(row.day_rank || 0) || null,
     lifecycleState: row.lifecycle_state,
     selectionReasonCode: row.selection_reason_code,
   };
@@ -808,17 +1141,20 @@ function upsertCandidate(database, familyId, userId, candidate) {
   database.runSync(
     `insert into discovery_candidates (
        family_id, user_id, asset_id, media_type, local_uri, preview_uri, availability,
-       capture_time_ms, local_day, width, height, duration_sec, identity_score, identity_band,
+       capture_time_ms, local_day, capture_timezone, width, height, duration_sec, identity_score, identity_band,
        face_count, capture_quality, face_size_ratio, sharpness, smile_score, video_presence_ratio,
        video_sampled_frames, video_matched_frames, visual_fingerprint_json, identity_evidence_json,
        event_cluster_key, representative_asset_id, cluster_member_count, scorer_version,
-       selection_reason_code, lifecycle_state, scan_key, first_seen_at, last_analyzed_at, unavailable_reason
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       selection_reason_code, lifecycle_state, scan_key, first_seen_at, last_analyzed_at, unavailable_reason,
+       last_seen_scan_key, last_seen_at, unavailable_code
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(family_id, user_id, asset_id) do update set
        media_type = excluded.media_type, local_uri = coalesce(excluded.local_uri, discovery_candidates.local_uri),
        preview_uri = coalesce(excluded.preview_uri, discovery_candidates.preview_uri), availability = excluded.availability,
        capture_time_ms = coalesce(excluded.capture_time_ms, discovery_candidates.capture_time_ms),
-       local_day = coalesce(excluded.local_day, discovery_candidates.local_day), width = coalesce(excluded.width, discovery_candidates.width),
+       local_day = coalesce(discovery_candidates.local_day, excluded.local_day),
+       capture_timezone = coalesce(discovery_candidates.capture_timezone, excluded.capture_timezone),
+       width = coalesce(excluded.width, discovery_candidates.width),
        height = coalesce(excluded.height, discovery_candidates.height), duration_sec = coalesce(excluded.duration_sec, discovery_candidates.duration_sec),
        identity_score = excluded.identity_score, identity_band = excluded.identity_band, face_count = excluded.face_count,
        capture_quality = excluded.capture_quality, face_size_ratio = excluded.face_size_ratio, sharpness = excluded.sharpness,
@@ -832,16 +1168,19 @@ function upsertCandidate(database, familyId, userId, candidate) {
        lifecycle_state = case when discovery_candidates.lifecycle_state in ('kept','skipped','queued','shown')
          then discovery_candidates.lifecycle_state else excluded.lifecycle_state end,
        scan_key = excluded.scan_key, last_analyzed_at = excluded.last_analyzed_at,
-       unavailable_reason = excluded.unavailable_reason`,
+       last_seen_scan_key = excluded.last_seen_scan_key, last_seen_at = excluded.last_seen_at,
+       unavailable_reason = excluded.unavailable_reason, unavailable_code = excluded.unavailable_code`,
     [familyId, userId, candidate.assetId, candidate.mediaType, candidate.localUri, candidate.previewUri,
-      candidate.availability, candidate.captureTimeMs, candidate.localDay, candidate.width, candidate.height,
+      candidate.availability, candidate.captureTimeMs, candidate.localDay, candidate.captureTimezone,
+      candidate.width, candidate.height,
       candidate.durationSec, candidate.identityScore, candidate.identityBand, candidate.faceCount,
       candidate.captureQuality, candidate.faceSizeRatio, candidate.sharpness, candidate.smileScore,
       candidate.videoPresenceRatio, candidate.videoSampledFrames, candidate.videoMatchedFrames,
       candidate.visualFingerprintJson, candidate.identityEvidenceJson, candidate.eventClusterKey,
       candidate.representativeAssetId, candidate.clusterMemberCount, candidate.scorerVersion,
       candidate.selectionReasonCode, candidate.lifecycleState, candidate.scanKey, candidate.firstSeenAt,
-      candidate.lastAnalyzedAt, candidate.unavailableReason],
+      candidate.lastAnalyzedAt, candidate.unavailableReason, candidate.lastSeenScanKey,
+      candidate.lastSeenAt, candidate.unavailableCode || null],
   );
 }
 
@@ -920,6 +1259,70 @@ function persistClusters(database, familyId, userId, clusters, stamp) {
   }
 }
 
+function promoteUnavailableClusterRepresentatives(database, { familyId, userId, stamp }) {
+  const clusters = database.getAllSync(
+    `select cc.cluster_id
+     from candidate_clusters cc
+     join discovery_candidates representative
+       on representative.family_id = cc.family_id and representative.user_id = cc.user_id
+       and representative.asset_id = cc.representative_asset_id
+     where cc.family_id = ? and cc.user_id = ? and representative.availability <> 'available'
+       and not exists (
+         select 1 from nightly_review_items i
+         join nightly_review_sessions s on s.session_id = i.session_id and s.status = 'active'
+         where i.family_id = cc.family_id and i.user_id = cc.user_id
+           and i.item_state in ('queued', 'shown', 'unavailable')
+           and i.asset_id = cc.representative_asset_id
+       )`,
+    [familyId, userId],
+  );
+  for (const cluster of clusters) {
+    const next = database.getFirstSync(
+      `select c.asset_id
+       from candidate_cluster_members m
+       join discovery_candidates c on c.family_id = m.family_id and c.user_id = m.user_id
+         and c.asset_id = m.asset_id
+       where m.family_id = ? and m.user_id = ? and m.cluster_id = ?
+         and c.availability = 'available' and c.identity_band = 'clear'
+         and c.lifecycle_state in ('eligible', 'discovered', 'superseded')
+         and c.capture_quality >= ?
+       order by c.capture_quality desc, c.identity_score desc, c.capture_time_ms desc, c.asset_id asc
+       limit 1`,
+      [familyId, userId, cluster.cluster_id, NIGHTLY_BURST_ALTERNATE_MIN_QUALITY],
+    );
+    if (!next?.asset_id) continue;
+    database.runSync(
+      `update candidate_clusters set representative_asset_id = ?, updated_at = ?
+       where family_id = ? and user_id = ? and cluster_id = ?`,
+      [next.asset_id, stamp, familyId, userId, cluster.cluster_id],
+    );
+    database.runSync(
+      `update candidate_cluster_members set is_representative = case when asset_id = ? then 1 else 0 end,
+         updated_at = ? where family_id = ? and user_id = ? and cluster_id = ?`,
+      [next.asset_id, stamp, familyId, userId, cluster.cluster_id],
+    );
+    database.runSync(
+      `update discovery_candidates set representative_asset_id = ?,
+         lifecycle_state = case
+           when asset_id = ? and lifecycle_state in ('discovered', 'superseded') then 'eligible'
+           when asset_id <> ? and lifecycle_state in ('discovered', 'eligible', 'superseded') then 'superseded'
+           else lifecycle_state
+         end,
+         superseded_by_asset_id = case
+           when asset_id = ? then null
+           when lifecycle_state in ('discovered', 'eligible', 'superseded') then ?
+           else superseded_by_asset_id
+         end
+       where family_id = ? and user_id = ? and asset_id in (
+         select asset_id from candidate_cluster_members
+         where family_id = ? and user_id = ? and cluster_id = ?
+       )`,
+      [next.asset_id, next.asset_id, next.asset_id, next.asset_id, next.asset_id,
+        familyId, userId, familyId, userId, cluster.cluster_id],
+    );
+  }
+}
+
 function updateCandidateDecision(database, { familyId, userId, assetId, state, stamp }) {
   database.runSync(
     `update discovery_candidates set lifecycle_state = ?, decided_at = ?, last_analyzed_at = last_analyzed_at
@@ -931,10 +1334,6 @@ function updateCandidateDecision(database, { familyId, userId, assetId, state, s
 
 function assertScope(familyId, userId) {
   if (!familyId || !userId) throw new Error('A family and parent are required for private discovery');
-}
-
-function localDay(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function resolvedTimeZone() {

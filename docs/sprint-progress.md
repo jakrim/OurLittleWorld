@@ -264,10 +264,120 @@ screen loads the full 5,000-item candidate set.
   `/tonight` deep link and current resumable queue were separately exercised, and the
   notification route/metadata/queue gates are deterministic tests.
 
-Before Release 2, run one narrow signed production-runtime proof on a non-personal
-test family: successful video plus voice upload/retry against configured Cloudflare,
-and one physical-device notification tap into the current queue. If those pass,
-Release 2 historical catch-up pacing is the next product slice.
+Before production rollout, run one narrow signed runtime proof on a non-personal test
+family: successful video plus voice upload/retry against configured Cloudflare, and
+one physical-device notification tap into the current queue. This external proof did
+not block the independent local Release 2 catch-up implementation.
+
+## Curated Memory Library Release 2 — First-year catch-up engine (2026-07-20)
+
+Status: implemented and verified locally on `polish-sprints` after Release 1 commit
+`54f6fac`. Nothing was pushed, deployed, submitted, or changed in production. Local
+Supabase records and simulator media used only deterministic disposable fixtures.
+
+### Product and durable contracts
+
+- Queue generation remains deterministic and quality-bounded, now ranking stable
+  uncovered family-timezone day anchors before distinct event/composition standouts,
+  with recent/history balance and qualifying special videos. It returns an honest
+  short or zero queue instead of padding weak media. Primary evening pace adapts from
+  three to five to seven cards; the optional completion-card `Keep going` continuation
+  is capped at three and does not count as another completed evening or notification.
+- SQLite schema version `3` adds capture-timezone provenance, asset last-seen scan
+  metadata, unavailable reason, and family/user-scoped saved-day facts. Migration is
+  restart-safe and validates the new table as well as columns. Completed scans can
+  reconcile disappeared assets without consuming review state, bounded iCloud retries
+  restore candidates, and an unavailable burst representative promotes the strongest
+  remaining eligible member without duplicating a card or parent decision.
+- Foreground and background scans resolve the family's ritual timezone before candidate
+  persistence. Photo-library changes can request a full reconciliation without erasing
+  cached valid analysis. Automatic discovery pauses in Low Power Mode through the
+  newly linked `expo-battery` module and keeps permission, role, Circle, and entitlement
+  checks ahead of all Photos access.
+- Family-union saved-day coverage crosses the server boundary as captured dates only;
+  local asset identifiers, fingerprints, face evidence, candidates, and rejects remain
+  private. The 365-day album uses lightweight nested, family-scoped media facts and
+  keeps honest gap days. A dedicated `/daily-album/[day]` route uses exact DST-safe
+  local-day UTC bounds and shows every distinct same-day photo/video individually.
+- Our World hydrates at most 500 rich recent moments for context-heavy compatibility,
+  reads up to 5,000 lightweight day facts, and obtains exact aggregate counts instead
+  of loading 5,000 rich context graphs. Search beyond the recent rich window moves to
+  Release 3's collection-backed index.
+- Runtime review found and corrected a lapsed-access policy defect: canceled, expired,
+  and past-due families can now browse allowlisted Today/Our World/Moment/First/Letter/
+  daily-album routes, while Add is removed from global navigation and write/discovery/
+  queue paths remain closed. A family that never activated a plan still sees purchase
+  setup.
+
+### Scoped implementation
+
+- Scan, power, and library reconciliation: `libraryScanLauncher.js`,
+  `scanController.js`, `backgroundAutoIngestTask.js`, `useForegroundAutoIngest.js`,
+  `mediaLibraryChanges.js`, `mediaLibraryChangeModel.js`, `scanPowerPolicy.js`, and
+  the `expo-battery` dependency.
+- Ledger, migration, queue, and coverage: `mediaDbSchema.js`,
+  `candidateLedgerModel.js`, `candidateLedgerStore.js`, `nightlyQueueModel.js`,
+  `savedDayCoverage.js`, `firstYearCatchupModel.js`, and `dailyCurationModel.js`.
+- Archive and lapse UX: `moments.js`, `momentDayIndexModel.js`,
+  `DailyAlbumScreen.js`, `DailyAlbumDayScreen.js`, `LibraryScreen.js`,
+  `entitlementAccessModel.js`, `navigation/RouteGuards.js`, `ui/AppShell.js`,
+  `ui/BottomTabs.js`, and the allowlisted browse route wrappers.
+- Proof: new/updated candidate ledger, migration, queue, catch-up, change-detection,
+  power, day-index, entitlement, and curated-memory contract tests.
+
+### Performance and tunables
+
+Final deterministic non-personal 5,000-item run on the local development Mac:
+
+- schema-v3 migration `13.9 ms`;
+- 5,000 candidate inserts in 80-row transactions `395.8 ms`;
+- bounded 900-row coverage query `16.1 ms`;
+- deterministic seven-card queue generation `13.2 ms`;
+- 5,000 saved records to 365 daily models `7.6 ms`;
+- 5,000 lightweight moment/media facts to 365 day rows `158.1 ms`, with at most
+  365 cover URLs requiring signatures;
+- compact 5,000-row SQLite database `3,158,016 bytes` (`3.012 MiB`).
+
+Named bounds are candidate batch `80`, live match state `600`, queue query `900`,
+queue `0–7`, continuation `0–3`, iCloud retry `24`, rich archive `500`, lightweight
+day archive `5,000`, day-detail moments `5,000`, nested day media `20,000`, and one
+signed cover per represented day. No queue or screen retains 5,000 full candidate or
+rich moment objects.
+
+### Verification and native evidence
+
+- Focused migration/queue/day-index suite: `37/37` passed with the performance output
+  above. Final mobile suite: TypeScript plus `395/395` unit tests passed.
+- `pnpm test`: `2/2` packages passed. `pnpm lint`: `2/2` passed. `pnpm typecheck`:
+  `2/2` passed. CI-mode Expo lint passed. `pnpm build` passed from cache for the
+  unchanged web artifact.
+- CocoaPods linked `ExpoBattery 56.0.4`. A normal locally signed iPhone Simulator
+  Debug build succeeded with 153 targets, installed on the isolated iPhone 16e, and
+  reopened the authenticated daily album. The new process logged no missing native
+  module, Battery, SecureStore, exception, or fatal error. The earlier intentionally
+  unsigned install was rejected by SecureStore as expected and is not product proof.
+- Ignored evidence root:
+  `tmp/evidence/curated-memory-library-release2-2026-07-20/`. Runtime proof includes
+  `tonight-five-card-queue.png`, `tonight-completion-keep-going.png`,
+  `daily-album-empty-gaps-final.png`, `daily-album-with-same-day-memories.png`,
+  `daily-album-same-day-detail.png`, `daily-album-dark.png`,
+  `library-lapsed-read-only-final.png`, and
+  `native-signed-battery-build-daily-album.png`.
+
+### Review decisions and next slice
+
+- Checker findings corrected before closure: family/device timezone mismatch,
+  stranded unavailable burst representatives, hidden same-day standouts, unscoped
+  globally truncated day media, 5,000-rich-moment hydration, incomplete v3 schema
+  validation, continuation sessions distorting pace, and lapsed purchase redirection.
+- Release 1's external-only Cloudflare video-plus-voice and physical notification-tap
+  proofs remain explicitly unclaimed; they do not block the completed local catch-up
+  engine.
+- Release 3 automatic collections is next, preceded only by the narrow shared-archive
+  trust stabilization required to remove private local asset identifiers from new
+  remote writes, enforce server-side lapsed writes, and preserve authored shared data
+  through account deletion. These are prerequisites for safe collection membership,
+  partner corrections, and later shared annotations—not an expansion of collections.
 
 ## Assistant-Curated Baby Book PRD (2026-07-09)
 

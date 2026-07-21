@@ -12,13 +12,13 @@ const TABS = [
   { key: 'world', label: 'Our World', icon: 'albums-outline', route: '/library' },
 ];
 
-export default function BottomTabs({ active, onAddPress }) {
+export default function BottomTabs({ active, canAdd = true, onAddPress }) {
   const router = useRouter();
   const theme = useTheme();
   return (
     <View style={styles.wrap}>
       <View style={[styles.root, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
-        {TABS.map((tab) => {
+        {TABS.filter((tab) => tab.key !== 'add' || canAdd).map((tab) => {
           const selected = tab.key === active;
           const add = tab.key === 'add';
           return (
