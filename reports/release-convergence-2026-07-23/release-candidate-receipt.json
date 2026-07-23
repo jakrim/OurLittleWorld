@@ -1,0 +1,115 @@
+{
+  "generatedAt": "2026-07-23T21:54:30Z",
+  "releaseCandidate": {
+    "repository": "https://github.com/jakrim/OurLittleWorld",
+    "branch": "codex/olw-first-look-release",
+    "commit": "5560b740d04269f538978da1c8377ebfaee52f30",
+    "baseBranch": "polish-sprints",
+    "baseCommit": "5ce3ee39e1256f852e5352699efe5d543045a3d1",
+    "version": "1.1.0",
+    "iosBuildNumber": "1.1.11",
+    "expoSdk": "57.0.0",
+    "easProjectId": "417b49c8-5800-4011-bf15-9d5c55101fb7",
+    "easProfile": "release-candidate",
+    "easEnvironment": "production",
+    "distribution": "store",
+    "easBuildId": "e533a90d-082a-4264-9fb6-13ec9cde6ec0",
+    "easBuildStatus": "FINISHED",
+    "nativeFingerprint": "72651e123f4b5f81facdb3cf705c567a8591fddb",
+    "artifactUrl": "https://expo.dev/artifacts/eas/1Spgy0ka2UCraLPkQrDNwit3oDeY50eyWq1OtqcKXmU.ipa",
+    "easSubmissionId": "6f942a79-12b9-49b6-b38b-3892e46938e8",
+    "easSubmissionCreatedAt": "2026-07-23T20:38:45.955Z",
+    "easSubmissionPriority": "NORMAL",
+    "easSubmissionStatus": "FINISHED",
+    "easSubmissionUpdatedAt": "2026-07-23T21:50:26.151Z",
+    "testFlightGroup": "OLW Internal",
+    "appStoreConnectBuildId": "12e92eda-79ad-4d20-97da-abafdc590c43",
+    "testFlightProcessingState": "COMPLETE_READY_TO_SUBMIT_INTERNAL_GROUP_ATTACHED",
+    "testFlightInviteCount": 1,
+    "testFlightInstallCount": 0
+  },
+  "verification": {
+    "frozenDependencyInstall": "pass",
+    "agentInventory": "pass",
+    "agentValidation": "pass",
+    "expoDoctor": "20/20 checks passed",
+    "mobileTests": "439/439 passed",
+    "lint": "pass",
+    "typecheck": "pass",
+    "webProductionBuild": "pass; 16 pages",
+    "freshLocalMigrationReplay": "pass",
+    "schemaLint": "pass",
+    "pgTap": "94/94 passed",
+    "legacyIdentifierDirectPsql": "6/6 passed",
+    "curatedMigrationDoubleReapply": "pass after restart-safety fix 96493b3",
+    "billingDenoTests": "3/3 passed",
+    "notificationCadenceTests": "4/4 passed",
+    "workerDryRun": "pass with Wrangler 4.114.0; no deployment",
+    "workerUnsignedAccessProbe": "pass: live endpoint denied with HTTP 401 and x-olw-cache denied",
+    "secretScan": "pass",
+    "gitDiffCheck": "pass",
+    "deterministicSmoke": "25/25 privacy and persistence assertions passed",
+    "maestroJourney": "blocked: OLW_SMOKE_DEV_CODE not available",
+    "physicalSignedBinary": "blocked: registered physical iPhones offline",
+    "syntheticTwoWriter": "blocked: no online pair of authenticated physical devices",
+    "externalSignedPlayback": "not proven end-to-end with synthetic authorized media",
+    "physicalNotificationTap": "blocked: no online physical device",
+    "sevenDayPersonalLibrary": "pending in resumable ledger"
+  },
+  "performance": {
+    "candidateLedger5000": {
+      "insertMsApprox": 450,
+      "queryMsApprox": 16,
+      "databaseBytesApprox": 3170000
+    },
+    "opaqueIdentity5000": {
+      "insertMsApprox": 112,
+      "lookupMsApprox": 5,
+      "databaseBytesApprox": 1570000
+    },
+    "tonightQueue5000MsApprox": 17.6,
+    "savedMemories5000MsApprox": 24
+  },
+  "providerState": {
+    "supabaseProductionCuratedMigrationsApplied": false,
+    "supabaseNonProductionBranchAvailable": false,
+    "supabaseProductionFunctionsChangedByThisTask": false,
+    "cloudflareWorkerDeployedByThisTask": false,
+    "cloudflareCurrentDeploymentVersion": "b9d559ac-8031-4a8f-81f4-4ee6058389b7",
+    "googlePlayListingAvailable": false,
+    "existingDirtySourceBuildsNotAcceptedAsReleaseCandidates": [
+      {
+        "platform": "IOS",
+        "easBuildId": "4b02ff8d-9592-4346-8afe-a4a2722a0dc5",
+        "version": "1.1.0",
+        "buildNumber": "1.1.10",
+        "reportedCommit": "5ce3ee39e1256f852e5352699efe5d543045a3d1",
+        "fingerprint": "bd0c4994b03582046ce1b4a565cd022e6a447132"
+      },
+      {
+        "platform": "ANDROID",
+        "easBuildId": "0cd66716-5ea4-4ff8-8966-427457a6f360",
+        "version": "1.1.0",
+        "buildNumber": "2",
+        "reportedCommit": "5ce3ee39e1256f852e5352699efe5d543045a3d1",
+        "fingerprint": "2b91fe343c1645f5cd49a8bf005353fe60f3bf49"
+      }
+    ],
+    "publicAppStoreSubmission": {
+      "submissionId": "759b593f-1283-475b-9077-eb348ca337ef",
+      "createdAtLocal": "2026-07-23 16:04 America/New_York",
+      "status": "Waiting for Review",
+      "submittedBuild": "1.1.10",
+      "items": [
+        "iOS App 1.1.0",
+        "Family Monthly",
+        "Family Yearly",
+        "Our Little World Plans subscription group"
+      ],
+      "releaseMode": "manual",
+      "createdByThisTask": false
+    }
+  },
+  "privacyInvariant": "Private before Keep; shared only after parent confirmation.",
+  "productionAuthorized": false
+}
