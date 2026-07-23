@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Button, Brand, Hero, Body, Caption, V, H, Spacer, glass, space, radius, shadow, useTheme } from './ui';
+import { Screen, Button, BrandedBackHeader, Hero, Body, Caption, V, H, Spacer, glass, space, radius, shadow, useTheme } from './ui';
 import { embedFace, isNative } from './faceMatcher';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
@@ -41,6 +41,7 @@ export default function ReferencePhotoScreen() {
   const { family } = useFamily();
   const { user } = useAuth();
   const progressPreviewRequested = __DEV__ && params.progressPreview === '1';
+  const firstValueRequested = params.source === 'first_value';
   const autoSeedRequested = params.autoSeed === '1' || progressPreviewRequested;
   const autoSeedStarted = useRef(false);
   const autoSeedSignal = useRef(null);
@@ -208,7 +209,7 @@ export default function ReferencePhotoScreen() {
     if (autoSeedState.status === 'ready') {
       await confirmRepresentativeReference({ familyId: family.id, userId: user.id });
       Scan.reset();
-      router.push('/scan');
+      router.push(firstValueRequested ? { pathname: '/scan', params: { source: 'first_value' } } : '/scan');
       return;
     }
     if (isNative && !embedding) {
@@ -237,7 +238,7 @@ export default function ReferencePhotoScreen() {
     });
     // Picking a new reference always means a fresh scan — clear stale matches.
     Scan.reset();
-    router.push('/scan');
+    router.push(firstValueRequested ? { pathname: '/scan', params: { source: 'first_value' } } : '/scan');
   };
 
   const onBack = () => {
@@ -280,23 +281,9 @@ export default function ReferencePhotoScreen() {
 
   return (
     <Screen variant="warm" scroll>
-      <View style={styles.topRow}>
-        <Pressable
-          onPress={onBack}
-          style={[
-            styles.backChip,
-            { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
-          ]}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={20} color={theme.semantic.textSoft} />
-        </Pressable>
-      </View>
+      <BrandedBackHeader onBack={onBack} style={styles.topRow} />
 
-      <V gap="lg" style={{ paddingTop: space.sm, paddingBottom: space.xxl }}>
-        <Brand>our little world</Brand>
+      <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
         <Hero>{heroCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Hero>
         <Body>{bodyCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Body>
 
@@ -459,17 +446,6 @@ function bodyCopy({ autoSeeding, autoConfirming, restored, babyName }) {
 const styles = StyleSheet.create({
   topRow: {
     paddingTop: space.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.whisper,
   },
   frame: {
     width: '100%',

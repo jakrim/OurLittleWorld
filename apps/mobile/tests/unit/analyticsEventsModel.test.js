@@ -40,6 +40,17 @@ const requiredEventNames = [
   'invite_sent',
   'gift_started',
   'gift_redeemed',
+  'paywall_eligible',
+  'first_value_started',
+  'first_value_completed',
+  'paywall_viewed',
+  'plan_selected',
+  'checkout_started',
+  'trial_started',
+  'purchase_verified',
+  'purchase_failed',
+  'purchase_restored',
+  'paywall_dismissed',
   'purchase_started',
   'purchase_completed',
   'tonight_opened',
@@ -89,6 +100,38 @@ test('valid analytics events include the privacy-safe common envelope', () => {
   assert.equal(event.child_id, 'child-1');
   assert.equal(event.media_count_bucket, '2_4');
   assert.equal(event.has_text_note, true);
+});
+
+test('subscription funnel accepts diagnostic dimensions but rejects local preview content', () => {
+  const event = buildAnalyticsEvent('checkout_started', {
+    surface: 'purchase',
+    paywall_source: 'first_value_preview',
+    paywall_version: 'olw-first-look-v1',
+    offer_version: 'olw-family-2026-07',
+    product: 'family',
+    entitlement: 'family',
+    product_id: 'olw.family.yearly',
+    duration: 'annual',
+    storefront_bucket: 'us',
+    localized_amount: 69.99,
+    currency: 'USD',
+    trial_eligibility: 'eligible',
+    experiment: 'default',
+    cohort: 'new_user',
+    product_load_success: true,
+  }, { platform: 'android' });
+
+  assert.equal(event.platform, 'android');
+  assert.equal(event.localized_amount, 69.99);
+  assert.throws(() => buildAnalyticsEvent('first_value_completed', {
+    surface: 'first_value_preview',
+    paywall_source: 'first_value_preview',
+    paywall_version: 'olw-first-look-v1',
+    offer_version: 'olw-family-2026-07',
+    preview_state: 'approved',
+    media_kind: 'photo',
+    localUri: 'ph://private-photo',
+  }), /Forbidden analytics field/);
 });
 
 test('analytics events require event-specific properties', () => {

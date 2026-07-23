@@ -6,6 +6,7 @@ export function analyticsEnvironment() {
 
 export function analyticsPlatform(platform) {
   if (platform === 'ios') return 'ios';
+  if (platform === 'android') return 'android';
   if (platform === 'web') return 'web';
   return 'unknown';
 }

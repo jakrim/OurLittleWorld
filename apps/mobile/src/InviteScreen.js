@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, shadow, space, radius, useTheme } from './ui';
+import { Screen, Card, Button, BrandedBackHeader, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, space, radius } from './ui';
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
@@ -237,24 +237,7 @@ export default function InviteScreen() {
 }
 
 function InviteHeader({ onBack }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.inviteTopRow}>
-      <Pressable
-        onPress={onBack}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        hitSlop={8}
-        style={[
-          styles.inviteBackButton,
-          { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
-        ]}
-      >
-        <Ionicons name="chevron-back" size={20} color={theme.semantic.textSoft} />
-      </Pressable>
-      <Brand style={styles.inviteBrand}>our little world</Brand>
-    </View>
-  );
+  return <BrandedBackHeader onBack={onBack} style={styles.inviteTopRow} />;
 }
 
 function RoleOption({ active, icon, label, detail, disabled, onPress }) {
@@ -292,24 +275,7 @@ function formatExpiry(iso) {
 
 const styles = StyleSheet.create({
   inviteTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: space.md,
-  },
-  inviteBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-    ...shadow.whisper,
-  },
-  inviteBrand: {
-    flex: 1,
-    textAlign: 'right',
   },
   codeBox: {
     flexDirection: 'row',

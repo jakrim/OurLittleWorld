@@ -40,6 +40,10 @@ import { buildDailyCurationPlan } from './dailyCurationModel';
 import { collapseScoredMediaCandidates } from './scanMediaMatchModel';
 import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
 import { CANDIDATE_LIVE_MATCH_LIMIT } from './candidateLedgerModel';
+import {
+  DEFAULT_SCAN_PHOTO_PAGE_SIZE,
+  resolveScanPhotoPageSize,
+} from './scanPacingModel';
 
 const initialState = () => ({
   phase: 'idle',
@@ -67,13 +71,12 @@ const initialState = () => ({
 const HIGH_THRESHOLD = HIGH_CONFIDENCE_THRESHOLD;
 const AUTO_SAVE_THRESHOLD_DEFAULT = 0.9;
 const AUTO_SAVE_CONCURRENCY = 3;
-const PAGE_SIZE = 60;
 const VIDEO_PAGE_SIZE = 8;
 
-function fetchPhotoPage(after, since) {
+function fetchPhotoPage(after, since, pageSize = DEFAULT_SCAN_PHOTO_PAGE_SIZE) {
   return fetchPhotosPage({
     after,
-    pageSize: PAGE_SIZE,
+    pageSize,
     createdAfterMs: since,
   });
 }
@@ -312,6 +315,7 @@ export async function start({
   onICloudReady,
   onCandidates,
   onAssetsSeen,
+  photoPageSize,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -331,6 +335,7 @@ export async function start({
     ? excludeIds
     : new Set(Array.isArray(excludeIds) ? excludeIds : []);
   const extraIds = Array.isArray(extraAssetIds) ? extraAssetIds.filter(Boolean) : [];
+  const resolvedPhotoPageSize = resolveScanPhotoPageSize(photoPageSize);
   const visitedAssetIds = new Set();
 
   state = {
@@ -396,6 +401,12 @@ export async function start({
         )];
         if (sourceAssetIds.length) await onAssetsSeen({ assetIds: sourceAssetIds, scanKey });
       }
+      const seenSourceIds = new Set(
+        freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean),
+      );
+      if (!me.aborted && seenSourceIds.size) {
+        setState({ seen: state.seen + seenSourceIds.size });
+      }
 
       const candidates = freshAssets
         .filter((a) => !a.cloudWaitOnly && (a.localUri || a.uri) && !skipSet.has(a.sourceAssetId || a.id))
@@ -450,10 +461,8 @@ export async function start({
 
       // Append in scan order (newest creationTime first), so the grid
       // grows naturally as the user scrolls.
-      const seenSourceIds = new Set(freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean));
       const liveMatches = state.matches.concat(newMatches).slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
       setState({
-        seen: state.seen + seenSourceIds.size,
         matches: liveMatches,
         totalMatchCount: state.totalMatchCount + newMatches.length,
         acceptedCount: state.acceptedCount + newMatches.length,
@@ -479,7 +488,7 @@ export async function start({
       if (!me.aborted) await scoreAssets(extraAssets);
     }
 
-    let page = await fetchPhotoPage(undefined, since);
+    let page = await fetchPhotoPage(undefined, since, resolvedPhotoPageSize);
 
     while (true) {
       if (me.aborted) break;
@@ -487,7 +496,9 @@ export async function start({
       if (page.assets.length === 0) break;
 
       const nextPagePromise =
-        page.hasNextPage && !me.aborted ? fetchPhotoPage(page.endCursor, since) : null;
+        page.hasNextPage && !me.aborted
+          ? fetchPhotoPage(page.endCursor, since, resolvedPhotoPageSize)
+          : null;
 
       await scoreAssets(page.assets);
 

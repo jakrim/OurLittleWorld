@@ -186,7 +186,13 @@ export default function MomentDetailScreen() {
     } catch (err) {
       if (isMediaPolicyError(err)) {
         promptOverLimitVideo({
-          onSeeVault: () => router.push('/purchase'),
+          onSeeVault: () => router.push({
+            pathname: '/purchase',
+            params: {
+              source: 'feature_gate',
+              returnTo: `/moment/${momentId}`,
+            },
+          }),
         });
       } else {
         Alert.alert('Could not save playable video', err?.message || String(err));

@@ -329,7 +329,10 @@ export default function AddSheetScreen() {
       if (isMediaPolicyError(err)) {
         promptOverLimitVideo({
           onPosterOnly: () => saveMoment({ videoPosterOnly: true }),
-          onSeeVault: () => router.push('/purchase'),
+          onSeeVault: () => router.push({
+            pathname: '/purchase',
+            params: { source: 'feature_gate', returnTo: '/add' },
+          }),
         });
       } else {
         Alert.alert('Could not save moment', err?.message || String(err));

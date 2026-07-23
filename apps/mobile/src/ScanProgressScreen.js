@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Screen, Button, Hero, Caption, Eyebrow, Spacer, BrandMark, colors, space } from './ui';
 import useReducedMotion from './ui/useReducedMotion';
@@ -8,6 +8,9 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { startLibraryScan } from './libraryScanLauncher';
+import { startFirstValuePreviewScan } from './firstValuePreviewScan';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 import * as Scan from './scanController';
 
 /**
@@ -19,13 +22,16 @@ import * as Scan from './scanController';
  */
 export default function ScanProgressScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { family } = useFamily();
   const { user } = useAuth();
   const { entitlement, loading: billingLoading } = useBilling();
   const scan = Scan.useScanState();
   const reducedMotion = useReducedMotion();
   const writer = ['creator', 'partner'].includes(family?.me?.role);
-  const canScan = writer && entitlement?.isActive === true;
+  const firstValueRequested = params.source === 'first_value';
+  const canScan = writer && (entitlement?.isActive === true || firstValueRequested);
+  const [startError, setStartError] = useState('');
 
   const pulse1 = useRef(new Animated.Value(0)).current;
   const pulse2 = useRef(new Animated.Value(0)).current;
@@ -59,6 +65,23 @@ export default function ScanProgressScreen() {
 
     fired.current = true;
     (async () => {
+      if (firstValueRequested) {
+        trackAnalyticsEvent('first_value_started', {
+          surface: 'first_value_preview',
+          paywall_source: 'first_value_preview',
+          paywall_version: 'olw-first-look-v1',
+          offer_version: 'olw-family-2026-07',
+        }, {
+          family_id: family.id,
+          actor_role: family?.me?.role || 'creator',
+          plan_state: 'none',
+          platform: analyticsPlatform(Platform.OS),
+          environment: analyticsEnvironment(),
+        });
+        const result = await startFirstValuePreviewScan({ family, user });
+        if (!result.started) setStartError(result.reason || 'private-discovery-unavailable');
+        return;
+      }
       await startLibraryScan({
         family,
         user,
@@ -66,11 +89,17 @@ export default function ScanProgressScreen() {
         entitlementActive: true,
       });
     })();
-  }, [billingLoading, canScan, family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [billingLoading, canScan, family?.id, firstValueRequested, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!firstValueRequested || scan.matches.length === 0) return;
+    router.replace('/first-value-preview');
+  }, [firstValueRequested, router, scan.matches.length]);
 
   // Hand off to timeline once scanning has begun. Auto-save + ScanBanner
   // do the rest in the background.
   useEffect(() => {
+    if (firstValueRequested) return undefined;
     if (handedOff.current) return;
     if (scan.phase === 'failed' || scan.phase === 'idle') return;
     if (scan.phase === 'scanning' || scan.phase === 'done' || scan.phase === 'aborted') {
@@ -80,7 +109,7 @@ export default function ScanProgressScreen() {
       }, 900);
       return () => clearTimeout(t);
     }
-  }, [scan.phase, router]);
+  }, [firstValueRequested, scan.phase, router]);
 
   const ringStyle = (val) => ({
     transform: [
@@ -88,6 +117,13 @@ export default function ScanProgressScreen() {
     ],
     opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }),
   });
+
+  const stopScan = () => {
+    Scan.abort();
+    if (firstValueRequested) {
+      router.replace({ pathname: '/reference', params: { source: 'first_value' } });
+    }
+  };
 
   if (!billingLoading && !canScan) {
     return (
@@ -107,6 +143,29 @@ export default function ScanProgressScreen() {
           </Caption>
           <Spacer h={space.xxl} />
           <Button onPress={() => router.replace('/timeline')}>Back to Our World</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (firstValueRequested && (startError || (scan.phase === 'done' && scan.matches.length === 0))) {
+    return (
+      <Screen variant="dawn">
+        <View style={styles.root}>
+          <Spacer h={space.xxxl} />
+          <Eyebrow align="center">Private First Look</Eyebrow>
+          <Spacer h={space.sm} />
+          <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
+            We did not find a reliable candidate yet.
+          </Hero>
+          <Spacer h={space.md} />
+          <Caption align="center">
+            Nothing was uploaded. Choose a clearer reference or adjust Photos access, then try again.
+          </Caption>
+          <Spacer h={space.xxl} />
+          <Button onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}>
+            Choose a different reference
+          </Button>
         </View>
       </Screen>
     );
@@ -140,22 +199,28 @@ export default function ScanProgressScreen() {
         </Hero>
         <Spacer h={space.md} />
         <Caption align="center">
-          {scan.matches.length > 0
-            ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
-            : 'First review builds trust; later clear matches can save automatically.'}
+          {firstValueRequested
+            ? 'We stop after one reliable candidate. Nothing is uploaded before you approve it.'
+            : scan.matches.length > 0
+              ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
+              : 'First review builds trust; later clear matches can save automatically.'}
         </Caption>
 
         <Spacer h={space.xxxl} />
 
-        <Button onPress={() => router.replace('/timeline')}>
-          Keep scanning in background
-        </Button>
-        <Spacer h={space.sm} />
-        <Button variant="quiet" onPress={() => router.replace('/review')}>
-          Review matches
-        </Button>
-        <Spacer h={space.sm} />
-        <Button variant="ghost" onPress={() => Scan.abort()}>
+        {!firstValueRequested ? (
+          <>
+            <Button onPress={() => router.replace('/timeline')}>
+              Keep scanning in background
+            </Button>
+            <Spacer h={space.sm} />
+            <Button variant="quiet" onPress={() => router.replace('/review')}>
+              Review matches
+            </Button>
+            <Spacer h={space.sm} />
+          </>
+        ) : null}
+        <Button variant="ghost" onPress={stopScan}>
           Stop scan
         </Button>
       </View>

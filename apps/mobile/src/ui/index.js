@@ -22,6 +22,7 @@ export { default as BrandMark, BrandLockup, LOGO_MARK_VARIANTS, LOCKUP_SIZES } f
 export { default as BirthDatePicker, isoDateFromLocalDate, localDateFromIso, isValidBirthIso } from './BirthDatePicker';
 export { default as AppShell } from './AppShell';
 export { default as AppHeader } from './AppHeader';
+export { default as BrandedBackHeader } from './BrandedBackHeader';
 export { default as BottomSafeBar } from './BottomSafeBar';
 export { default as BottomTabs } from './BottomTabs';
 export { AppStatusBar, HomeIndicator } from './SystemChrome';

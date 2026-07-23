@@ -1,0 +1,39 @@
+# Earned-value subscription journey. Run on a seeded creator account whose
+# simulator Photos library contains an authentic child reference and candidate.
+# The flow stops before the sandbox sheet so no production payment is made.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://reference?source=first_value&autoSeed=1"
+- runFlow:
+    when:
+      visible: "Allow Full Access"
+    commands:
+      - tapOn: "Allow Full Access"
+- extendedWaitUntil:
+    visible: "Yes, start review scan"
+    timeout: 60000
+- tapOn: "Yes, start review scan"
+- extendedWaitUntil:
+    visible:
+      id: "first-value-proof-card"
+    timeout: 120000
+- assertVisible: "Does this belong in your family world?"
+- assertVisible: "Approving it does not upload or share it."
+- tapOn:
+    id: "approve-first-value"
+- extendedWaitUntil:
+    visible:
+      id: "paywall-first-value-proof"
+    timeout: 30000
+- assertVisible: "Annual Family"
+- assertVisible: "Monthly Family"
+- assertVisible: "14-day introductory trial for eligible store accounts"
+- assertNotVisible: "Start Vault"
+- assertNotVisible: "No free trial"
+- assertVisible:
+    id: "renewal-disclosure"
+- assertVisible:
+    id: "restore-purchases"
+- tapOn: "Close Family offer"
+- assertVisible: "You chose a real moment."
+- assertVisible: "Continue with Family"

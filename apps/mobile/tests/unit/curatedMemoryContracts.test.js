@@ -98,6 +98,7 @@ test('private photo access fails closed for Circle and lapsed states before Phot
   const background = source('backgroundAutoIngestTask.js');
   const foreground = source('useForegroundAutoIngest.js');
   const manual = source('ScanProgressScreen.js');
+  const firstValue = source('firstValuePreviewScan.js');
 
   assert.ok(launcher.indexOf("reason: 'role-cannot-scan'") < launcher.indexOf('const permission ='));
   assert.ok(launcher.indexOf("reason: 'inactive-entitlement'") < launcher.indexOf('const permission ='));
@@ -106,8 +107,11 @@ test('private photo access fails closed for Circle and lapsed states before Phot
   assert.ok(foreground.indexOf('const powerGate =') < foreground.indexOf('const permission ='));
   assert.match(foreground, /!entitlement\?\.isActive/);
   assert.match(foreground, /\['creator', 'partner'\]/);
-  assert.match(manual, /const canScan = writer && entitlement\?\.isActive === true/);
+  assert.match(manual, /const canScan = writer && \(entitlement\?\.isActive === true \|\| firstValueRequested\)/);
   assert.match(manual, /if \(!family \|\| !user \|\| billingLoading \|\| !canScan\) return;[\s\S]*await startLibraryScan/);
+  assert.ok(firstValue.indexOf("reason: 'role-cannot-scan'") < firstValue.indexOf('const permission ='));
+  assert.match(firstValue, /writeFirstValuePreview[\s\S]*Scan\.abort\(\)/);
+  assert.doesNotMatch(firstValue, /Tags\.setBaby|uploadForTag|supabase|publishFamilyLibraryConnection/);
   assert.doesNotMatch(manual, /readAutoIngestPowerGate|low-power-mode/);
 });
 

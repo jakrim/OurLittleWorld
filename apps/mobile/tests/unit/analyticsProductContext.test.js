@@ -30,7 +30,8 @@ test('media analytics emits type categories instead of asset identifiers', () =>
   assert.equal(mediaKindForAssets([], true), 'voice');
 });
 
-test('unsupported platforms are coarsened', () => {
+test('native analytics distinguishes supported iOS and Android funnels', () => {
   assert.equal(analyticsPlatform('ios'), 'ios');
-  assert.equal(analyticsPlatform('android'), 'unknown');
+  assert.equal(analyticsPlatform('android'), 'android');
+  assert.equal(analyticsPlatform('windows'), 'unknown');
 });
