@@ -1,4 +1,5 @@
 import {
+  checkoutAttributionFromInput,
   codeHint,
   corsHeaders,
   errorResponse,
@@ -9,6 +10,7 @@ import {
   originFromRequest,
   readJson,
   requiredEnv,
+  setStripeMetadata,
   stripeFormRequest,
 } from '../_shared/billing.ts';
 
@@ -51,6 +53,7 @@ Deno.serve(async (req) => {
     params.set('metadata[delivery_day]', String(body.delivery_day || '').slice(0, 32));
     params.set('metadata[code_hash]', giftCodeHash);
     params.set('metadata[code_hint]', codeHint(giftCode));
+    setStripeMetadata(params, checkoutAttributionFromInput(body));
 
     const session = await stripeFormRequest('/v1/checkout/sessions', params);
     return json({ url: session.url });
