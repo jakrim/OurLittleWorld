@@ -28,6 +28,7 @@ create index if not exists moment_annotations_author_idx
 
 alter table public.moment_annotations enable row level security;
 
+drop policy if exists moment_annotations_select on public.moment_annotations;
 create policy moment_annotations_select on public.moment_annotations for select
   using (
     public.is_family_writer(family_id)
@@ -36,12 +37,14 @@ create policy moment_annotations_select on public.moment_annotations for select
       and public.is_moment_shared_with_circle(family_id, moment_id)
     )
   );
+drop policy if exists moment_annotations_insert_active on public.moment_annotations;
 create policy moment_annotations_insert_active on public.moment_annotations for insert
   with check (
     public.is_family_writer(family_id)
     and public.family_has_active_entitlement(family_id)
     and author_user_id = auth.uid()
   );
+drop policy if exists moment_annotations_update_own on public.moment_annotations;
 create policy moment_annotations_update_own on public.moment_annotations for update
   using (
     public.is_family_writer(family_id)
@@ -53,6 +56,7 @@ create policy moment_annotations_update_own on public.moment_annotations for upd
     and public.family_has_active_entitlement(family_id)
     and author_user_id = auth.uid()
   );
+drop policy if exists moment_annotations_delete_own on public.moment_annotations;
 create policy moment_annotations_delete_own on public.moment_annotations for delete
   using (
     public.is_family_writer(family_id)
@@ -115,6 +119,7 @@ create index if not exists moment_context_facts_source_idx
   on public.moment_context_facts(source_type, source_id, moment_id);
 
 alter table public.moment_context_facts enable row level security;
+drop policy if exists moment_context_facts_select on public.moment_context_facts;
 create policy moment_context_facts_select on public.moment_context_facts for select
   using (
     public.is_family_writer(family_id)
