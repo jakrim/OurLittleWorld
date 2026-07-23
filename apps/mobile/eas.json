@@ -51,6 +51,11 @@
     "production": {
       "extends": "base",
       "autoIncrement": true
+    },
+    "release-candidate": {
+      "extends": "production",
+      "autoIncrement": false,
+      "environment": "production"
     }
   },
   "submit": {
