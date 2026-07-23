@@ -44,6 +44,10 @@ public class ExpoFaceMatcherModule: Module {
     return max(1, min(4, cores))
   }
 
+  /// PhotoKit may otherwise wait indefinitely for an iCloud original and hold
+  /// the whole native batch. Keep every per-asset load bounded.
+  private static let photoLoadTimeoutSeconds: Double = 8
+
   public func definition() -> ModuleDefinition {
     Name("ExpoFaceMatcher")
 
@@ -501,23 +505,55 @@ public class ExpoFaceMatcherModule: Module {
     guard let asset = res.firstObject else { return nil }
     let manager = PHImageManager.default()
     let options = PHImageRequestOptions()
-    options.isSynchronous = true
-    options.deliveryMode = .highQualityFormat
+    options.isSynchronous = false
+    options.deliveryMode = .opportunistic
     options.isNetworkAccessAllowed = true
     options.resizeMode = .exact
     options.progressHandler = { _, _, _, _ in }
 
+    let semaphore = DispatchSemaphore(value: 0)
+    let resultLock = NSLock()
     var resultImage: UIImage?
+    var finished = false
     let target = CGSize(width: 1280, height: 1280)
-    manager.requestImage(
+    let requestId = manager.requestImage(
       for: asset,
       targetSize: target,
       contentMode: .aspectFit,
       options: options
-    ) { image, _ in
-      resultImage = image
+    ) { image, info in
+      let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) == true
+      let isCancelled = (info?[PHImageCancelledKey] as? Bool) == true
+      let hasError = info?[PHImageErrorKey] != nil
+
+      resultLock.lock()
+      if !finished, let image {
+        resultImage = image
+      }
+      let shouldFinish = isCancelled || hasError || !isDegraded
+      if shouldFinish, !finished {
+        finished = true
+        resultLock.unlock()
+        semaphore.signal()
+        return
+      }
+      resultLock.unlock()
     }
-    return resultImage?.cgImage
+
+    let deadline = DispatchTime.now() + Self.photoLoadTimeoutSeconds
+    if semaphore.wait(timeout: deadline) == .timedOut {
+      resultLock.lock()
+      finished = true
+      let bestAvailable = resultImage
+      resultLock.unlock()
+      manager.cancelImageRequest(requestId)
+      return bestAvailable?.cgImage
+    }
+
+    resultLock.lock()
+    let resolvedImage = resultImage
+    resultLock.unlock()
+    return resolvedImage?.cgImage
   }
 
   /// Crop a CGImage to the given Vision bounding box (normalised 0..1, origin
