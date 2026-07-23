@@ -68,7 +68,7 @@ remote migration, push, App Store action, or notification deployment was perform
 - Deterministic proof: `candidateLedgerModel.test.js`,
   `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
   `curatedMemoryContracts.test.js`, plus the touched Today/notification tests.
-- Durable documentation: `docs/current-product-state.md`, `docs/architecture.md`,
+- Durable documentation: `docs/product-contract.md`, `docs/architecture.md`,
   `docs/curated-memory-library-plan.md`, this sprint log, and
   `reports/curated-memory-library-review-2026-07-18.html`.
 
@@ -194,7 +194,7 @@ TestFlight, signing, or production-data action was performed.
 - Proof: `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
   `tonightCommitModel.test.js`, `tonightEnrichmentModel.test.js`,
   `tonightNotificationModel.test.js`, and `curatedMemoryContracts.test.js`.
-- Durable state: `docs/current-product-state.md`, `docs/architecture.md`,
+- Durable state: `docs/product-contract.md`, `docs/architecture.md`,
   `docs/curated-memory-library-plan.md`, and this log.
 
 ### Performance and tunables

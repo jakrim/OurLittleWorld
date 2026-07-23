@@ -2,6 +2,9 @@
   "name": "ourlittleworld",
   "private": true,
   "scripts": {
+    "agent:inventory": "bash scripts/agent/repo-inventory.sh",
+    "agent:validate": "bash scripts/agent/validate-context.sh",
+    "smoke:mobile": "bash scripts/agent/smoke-mobile.sh",
     "dev": "turbo dev",
     "dev:web": "pnpm --filter @ourlittleworld/web dev",
     "dev:mobile": "pnpm --filter @ourlittleworld/mobile dev",
