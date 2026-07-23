@@ -21,7 +21,9 @@ state remain device-local. Remote Tonight delivery stays disabled.
   `e533a90d-082a-4264-9fb6-13ec9cde6ec0`
 - Native fingerprint:
   `72651e123f4b5f81facdb3cf705c567a8591fddb`
-- Internal group only: `OLW Internal`
+- Internal group only: `OLW Internal`; EAS submission finished and Apple
+  processing is complete. App Store Connect reports `Ready to Submit`, one
+  invite, and no recorded install.
 
 ## Additive migration set
 
@@ -71,6 +73,10 @@ Run only after explicit production authorization:
 7. Start a limited cohort; do not enable remote Tonight delivery.
 8. Monitor only privacy-safe aggregate health.
 9. Expand gradually after the seven-day personal-library ledger is complete.
+
+Check the resumable gate with
+`node scripts/release/check-seven-day-library-ledger.mjs`. Use
+`--require-complete` in the release decision so pending days exit non-zero.
 
 ## Forward-fix and rollback contract
 

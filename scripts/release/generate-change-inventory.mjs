@@ -269,7 +269,6 @@ const lines = [
   ].join(' | ') + ' |'),
   '',
   'The JSON companion contains modification times, byte sizes, SHA-256 hashes, and the evidence statement used for each classification. Hashes describe the preserved canonical files only; deleted files have null evidence fields.',
-  '',
 ];
 
 writeFileSync(join(outputRoot, 'change-inventory.md'), `${lines.join('\n')}\n`);

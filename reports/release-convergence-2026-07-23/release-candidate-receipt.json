@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T20:44:00Z",
+  "generatedAt": "2026-07-23T21:54:30Z",
   "releaseCandidate": {
     "repository": "https://github.com/jakrim/OurLittleWorld",
     "branch": "codex/olw-first-look-release",
@@ -18,8 +18,15 @@
     "nativeFingerprint": "72651e123f4b5f81facdb3cf705c567a8591fddb",
     "artifactUrl": "https://expo.dev/artifacts/eas/1Spgy0ka2UCraLPkQrDNwit3oDeY50eyWq1OtqcKXmU.ipa",
     "easSubmissionId": "6f942a79-12b9-49b6-b38b-3892e46938e8",
+    "easSubmissionCreatedAt": "2026-07-23T20:38:45.955Z",
+    "easSubmissionPriority": "NORMAL",
+    "easSubmissionStatus": "FINISHED",
+    "easSubmissionUpdatedAt": "2026-07-23T21:50:26.151Z",
     "testFlightGroup": "OLW Internal",
-    "testFlightProcessingState": "eas_submission_in_queue_not_yet_visible_in_app_store_connect"
+    "appStoreConnectBuildId": "12e92eda-79ad-4d20-97da-abafdc590c43",
+    "testFlightProcessingState": "COMPLETE_READY_TO_SUBMIT_INTERNAL_GROUP_ATTACHED",
+    "testFlightInviteCount": 1,
+    "testFlightInstallCount": 0
   },
   "verification": {
     "frozenDependencyInstall": "pass",
@@ -70,6 +77,24 @@
     "cloudflareWorkerDeployedByThisTask": false,
     "cloudflareCurrentDeploymentVersion": "b9d559ac-8031-4a8f-81f4-4ee6058389b7",
     "googlePlayListingAvailable": false,
+    "existingDirtySourceBuildsNotAcceptedAsReleaseCandidates": [
+      {
+        "platform": "IOS",
+        "easBuildId": "4b02ff8d-9592-4346-8afe-a4a2722a0dc5",
+        "version": "1.1.0",
+        "buildNumber": "1.1.10",
+        "reportedCommit": "5ce3ee39e1256f852e5352699efe5d543045a3d1",
+        "fingerprint": "bd0c4994b03582046ce1b4a565cd022e6a447132"
+      },
+      {
+        "platform": "ANDROID",
+        "easBuildId": "0cd66716-5ea4-4ff8-8966-427457a6f360",
+        "version": "1.1.0",
+        "buildNumber": "2",
+        "reportedCommit": "5ce3ee39e1256f852e5352699efe5d543045a3d1",
+        "fingerprint": "2b91fe343c1645f5cd49a8bf005353fe60f3bf49"
+      }
+    ],
     "publicAppStoreSubmission": {
       "submissionId": "759b593f-1283-475b-9077-eb348ca337ef",
       "createdAtLocal": "2026-07-23 16:04 America/New_York",

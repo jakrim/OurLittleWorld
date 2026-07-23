@@ -1,8 +1,8 @@
 # Session 019f688d release convergence
 
 **Evidence date:** 2026-07-23
-**Release status:** clean signed candidate built; internal TestFlight upload
-scheduled; not production-ready because physical-device, two-writer,
+**Release status:** clean signed candidate built and available in the internal
+TestFlight group; not production-ready because physical-device, two-writer,
 non-production remote migration, external-media, notification, and seven-day
 personal-library gates remain open.
 
@@ -20,8 +20,12 @@ First Look, subscription, billing, web, release, and native-matcher work.
   `codex/olw-first-look-release`.
 - Draft PR [#28](https://github.com/jakrim/OurLittleWorld/pull/28) layers that
   release work on `polish-sprints`.
+- Draft PR [#29](https://github.com/jakrim/OurLittleWorld/pull/29) keeps the
+  inventory, receipts, ledger, rollout package, and review report evidence-only.
 - A signed clean iOS candidate exists from exact commit `5560b74`, version
   1.1.0 (1.1.11), EAS build `e533a90d-082a-4264-9fb6-13ec9cde6ec0`.
+- EAS submission `6f942a79-12b9-49b6-b38b-3892e46938e8` finished; Apple
+  processing completed; build 1.1.11 is `Ready to Submit` in `OLW Internal`.
 - The canonical dirty checkout and the separate growth-measurement worktree
   were preserved. No reset, clean, stash, history rewrite, merge, production
   deploy, migration, backfill, or public release was performed.
@@ -92,6 +96,24 @@ disposition; see
 [`change-inventory.md`](../reports/release-convergence-2026-07-23/change-inventory.md)
 for a readable file-by-file table.
 
+## Technology system and why
+
+| Layer | Current technology | Why it is used |
+| --- | --- | --- |
+| Mobile | Expo 57.0.8, React Native 0.86, React 19.2, expo-router | One native iOS/Android product surface with route-level trust gates, signed development clients, and EAS release provenance. |
+| Private discovery | Expo SQLite plus bounded pure JavaScript models | Candidates, queue state, reasons, decisions, drafts, and retry identity survive restarts without entering Supabase or analytics. |
+| Photo identity and quality | A custom Swift Expo module using Apple Vision and PhotoKit | Face/quality analysis and iCloud reads stay on the device; the bounded native bridge avoids unbounded decode and iCloud stalls. |
+| Shared family archive | Supabase Postgres, migrations, RPCs, and row-level security | Only parent-confirmed Keeps become shared rows; family, writer, Circle, entitlement, lapsed, authorship, correction, and export rules are enforceable below the UI. |
+| Server functions | Supabase Edge Functions on Deno | Provider purchase verification, checkout status, notifications, and retry-safe service work live outside an untrusted client. |
+| Private media | Cloudflare Worker, R2, and Stream | A small HMAC-gated gateway separates stored originals and signed playback from public URLs and rejects unsigned requests. |
+| Web | Next.js 15.5.9 and React 19.2 | Marketing, gift, checkout, consent, support, and purchase-return surfaces can ship independently from the native app. |
+| Commerce | `expo-iap`, Apple/Google signed purchase verification, and Stripe checkout | Store/provider receipts remain authoritative; the app unlocks only after server-verified entitlement state. |
+| Build and proof | pnpm 10.30.3, Turbo 2.9, TypeScript 6, EAS Build/Submit, TestFlight, Node test, pgTAP, Maestro, Supabase CLI, Wrangler | A monorepo can reproduce dependency, source, schema, service, signed-artifact, database, and journey evidence as separate gates. |
+
+The architecture is intentionally asymmetric: the phone may know the private
+camera roll and candidate reasoning, while the shared system may know only what
+an authorized parent deliberately kept.
+
 ## Verification
 
 ### Source and build gates
@@ -103,7 +125,8 @@ for a readable file-by-file table.
 - Lint and typecheck: passed for mobile and web.
 - Web production build: passed, 16 pages.
 - Secret scan and `git diff --check`: passed.
-- Vercel preview checks on PRs #27 and #28: passed; no production web deploy.
+- Vercel preview checks on PRs #27, #28, and #29: passed; no production web
+  deploy.
 
 ### Curated high-risk contracts
 
@@ -159,9 +182,19 @@ real open gate rather than a claimed pass.
 
 The artifact was built from a clean commit and the EAS fingerprint matched the
 pre-build fingerprint. Its internal TestFlight submission was scheduled as EAS
-submission `6f942a79-12b9-49b6-b38b-3892e46938e8`. App Store processing was
-not yet visible when this evidence snapshot was written; EAS reported the
-submission as `IN_QUEUE`.
+submission
+[`6f942a79-12b9-49b6-b38b-3892e46938e8`](https://expo.dev/accounts/our-little-world/projects/ourlittleworld/submissions/6f942a79-12b9-49b6-b38b-3892e46938e8).
+EAS finished the submission, Apple processing completed, and App Store Connect
+shows build 1.1.11 as `Ready to Submit` with `OLW Internal` attached. The group
+has one invite and no recorded install, so signed-device behavior remains open.
+
+This clean candidate is iOS-only. The existing Android AAB
+`0cd66716-5ea4-4ff8-8966-427457a6f360`, build 2, reports commit `5ce3ee3` but
+was created from the formerly dirty checkout; fingerprint
+`2b91fe343c1645f5cd49a8bf005353fe60f3bf49`. It is retained as provider
+evidence, not accepted as a release candidate, and cannot be uploaded because
+Our Little World has no Google Play listing. The older iOS 1.1.10 artifact has
+the same dirty-source provenance problem.
 
 ## Runtime gates
 
@@ -188,13 +221,16 @@ correctly open:
 The durable resumable
 [`seven-day-library-ledger.json`](../reports/release-convergence-2026-07-23/seven-day-library-ledger.json)
 records these without private media or candidate evidence. The release is not
-called complete early.
+called complete early. Run
+`node scripts/release/check-seven-day-library-ledger.mjs` for a privacy-schema
+and progress snapshot; add `--require-complete` when using it as a release gate.
 
 ## Provider truth and unexpected public submission
 
 No production Supabase migration, Edge Function, Cloudflare Worker, web deploy,
 identifier rotation, or backfill was performed. There is no Google Play listing
-for Our Little World.
+for Our Little World, and the existing Android build is not a clean release
+candidate.
 
 App Store Connect now contains public submission
 `759b593f-1283-475b-9077-eb348ca337ef`, created July 23 at 4:04 PM by API user
@@ -239,6 +275,12 @@ calm family-memory ritual that helps parents notice a small number of meaningful
 moments, confirm what is worth keeping, and share only those confirmed memories
 with one trusted family space. The useful emotional promise is less organizing
 and more remembering without turning family life into a public feed.
+
+The current 1.1.10 App Store submission still uses baby-book-first description
+and screenshots. Camera-roll relief is the recommended positioning direction,
+not a claim that the submitted product page already makes. The newer App Store
+asset work remains quarantined in the canonical dirty checkout until its owning
+session is reconciled and the product claims are release-safe.
 
 Safe claims today:
 

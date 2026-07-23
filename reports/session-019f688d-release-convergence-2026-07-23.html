@@ -91,7 +91,7 @@
       <span class="pill pass">✓ Clean source</span>
       <span class="pill pass">✓ Signed iOS build</span>
       <span class="pill pass">✓ Local migration replay</span>
-      <span class="pill pending">◷ Internal processing</span>
+      <span class="pill pass">✓ Internal TestFlight ready</span>
       <span class="pill blocked">! Device gates open</span>
       <span class="pill info">No production changes</span>
     </div>
@@ -103,7 +103,7 @@
       <div class="card"><strong>7</strong><span>curated-memory commits pushed intact</span></div>
       <div class="card"><strong>9</strong><span>later coherent commits reconstructed</span></div>
       <div class="card"><strong>124</strong><span>dirty files classified with evidence</span></div>
-      <div class="card wide"><strong>2 draft PRs</strong><span><a href="https://github.com/jakrim/OurLittleWorld/pull/27">Curated roadmap → master</a> and <a href="https://github.com/jakrim/OurLittleWorld/pull/28">release convergence → polish-sprints</a></span></div>
+      <div class="card wide"><strong>3 draft PRs</strong><span><a href="https://github.com/jakrim/OurLittleWorld/pull/27">Curated roadmap → master</a>, <a href="https://github.com/jakrim/OurLittleWorld/pull/28">release convergence → polish-sprints</a>, and <a href="https://github.com/jakrim/OurLittleWorld/pull/29">evidence → release branch</a></span></div>
       <div class="card wide"><strong>0 lost work</strong><span>canonical dirty checkout, growth worktree, reports, media research, and active App Store assets preserved</span></div>
     </div>
     <p>No reset, clean, stash, history rewrite, merge, production deploy, production migration, identifier backfill, or public release was performed.</p>
@@ -133,6 +133,26 @@
         <tr><td>Unknown / overlap</td><td>3</td><td>Metadata excluded; test overlap explicit</td></tr>
       </tbody>
     </table>
+    <p class="small">This clean candidate is iOS-only. The existing Android build 2 (<code>0cd66716-5ea4-4ff8-8966-427457a6f360</code>) came from the formerly dirty checkout, is preserved as provider evidence rather than accepted as a release candidate, and has no Google Play listing to receive it.</p>
+  </section>
+
+  <section>
+    <h2>How the technology protects the product promise</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Technology</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Mobile</td><td>Expo 57, React Native 0.86, React 19, expo-router</td><td>One native product with route-level trust gates and reproducible EAS signing.</td></tr>
+        <tr><td>Private discovery</td><td>Expo SQLite + bounded pure models</td><td>Candidates, reasons, queue, drafts, decisions, and retry identity survive restarts but do not enter the shared system.</td></tr>
+        <tr><td>Photo analysis</td><td>Custom Swift Expo module, Apple Vision, PhotoKit</td><td>Identity/quality analysis and iCloud reads stay device-local and bounded.</td></tr>
+        <tr><td>Shared archive</td><td>Supabase Postgres, RPCs, row-level security</td><td>Only confirmed Keeps become shared; family, writer, Circle, lapsed, authorship, correction, and export rules are enforced below the UI.</td></tr>
+        <tr><td>Server work</td><td>Deno Edge Functions</td><td>Purchase verification, checkout status, notification boundaries, and retries stay outside the untrusted client.</td></tr>
+        <tr><td>Private media</td><td>Cloudflare Worker, R2, Stream</td><td>HMAC-gated routing separates originals and signed playback from public URLs.</td></tr>
+        <tr><td>Web</td><td>Next.js 15.5, React 19</td><td>Marketing, gifting, checkout, consent, and support can ship independently.</td></tr>
+        <tr><td>Commerce</td><td>expo-iap, Apple/Google verification, Stripe</td><td>Provider receipts remain authoritative; entitlement unlocks only after server verification.</td></tr>
+        <tr><td>Proof</td><td>pnpm/Turbo, TypeScript, EAS, TestFlight, Node test, pgTAP, Maestro, Supabase CLI, Wrangler</td><td>Source, schema, services, signed artifacts, database contracts, and real journeys remain separate release gates.</td></tr>
+      </tbody>
+    </table>
+    <p>The architecture is intentionally asymmetric: the phone may know the private camera roll and candidate reasoning; the shared system may know only what an authorized parent deliberately kept.</p>
   </section>
 
   <section>
@@ -149,7 +169,9 @@
         <tr><th>Native fingerprint</th><td><code>72651e123f4b5f81facdb3cf705c567a8591fddb</code></td></tr>
         <tr><th>Profile / environment</th><td><code>release-candidate</code> / <code>production</code></td></tr>
         <tr><th>Distribution</th><td>Apple store-signed; <code>OLW Internal</code> only</td></tr>
-        <tr><th>Internal submission</th><td><code>6f942a79-12b9-49b6-b38b-3892e46938e8</code>; EAS queue at snapshot time</td></tr>
+        <tr><th>Internal submission</th><td><a href="https://expo.dev/accounts/our-little-world/projects/ourlittleworld/submissions/6f942a79-12b9-49b6-b38b-3892e46938e8"><code>6f942a79-12b9-49b6-b38b-3892e46938e8</code></a>; EAS finished</td></tr>
+        <tr><th>Apple processing</th><td>Complete; build 1.1.11 is <strong>Ready to Submit</strong> with <code>OLW Internal</code> attached</td></tr>
+        <tr><th>Tester evidence</th><td>1 invite; 0 recorded installs</td></tr>
       </tbody>
     </table>
   </section>
@@ -183,7 +205,7 @@
       <li>A representative remote Supabase rehearsal; no non-production branch exists.</li>
       <li>Seven captured days on Jesse’s authorized personal library.</li>
     </ul>
-    <p>A resumable seven-day ledger is included. It records only coarse outcomes and local evidence references—never media, face evidence, candidates, asset IDs, or fingerprints.</p>
+    <p>A resumable seven-day ledger is included. It records only coarse outcomes and local evidence references—never media, face evidence, candidates, asset IDs, or personal-library fingerprints. Its checker reports progress safely and becomes a non-zero release gate with <code>--require-complete</code>.</p>
   </section>
 
   <section>
@@ -191,7 +213,7 @@
     <div class="callout risk">
       <strong>App Store submission <code>759b593f…</code> is Waiting for Review.</strong> It was created today at 4:04 PM by the App Store API user and uses older build 1.1.10, plus Family Monthly, Family Yearly, and the subscription group. This task did not create it.
     </div>
-    <p>The version is configured for <strong>manual release</strong>, so approval alone will not publish it. Canceling, replacing, or advancing it remains an explicit authorization decision. No production Supabase, Edge Function, Cloudflare Worker, web, identifier, or Google Play change was made here.</p>
+    <p>The version is configured for <strong>manual release</strong>, so approval alone will not publish it. Canceling, replacing, or advancing it remains an explicit authorization decision. The older iOS 1.1.10 binary and Android build 2 both came from the formerly dirty checkout and are not accepted as clean candidates. No production Supabase, Edge Function, Cloudflare Worker, web, identifier, or Google Play change was made here.</p>
   </section>
 
   <section>
@@ -209,6 +231,7 @@
   <section>
     <h2>What the product does for people</h2>
     <p>Our Little World is not primarily “another photo organizer.” Its strongest promise is relief from camera-roll overwhelm. It gives parents a quiet ritual: notice a small number of meaningful moments, decide what is worth keeping, and share only those confirmed memories inside one trusted family space.</p>
+    <p class="small">The current 1.1.10 App Store submission still uses baby-book-first description and screenshots. Camera-roll relief is the recommended positioning direction, not a claim that the submitted product page already makes. Newer store assets remain quarantined until their owning session and release-safe claims are reconciled.</p>
     <h3>Safe now</h3>
     <ul>
       <li>A private family timeline for photos, notes, Firsts, and letters.</li>
