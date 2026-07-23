@@ -5,3 +5,7 @@ packages:
 allowBuilds:
   sharp: true
   unrs-resolver: true
+
+patchedDependencies:
+  expo-modules-core: patches/expo-modules-core.patch
+  expo-notifications: patches/expo-notifications@57.0.6.patch
