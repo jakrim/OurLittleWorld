@@ -14,9 +14,13 @@ type MarketingEventProperties = {
   product_key?: string;
   target?: "pricing" | "gift" | "store" | "partner" | "other";
   test_event?: boolean;
+  verification?: "stripe_session";
 };
 
-const CONSENT_KEY = "olw.analytics-consent.v1";
+export type AnalyticsConsent = "granted" | "denied" | "unknown";
+
+export const ANALYTICS_CONSENT_KEY = "olw.analytics-consent.v1";
+export const ANALYTICS_CONSENT_EVENT = "olw:analytics-consent";
 const FIRST_TOUCH_KEY = "olw.marketing-first-touch.v1";
 const LAST_TOUCH_KEY = "olw.marketing-last-touch.v1";
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
@@ -26,9 +30,7 @@ export async function trackMarketingEvent(
   properties: MarketingEventProperties = {},
 ) {
   if (typeof window === "undefined") return { accepted: false, reason: "server" };
-  const consent = window.localStorage.getItem(CONSENT_KEY)
-    || process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT
-    || "unknown";
+  const consent = getAnalyticsConsent();
   if (consent !== "granted") return { accepted: false, reason: "consent_not_granted" };
   const apiKey = process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_API_KEY;
   if (!apiKey?.startsWith("phc_")) return { accepted: false, reason: "token_not_configured" };
@@ -76,6 +78,39 @@ export function captureAttribution() {
   }
   const last = readJson(window.sessionStorage, LAST_TOUCH_KEY) || current;
   return { first_touch: first, last_touch: last };
+}
+
+export function getAnalyticsConsent(): AnalyticsConsent {
+  if (typeof window === "undefined") return "unknown";
+  const value = window.localStorage.getItem(ANALYTICS_CONSENT_KEY)
+    || process.env.NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT
+    || "unknown";
+  return value === "granted" || value === "denied" ? value : "unknown";
+}
+
+export function setAnalyticsConsent(consent: Exclude<AnalyticsConsent, "unknown">) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ANALYTICS_CONSENT_KEY, consent);
+  window.dispatchEvent(new CustomEvent(ANALYTICS_CONSENT_EVENT, { detail: consent }));
+}
+
+export function checkoutAttributionPayload(): Record<string, string> {
+  if (typeof window === "undefined" || getAnalyticsConsent() !== "granted") return {};
+  const attribution = captureAttribution() as {
+    first_touch?: Record<string, string>;
+    last_touch?: Record<string, string>;
+  };
+  const result: Record<string, string> = { attribution_consent: "granted" };
+  for (const key of UTM_KEYS) {
+    const first = attribution.first_touch?.[key];
+    const last = attribution.last_touch?.[key];
+    if (first) result[`first_${key}`] = first.slice(0, 160);
+    if (last) result[`last_${key}`] = last.slice(0, 160);
+  }
+  result.landing_path = `${window.location.pathname}${window.location.search}`.slice(0, 240);
+  const angle = new URLSearchParams(window.location.search).get("angle")?.slice(0, 160);
+  if (angle) result.landing_angle = angle;
+  return result;
 }
 
 export function marketingTarget(href: string | null): MarketingEventProperties["target"] {

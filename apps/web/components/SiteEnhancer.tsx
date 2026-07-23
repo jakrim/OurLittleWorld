@@ -5,7 +5,11 @@ import { usePathname } from "next/navigation";
 import { createIcons, icons } from "lucide";
 
 import { giftOfferCopy } from "@/content/giftOffer";
-import { marketingTarget, trackMarketingEvent } from "@/lib/marketingAnalytics";
+import {
+  checkoutAttributionPayload,
+  marketingTarget,
+  trackMarketingEvent,
+} from "@/lib/marketingAnalytics";
 
 const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "support@ourlittleworld.me";
 const checkoutLinks = {
@@ -134,6 +138,10 @@ export default function SiteEnhancer() {
       });
     });
 
+    on(document.querySelector("[data-analytics-preferences]"), "click", () => {
+      window.dispatchEvent(new Event("olw:open-analytics-preferences"));
+    });
+
     const navToggle = document.querySelector("[data-menu-toggle]");
     const navLinks = document.querySelector("[data-nav-links]");
 
@@ -215,6 +223,19 @@ export default function SiteEnhancer() {
     });
     updateGiftPreview();
 
+    document.querySelectorAll<HTMLElement>("[data-plan-choice]").forEach((choice) => {
+      on(choice, "click", () => {
+        if (!planSelect) return;
+        const plan = choice.getAttribute("data-plan-choice");
+        if (!plan || !prices[plan]) return;
+        planSelect.value = plan;
+        document.querySelectorAll<HTMLElement>("[data-segment]").forEach((segment) => {
+          segment.setAttribute("aria-pressed", String(segment.getAttribute("data-segment") === plan));
+        });
+        planSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+
     document.querySelectorAll<HTMLFormElement>("[data-conversion-form]").forEach((form) => {
       const status = form.querySelector("[data-form-status]");
 
@@ -233,7 +254,10 @@ export default function SiteEnhancer() {
         }
 
         const kind = form.getAttribute("data-conversion-form");
-        const payload = formPayload(form);
+        const payload = {
+          ...formPayload(form),
+          ...checkoutAttributionPayload(),
+        };
 
         if (kind === "self") {
           const plan = payload.plan || "family_yearly";
@@ -269,8 +293,6 @@ export default function SiteEnhancer() {
             window.location.href = appendParams(checkoutUrl, {
               prefilled_email: payload.email,
               client_reference_id: `self-${Date.now()}`,
-              olw_name: payload.name,
-              olw_stage: payload.stage,
               olw_plan: plan,
             });
             return;

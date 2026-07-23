@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
+import CheckoutCompletion from "@/components/CheckoutCompletion";
 
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",
@@ -14,10 +14,10 @@ type GiftSuccessProps = {
 export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps) {
   const params = await searchParams;
   const giftCode = value(params?.gift_code);
+  const sessionId = value(params?.session_id);
 
   return (
     <main id="main">
-      <ConversionCompleteBeacon kind="gift" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -25,27 +25,17 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
             <span>/</span>
             <span>Gift</span>
           </div>
-          <p className="script">gift ready</p>
-          <h1 className="page-title">The first year is ready to give.</h1>
+          <p className="script">gift checkout</p>
+          <h1 className="page-title">Confirm the gift.</h1>
           <p className="lead">
-            Share this code with the recipient. They can redeem it in the app after creating their family space.
+            We will verify payment with Stripe before showing the single-use gift code.
           </p>
         </div>
       </section>
 
       <section className="section band-soft">
         <div className="narrow policy-list">
-          <article className="policy-item">
-            <h2>Gift code</h2>
-            {giftCode ? (
-              <div className="code-box" aria-label="Gift code">{giftCode}</div>
-            ) : (
-              <p>Your gift code is being prepared. If it does not appear, contact support with your Stripe receipt email.</p>
-            )}
-            <p>
-              The recipient should choose Redeem gift, website, or partner access from the app purchase screen.
-            </p>
-          </article>
+          <CheckoutCompletion kind="gift" sessionId={sessionId} code={giftCode} />
           <article className="policy-item">
             <h2>Support</h2>
             <p>

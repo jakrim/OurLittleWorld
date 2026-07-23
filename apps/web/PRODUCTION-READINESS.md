@@ -58,10 +58,14 @@ Current flow:
 - Two tiers: Family ($7.99 monthly / $69.99 yearly, recommended) and Vault ($14.99 monthly / $149.99 yearly) for video-heavy families who want original backup.
 - Gift years: Family $70, Vault $150.
 - Checkout form submits explicit plan keys (`family_monthly`, `family_yearly`, `vault_monthly`, `vault_yearly`; gifts use `gift_year` / `gift_vault_year`).
+- Self-checkout requires only a preselected plan and email; name and child stage are deferred to app onboarding.
+- Completion is verified against Stripe and webhook-provisioned billing state before a code is shown or a conversion event is recorded.
+- Verified purchasers can open the installed app with the code prefilled; public store buttons appear when their URLs are configured.
 
 Missing before paid launch:
 - Live-mode Stripe secrets and price IDs.
 - End-to-end test of the post-checkout claim-code page in live mode.
+- Deploy and smoke-test `stripe-checkout-status`, then configure the public iOS/Android store URLs when the listings are available.
 
 ### Gift
 

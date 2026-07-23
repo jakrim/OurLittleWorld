@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import ConversionCompleteBeacon from "@/components/ConversionCompleteBeacon";
+import CheckoutCompletion from "@/components/CheckoutCompletion";
 
 export const metadata: Metadata = {
   title: "Checkout Complete",
@@ -14,10 +14,10 @@ type CheckoutSuccessProps = {
 export default async function CheckoutSuccessPage({ searchParams }: CheckoutSuccessProps) {
   const params = await searchParams;
   const claimCode = value(params?.claim_code);
+  const sessionId = value(params?.session_id);
 
   return (
     <main id="main">
-      <ConversionCompleteBeacon kind="purchase" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -26,26 +26,16 @@ export default async function CheckoutSuccessPage({ searchParams }: CheckoutSucc
             <span>Checkout</span>
           </div>
           <p className="script">welcome in</p>
-          <h1 className="page-title">Your family plan is ready.</h1>
+          <h1 className="page-title">Finish in the app.</h1>
           <p className="lead">
-            Use this code in the Our Little World app after onboarding to unlock the private family archive.
+            We will verify payment with Stripe, then help you install or open Our Little World and connect the plan.
           </p>
         </div>
       </section>
 
       <section className="section band-soft">
         <div className="narrow policy-list">
-          <article className="policy-item">
-            <h2>Purchase code</h2>
-            {claimCode ? (
-              <div className="code-box" aria-label="Purchase code">{claimCode}</div>
-            ) : (
-              <p>Your code is being prepared. If it does not appear, contact support and include your Stripe receipt email.</p>
-            )}
-            <p>
-              In the app, finish onboarding, open the purchase screen, and choose Redeem gift, website, or partner access.
-            </p>
-          </article>
+          <CheckoutCompletion kind="purchase" sessionId={sessionId} code={claimCode} />
           <article className="policy-item">
             <h2>Need help?</h2>
             <p>
