@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { clearDeletedAccountLocalData } from './accountDeletionLocal';
 import { deletePushTokensForSignOut } from './pushNotifications';
 import { supabase } from './supabase';
 
@@ -14,17 +15,34 @@ const AuthContext = createContext({
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const lastUserIdRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
-      setSession(data.session ?? null);
+      let nextSession = data.session ?? null;
+      if (nextSession) {
+        const { error } = await supabase.auth.getUser();
+        if (isRevokedSessionError(error)) {
+          await clearDeletedAccountLocalData({ userId: nextSession.user?.id });
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+          nextSession = null;
+        }
+      }
+      if (!mounted) return;
+      lastUserIdRef.current = nextSession?.user?.id || null;
+      setSession(nextSession);
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      const previousUserId = lastUserIdRef.current;
+      lastUserIdRef.current = nextSession?.user?.id || null;
+      if (event === 'SIGNED_OUT' && previousUserId) {
+        clearDeletedAccountLocalData({ userId: previousUserId }).catch(() => undefined);
+      }
       setSession(nextSession ?? null);
     });
 
@@ -51,6 +69,7 @@ export function AuthProvider({ children }) {
       loading,
       signOut: async () => {
         await deletePushTokensForSignOut({ userId: session?.user?.id });
+        await clearDeletedAccountLocalData({ userId: session?.user?.id });
         return supabase.auth.signOut();
       },
     }),
@@ -62,4 +81,12 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   return useContext(AuthContext);
+}
+
+function isRevokedSessionError(error) {
+  if (!error) return false;
+  return [401, 403, 404].includes(Number(error.status))
+    || ['bad_jwt', 'session_not_found', 'refresh_token_not_found', 'user_not_found'].includes(
+      String(error.code || ''),
+    );
 }

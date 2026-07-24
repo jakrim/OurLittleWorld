@@ -86,6 +86,15 @@ export default function RootLayout() {
                   <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="activity" options={nativeDetailSheetOptions} />
                   <Stack.Screen
+                    name="delete-account"
+                    options={{
+                      headerShown: false,
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      gestureEnabled: false,
+                    }}
+                  />
+                  <Stack.Screen
                     name="settings-menu"
                     options={{
                       headerShown: false,

@@ -13,6 +13,7 @@ import useReducedMotion from './useReducedMotion';
  *   variant="ghost"       transparent + 1.5px coral border + coral text.
  *   variant="quiet"       no background, just coral text. For tertiary actions.
  *   variant="dark"        ink fill, cream text. For inverted contexts.
+ *   variant="danger"      destructive red fill, cream text.
  *
  *   size="lg" | "md" | "sm"
  *   icon={<Some/>}        rendered before the label
@@ -121,6 +122,7 @@ function getVariants(theme) {
       fg: theme.isDark ? colors.ink : colors.bg,
       shadow: true,
     },
+    danger:    { bg: colors.danger, fg: colors.onPrimary, shadow: true },
     cream:     { bg: colors.bg,          fg: colors.ink,       shadow: true },
   };
 }

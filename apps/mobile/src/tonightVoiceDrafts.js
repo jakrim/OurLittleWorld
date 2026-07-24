@@ -20,6 +20,10 @@ export async function deleteTonightVoiceDraft(uri) {
   return true;
 }
 
+export async function purgeTonightVoiceDrafts() {
+  await FileSystem.deleteAsync(TONIGHT_VOICE_DRAFT_DIRECTORY, { idempotent: true });
+}
+
 export async function cleanupOrphanedTonightVoiceDrafts(activeUris = []) {
   const activeNames = new Set(activeUris.filter(isTonightVoiceDraft).map(fileName));
   const info = await FileSystem.getInfoAsync(TONIGHT_VOICE_DRAFT_DIRECTORY);
