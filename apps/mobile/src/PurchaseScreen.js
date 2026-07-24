@@ -1,26 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   finishTransaction,
   getAvailablePurchases as getStorePurchases,
+  isEligibleForIntroOfferIOS,
   useIAP,
 } from 'expo-iap';
 
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
-import { EXPORT_POLICY_COPY } from './exportPolicyCopy';
 import { GIFT_REDEMPTION_COPY } from './giftOfferCopy';
 import {
-  FAMILY_MONTHLY_PRODUCT_ID,
-  FAMILY_YEARLY_PRODUCT_ID,
+  FAMILY_PRODUCT_IDS,
+  SUBSCRIPTION_GROUP_ID_IOS,
   SUBSCRIPTION_PRODUCT_IDS,
   SUPPORT_EMAIL,
-  VAULT_MONTHLY_PRODUCT_ID,
-  VAULT_YEARLY_PRODUCT_ID,
+  normalizeEntitlement,
   verifyStorePurchase,
 } from './billing';
 import {
@@ -30,7 +30,6 @@ import {
   Eyebrow,
   Field,
   Screen,
-  SegmentedControl,
   Title,
   radius,
   shadow,
@@ -38,117 +37,175 @@ import {
   useTheme,
 } from './ui';
 import { trackAnalyticsEvent } from './analytics';
-import { analyticsEnvironment, analyticsPlatform, productKeyForTier } from './analyticsProductContext';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import { readFirstValuePreview } from './firstValuePreviewStore';
+import { redemptionAnalyticsProperties, redemptionStatus } from './redemptionModel';
+import {
+  OLW_OFFER_VERSION,
+  OLW_PAYWALL_VERSION,
+  buildFamilyPlans,
+  computeAnnualSavings,
+  storefrontBucket,
+  subscriptionAnalyticsProperties,
+} from './subscriptionOfferModel';
 
-const TIERS = [
+const FAMILY_BENEFITS = [
   {
-    key: 'family',
-    name: 'Family',
-    badge: 'Best for most families',
-    tagline: 'Private baby book for the moments you choose to keep.',
-    cta: 'Start Family',
-    products: {
-      yearly: { id: FAMILY_YEARLY_PRODUCT_ID, displayPrice: '$69.99/year' },
-      monthly: { id: FAMILY_MONTHLY_PRODUCT_ID, displayPrice: '$7.99/month' },
-    },
-    features: [
-      '300 saved video minutes',
-      'App-quality photos and videos',
-      'One child and one invited co-parent',
-      'No original backup',
-    ],
+    icon: 'sparkles',
+    title: 'Less sorting',
+    body: 'A few worthwhile moments brought forward for you.',
   },
   {
-    key: 'vault',
-    name: 'Vault',
-    badge: 'For video-heavy families',
-    tagline: 'For families with lots of video and original keepsakes.',
-    cta: 'Start Vault',
-    products: {
-      yearly: { id: VAULT_YEARLY_PRODUCT_ID, displayPrice: '$149.99/year' },
-      monthly: { id: VAULT_MONTHLY_PRODUCT_ID, displayPrice: '$14.99/month' },
-    },
-    features: [
-      '1,000 saved video minutes',
-      'Longer videos',
-      'Original backup for selected media',
-      '100 GB family archive',
-    ],
+    icon: 'mic-outline',
+    title: 'More of the story',
+    body: 'Keep the words, voices, Firsts, and letters around them.',
   },
-];
-
-const CADENCE_OPTIONS = [
-  { value: 'yearly', label: 'Yearly' },
-  { value: 'monthly', label: 'Monthly' },
+  {
+    icon: 'lock-closed-outline',
+    title: 'Private by choice',
+    body: 'Nothing joins your family space until you choose Keep.',
+  },
 ];
 
 export default function PurchaseScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { user } = useAuth();
   const { family } = useFamily();
   const { refresh, redeemCode } = useBilling();
-  const [cadence, setCadence] = useState('yearly');
-  const [selectedTierKey, setSelectedTierKey] = useState('family');
+  const [selectedDuration, setSelectedDuration] = useState('annual');
   const [busyProductId, setBusyProductId] = useState(null);
   const [restoring, setRestoring] = useState(false);
   const [code, setCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
   const [status, setStatus] = useState('');
+  const [productFetchCompleted, setProductFetchCompleted] = useState(false);
+  const [iosTrialEligible, setIosTrialEligible] = useState(Platform.OS === 'ios' ? null : false);
+  const [preview, setPreview] = useState(null);
   const verifyingRef = useRef(false);
   const redeemingRef = useRef(false);
+  const plansRef = useRef([]);
+  const viewedRef = useRef(false);
+  const paywallSource = normalizePaywallSource(singleParam(params.source));
+  const returnTo = normalizeReturnTo(
+    singleParam(params.returnTo),
+    preview?.localUri ? '/first-value-preview' : '/timeline',
+  );
+  const deepLinkCode = singleParam(params.code);
 
-  const onPurchaseSuccess = useCallback(async (purchase) => {
-    if (!family?.id || verifyingRef.current) return;
-    verifyingRef.current = true;
-    setBusyProductId(purchase.productId || null);
-    setStatus('Verifying purchase...');
-    try {
-      await verifyStorePurchase({
-        familyId: family.id,
-        purchase,
-        provider: Platform.OS === 'ios' ? 'apple' : 'google',
-        productId: purchase.productId,
-      });
-      await finishTransaction({ purchase, isConsumable: false });
-      await refresh();
+  useEffect(() => {
+    if (deepLinkCode && !code) setCode(deepLinkCode.trim().slice(0, 80));
+  }, [code, deepLinkCode]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!family?.id || !user?.id) return undefined;
+    readFirstValuePreview({ familyId: family.id, userId: user.id })
+      .then((value) => {
+        if (alive) setPreview(value);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [family?.id, user?.id]);
+
+  const completeVerifiedPurchase = useCallback(async ({ purchase, restored = false }) => {
+    if (!family?.id) throw new Error('Create your family before verifying a purchase.');
+    const plan = plansRef.current.find((item) => item.id === purchase.productId) || null;
+    const rawEntitlement = await verifyStorePurchase({
+      familyId: family.id,
+      purchase,
+      provider: Platform.OS === 'ios' ? 'apple' : 'google',
+      productId: purchase.productId,
+    });
+    const providerEntitlement = normalizeEntitlement(rawEntitlement);
+    if (!providerEntitlement.isActive) {
+      throw new Error('The store receipt was not an active Family entitlement.');
+    }
+    await finishTransaction({ purchase, isConsumable: false });
+    const refreshedEntitlement = await refresh();
+    if (!refreshedEntitlement?.isActive) {
+      throw new Error('The purchase was verified, but the active entitlement has not propagated yet.');
+    }
+
+    if (plan) {
+      const funnel = {
+        ...subscriptionAnalyticsProperties(plan, { verifiedEntitlementOutcome: 'granted' }),
+        paywall_source: paywallSource,
+        storefront_bucket: storefrontBucket(purchase.countryCodeIOS),
+      };
+      trackAnalyticsEvent(restored ? 'purchase_restored' : 'purchase_verified', {
+        surface: 'purchase',
+        ...funnel,
+      }, purchaseAnalyticsContext(family, refreshedEntitlement.status));
+      if (!restored && providerEntitlement.status === 'trialing') {
+        trackAnalyticsEvent('trial_started', {
+          surface: 'purchase',
+          ...funnel,
+        }, purchaseAnalyticsContext(family, 'trialing'));
+      }
       trackAnalyticsEvent('purchase_completed', {
         surface: 'purchase',
-        product_key: productKeyFromProductId(purchase.productId),
+        product_key: plan.duration === 'annual' ? 'family_year' : 'family_month',
         purchase_channel: 'in_app',
-        plan_state_after: 'active',
-      }, purchaseAnalyticsContext(family));
+        plan_state_after: providerEntitlement.status === 'trialing' ? 'trialing' : 'active',
+      }, purchaseAnalyticsContext(family, refreshedEntitlement.status));
+    }
+    return refreshedEntitlement;
+  }, [family, paywallSource, refresh]);
+
+  const onPurchaseSuccess = useCallback(async (purchase) => {
+    if (!purchase || verifyingRef.current) return;
+    verifyingRef.current = true;
+    setBusyProductId(purchase.productId || null);
+    setStatus('Verifying purchase with the store…');
+    try {
+      await completeVerifiedPurchase({ purchase });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setStatus('Your family plan is active.');
-    } catch (err) {
+      setStatus('Your Family plan is active.');
+      router.replace(returnTo);
+    } catch (error) {
+      const plan = plansRef.current.find((item) => item.id === purchase.productId);
+      if (plan) {
+        trackAnalyticsEvent('purchase_failed', {
+          surface: 'purchase',
+          ...subscriptionAnalyticsProperties(plan, { verifiedEntitlementOutcome: 'denied' }),
+          failure_stage: 'verification',
+        }, purchaseAnalyticsContext(family));
+      }
       Alert.alert(
         'Purchase needs verification',
-        err?.message || 'The store purchase completed, but the server could not verify it yet. Use Restore Purchases after the issue is fixed.',
+        error?.message || 'The store purchase completed, but the server could not verify it yet. Use Restore Purchases after the issue is fixed.',
       );
       setStatus('Purchase was not unlocked yet.');
     } finally {
       verifyingRef.current = false;
       setBusyProductId(null);
     }
-  }, [family, refresh]);
+  }, [completeVerifiedPurchase, family, returnTo, router]);
 
   const onPurchaseError = useCallback((error) => {
     const message = String(error?.message || '');
     const codeValue = String(error?.code || '');
     setBusyProductId(null);
     if (/cancel/i.test(message) || /cancel/i.test(codeValue)) {
-      setStatus('Purchase canceled.');
+      setStatus('Purchase canceled. Your approved First Look is still here.');
       return;
     }
+    const selected = plansRef.current.find((item) => item.duration === selectedDuration);
+    if (selected) {
+      trackAnalyticsEvent('purchase_failed', {
+        surface: 'purchase',
+        ...subscriptionAnalyticsProperties(selected, { verifiedEntitlementOutcome: 'not_checked' }),
+        failure_stage: 'checkout',
+      }, purchaseAnalyticsContext(family));
+    }
     Alert.alert('Purchase could not start', message || 'Please try again.');
-  }, []);
+  }, [family, selectedDuration]);
 
-  const {
-    connected,
-    subscriptions,
-    fetchProducts,
-    requestPurchase,
-  } = useIAP({
+  const { connected, subscriptions, fetchProducts, requestPurchase } = useIAP({
     onPurchaseSuccess,
     onPurchaseError,
     onError: (error) => setStatus(error?.message || 'The store is not available yet.'),
@@ -156,67 +213,97 @@ export default function PurchaseScreen() {
 
   useEffect(() => {
     if (!connected) return;
-    fetchProducts({ skus: SUBSCRIPTION_PRODUCT_IDS, type: 'subs' }).catch((err) => {
-      setStatus(err?.message || 'Products are not available yet.');
-    });
+    setProductFetchCompleted(false);
+    fetchProducts({ skus: FAMILY_PRODUCT_IDS, type: 'subs' })
+      .catch((error) => setStatus(error?.message || 'Family plans are not available yet.'))
+      .finally(() => setProductFetchCompleted(true));
   }, [connected, fetchProducts]);
 
-  // Merge store products into the tier cards; fall back to plan pricing copy
-  // when the store hasn't answered yet.
-  const tiers = useMemo(() => {
-    const byId = new Map((subscriptions || []).map((item) => [item.id, item]));
-    return TIERS.map((tier) => {
-      const base = tier.products[cadence];
-      const native = byId.get(base.id);
-      return {
-        ...tier,
-        productId: base.id,
-        displayPrice: native?.displayPrice ? `${native.displayPrice}/${cadence === 'yearly' ? 'year' : 'month'}` : base.displayPrice,
-        native,
-      };
-    });
-  }, [subscriptions, cadence]);
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !connected) return;
+    isEligibleForIntroOfferIOS(SUBSCRIPTION_GROUP_ID_IOS)
+      .then((eligible) => setIosTrialEligible(Boolean(eligible)))
+      .catch(() => setIosTrialEligible(false));
+  }, [connected]);
 
-  const selectedProduct = tiers.find((tier) => tier.key === selectedTierKey) || tiers[0];
+  const plans = useMemo(() => buildFamilyPlans(subscriptions, {
+    platform: Platform.OS,
+    iosTrialEligible: Boolean(iosTrialEligible),
+  }), [iosTrialEligible, subscriptions]);
+  plansRef.current = plans;
+  const annual = plans.find((item) => item.duration === 'annual');
+  const monthly = plans.find((item) => item.duration === 'monthly');
+  const selectedPlan = plans.find((item) => item.duration === selectedDuration) || annual || monthly || null;
+  const savings = computeAnnualSavings({ annual, monthly });
+  const eligibilityLoaded = Platform.OS !== 'ios' || iosTrialEligible !== null;
+  const productLoadSuccess = plans.length === 2 && eligibilityLoaded;
+
+  useEffect(() => {
+    if (!productFetchCompleted || !eligibilityLoaded || viewedRef.current) return;
+    viewedRef.current = true;
+    trackAnalyticsEvent('paywall_viewed', {
+      surface: 'purchase',
+      paywall_source: paywallSource,
+      paywall_version: OLW_PAYWALL_VERSION,
+      offer_version: OLW_OFFER_VERSION,
+      product_load_success: productLoadSuccess,
+    }, purchaseAnalyticsContext(family));
+  }, [eligibilityLoaded, family, paywallSource, productFetchCompleted, productLoadSuccess]);
+
+  const selectPlan = (plan) => {
+    setSelectedDuration(plan.duration);
+    trackAnalyticsEvent('plan_selected', {
+      surface: 'purchase',
+      ...subscriptionAnalyticsProperties(plan),
+      paywall_source: paywallSource,
+    }, purchaseAnalyticsContext(family));
+  };
 
   const startPurchase = async () => {
-    if (!family?.id || !user?.id || !selectedProduct) return;
-    setBusyProductId(selectedProduct.productId);
-    setStatus('Opening store purchase...');
+    if (!family?.id || !user?.id || !selectedPlan || !productLoadSuccess) return;
+    setBusyProductId(selectedPlan.id);
+    setStatus('Opening store purchase…');
+    const funnel = {
+      ...subscriptionAnalyticsProperties(selectedPlan),
+      paywall_source: paywallSource,
+    };
+    trackAnalyticsEvent('checkout_started', { surface: 'purchase', ...funnel }, purchaseAnalyticsContext(family));
     trackAnalyticsEvent('purchase_started', {
       surface: 'purchase',
       purchase_source: 'paywall',
-      product_key: productKeyForTier(selectedTierKey, cadence),
+      product_key: selectedPlan.duration === 'annual' ? 'family_year' : 'family_month',
       purchase_channel: 'in_app',
     }, purchaseAnalyticsContext(family));
     try {
-      const offerToken = firstGoogleOfferToken(selectedProduct.native);
       await requestPurchase({
         type: 'subs',
         request: {
-          apple: {
-            sku: selectedProduct.productId,
-            appAccountToken: user.id,
-          },
+          apple: { sku: selectedPlan.id, appAccountToken: user.id },
           google: {
-            skus: [selectedProduct.productId],
+            skus: [selectedPlan.id],
             obfuscatedAccountId: user.id,
-            subscriptionOffers: offerToken
-              ? [{ sku: selectedProduct.productId, offerToken }]
+            subscriptionOffers: selectedPlan.offerToken
+              ? [{ sku: selectedPlan.id, offerToken: selectedPlan.offerToken }]
               : undefined,
           },
         },
       });
-    } catch (err) {
+    } catch (error) {
       setBusyProductId(null);
-      Alert.alert('Purchase could not start', err?.message || String(err));
+      trackAnalyticsEvent('purchase_failed', {
+        surface: 'purchase',
+        ...funnel,
+        failure_stage: 'checkout',
+        verified_entitlement_outcome: 'not_checked',
+      }, purchaseAnalyticsContext(family));
+      Alert.alert('Purchase could not start', error?.message || String(error));
     }
   };
 
   const restorePurchases = async () => {
     if (!family?.id) return;
     setRestoring(true);
-    setStatus('Checking store purchases...');
+    setStatus('Checking store purchases…');
     try {
       const purchases = await getStorePurchases({
         alsoPublishToEventListenerIOS: false,
@@ -226,24 +313,37 @@ export default function PurchaseScreen() {
         .filter((item) => SUBSCRIPTION_PRODUCT_IDS.includes(item.productId))
         .sort((a, b) => Number(b.transactionDate || 0) - Number(a.transactionDate || 0))[0];
       if (!purchase) {
-        setStatus('No active family subscription was found on this store account.');
+        setStatus('No active Our Little World subscription was found on this store account.');
         return;
       }
-      await verifyStorePurchase({
-        familyId: family.id,
-        purchase,
-        provider: Platform.OS === 'ios' ? 'apple' : 'google',
-        productId: purchase.productId,
-      });
-      await finishTransaction({ purchase, isConsumable: false });
-      await refresh();
+      await completeVerifiedPurchase({ purchase, restored: true });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStatus('Purchase restored.');
-    } catch (err) {
-      Alert.alert('Restore failed', err?.message || String(err));
+      router.replace(returnTo);
+    } catch (error) {
+      const plan = plansRef.current.find((item) => item.id === busyProductId) || selectedPlan;
+      if (plan) {
+        trackAnalyticsEvent('purchase_failed', {
+          surface: 'purchase',
+          ...subscriptionAnalyticsProperties(plan, { verifiedEntitlementOutcome: 'denied' }),
+          failure_stage: 'restore',
+        }, purchaseAnalyticsContext(family));
+      }
+      Alert.alert('Restore failed', error?.message || String(error));
       setStatus('Restore did not complete.');
     } finally {
       setRestoring(false);
     }
+  };
+
+  const dismiss = () => {
+    trackAnalyticsEvent('paywall_dismissed', {
+      surface: 'purchase',
+      paywall_source: paywallSource,
+      paywall_version: OLW_PAYWALL_VERSION,
+      offer_version: OLW_OFFER_VERSION,
+    }, purchaseAnalyticsContext(family));
+    router.replace(returnTo);
   };
 
   const redeem = async () => {
@@ -255,25 +355,22 @@ export default function PurchaseScreen() {
     }
     redeemingRef.current = true;
     setRedeeming(true);
-    setStatus('Redeeming code...');
+    setStatus('Redeeming code…');
     trackAnalyticsEvent('gift_started', {
       surface: 'purchase',
       gift_source: 'settings',
       gift_product_key: 'unknown',
     }, purchaseAnalyticsContext(family));
     try {
-      await redeemCode(trimmed);
-      trackAnalyticsEvent('gift_redeemed', {
-        surface: 'purchase',
-        redemption_type: 'gift',
-        plan_state_after: 'gift',
-      }, purchaseAnalyticsContext(family));
+      const redeemed = await redeemCode(trimmed);
+      const redemption = redemptionAnalyticsProperties(redeemed);
+      trackAnalyticsEvent('gift_redeemed', { surface: 'purchase', ...redemption }, purchaseAnalyticsContext(family));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCode('');
-      setStatus(GIFT_REDEMPTION_COPY.successStatus);
-      router.replace('/');
-    } catch (err) {
-      Alert.alert('Code could not be redeemed', err?.message || String(err));
+      setStatus(redemptionStatus(redeemed, GIFT_REDEMPTION_COPY.successStatus));
+      router.replace(returnTo);
+    } catch (error) {
+      Alert.alert('Code could not be redeemed', error?.message || String(error));
       setStatus('Code was not redeemed.');
     } finally {
       redeemingRef.current = false;
@@ -281,99 +378,120 @@ export default function PurchaseScreen() {
     }
   };
 
-  const contactSupport = () => {
-    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
-  };
-
-  const openPolicy = (path) => {
-    Linking.openURL(`https://ourlittleworld.me/${path}/`);
-  };
+  const disclosure = selectedPlan
+    ? selectedPlan.duration === 'annual' && selectedPlan.trialEligible
+      ? `14 days free, then ${selectedPlan.displayPrice} per year. Renews annually until canceled. Trial eligibility is determined by ${Platform.OS === 'ios' ? 'Apple' : 'Google'}.`
+      : `${selectedPlan.displayPrice} per ${selectedPlan.duration === 'annual' ? 'year' : 'month'}, billed now. Renews ${selectedPlan.duration === 'annual' ? 'annually' : 'monthly'} until canceled.`
+    : 'Live store pricing is required before purchase.';
 
   return (
     <Screen scroll keyboard variant="dawn" contentStyle={styles.content}>
-      <View style={styles.header}>
+      <View style={styles.topRow}>
         <View style={[styles.mark, { backgroundColor: theme.semantic.primary }]}>
-          <Ionicons name="lock-closed" size={22} color={theme.colors.onPrimary} />
+          <Ionicons name="lock-closed" size={20} color={theme.colors.onPrimary} />
         </View>
-        <Eyebrow>Private family archive</Eyebrow>
-        <Title style={styles.title}>Choose the family archive that fits this season.</Title>
+        <Pressable onPress={dismiss} accessibilityRole="button" accessibilityLabel="Close Family offer" style={styles.closeButton}>
+          <Ionicons name="close" size={24} color={theme.semantic.textSoft} />
+        </Pressable>
+      </View>
+
+      {preview?.localUri ? (
+        <View style={[styles.proofCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]} testID="paywall-first-value-proof">
+          <Image source={{ uri: preview.localUri }} style={styles.proofImage} contentFit="cover" />
+          <View style={styles.proofCopy}>
+            <Eyebrow>You chose this one</Eyebrow>
+            <Body style={styles.proofBody}>
+              This moment stays on your device until you choose to keep it in your private family space.
+            </Body>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.header}>
+        <Eyebrow>A curated family space</Eyebrow>
+        <Title style={styles.title}>Your family’s story shouldn’t disappear in your camera roll.</Title>
         <Body style={[styles.lead, { color: theme.semantic.textSoft }]}>
-          Every plan keeps your private baby book for one child and one invited co-parent. Family saves beautiful app-quality memories. Vault adds longer videos and original backup.
+          You captured the moments. Our Little World brings forward the ones worth revisiting, helps you add the words and voices around them, and keeps what you choose organized—without another project to manage.
         </Body>
       </View>
 
-      <SegmentedControl
-        value={cadence}
-        options={CADENCE_OPTIONS}
-        onChange={setCadence}
-      />
+      {!productFetchCompleted || !eligibilityLoaded ? (
+        <View style={[styles.loadingCard, { borderColor: theme.semantic.border }]}>
+          <Caption>Loading localized Family plans from the store…</Caption>
+        </View>
+      ) : (
+        <View style={styles.planList} testID="family-plan-options">
+          {[annual, monthly].filter(Boolean).map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              active={selectedPlan?.id === plan.id}
+              savings={plan.duration === 'annual' ? savings : null}
+              onPress={() => selectPlan(plan)}
+            />
+          ))}
+          {!productLoadSuccess ? (
+            <Caption style={[styles.errorCopy, { color: theme.semantic.danger || theme.semantic.textSoft }]}>
+              Both live Family prices must load before purchase. No fallback amount will be shown.
+            </Caption>
+          ) : null}
+        </View>
+      )}
 
-      <View style={styles.planList}>
-        {tiers.map((tier) => (
-          <TierCard
-            key={tier.key}
-            tier={tier}
-            active={selectedTierKey === tier.key}
-            onPress={() => setSelectedTierKey(tier.key)}
-          />
+      <Button
+        onPress={startPurchase}
+        loading={busyProductId === selectedPlan?.id}
+        disabled={!productLoadSuccess || !selectedPlan || !!busyProductId || redeeming || restoring}
+        testID="start-family-purchase"
+      >
+        {selectedPlan?.duration === 'annual' && selectedPlan.trialEligible
+          ? 'Start my 14-day free trial'
+          : `Choose ${selectedPlan?.duration === 'monthly' ? 'Monthly' : 'Annual'} Family`}
+      </Button>
+      <Caption style={[styles.disclosure, { color: theme.semantic.textMuted }]} testID="renewal-disclosure">
+        {disclosure}
+      </Caption>
+
+      <View style={styles.secondaryActions}>
+        <Pressable onPress={restorePurchases} disabled={restoring} style={styles.textAction} testID="restore-purchases">
+          <Caption style={{ color: theme.semantic.primary }}>{restoring ? 'Restoring…' : 'Restore purchases'}</Caption>
+        </Pressable>
+        <Pressable onPress={() => Linking.openURL('https://ourlittleworld.me/terms/')} style={styles.textAction}>
+          <Caption style={{ color: theme.semantic.primary }}>Terms</Caption>
+        </Pressable>
+        <Pressable onPress={() => Linking.openURL('https://ourlittleworld.me/privacy/')} style={styles.textAction}>
+          <Caption style={{ color: theme.semantic.primary }}>Privacy</Caption>
+        </Pressable>
+      </View>
+
+      <View style={[styles.featurePanel, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }, shadow.whisper]}>
+        <Eyebrow>What Family does for you</Eyebrow>
+        {FAMILY_BENEFITS.map((benefit) => (
+          <View key={benefit.title} style={styles.feature}>
+            <View style={[styles.featureIcon, { backgroundColor: theme.semantic.primarySoft }]}>
+              <Ionicons name={benefit.icon} size={17} color={theme.semantic.primary} />
+            </View>
+            <View style={styles.featureText}>
+              <Body style={styles.featureTitle}>{benefit.title}</Body>
+              <Caption style={{ color: theme.semantic.textSoft }}>{benefit.body}</Caption>
+            </View>
+          </View>
         ))}
       </View>
 
       <View style={[styles.trustPanel, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }, shadow.whisper]}>
-        <View style={styles.trustRow}>
-          <Ionicons name="download-outline" size={19} color={theme.semantic.primary} />
-          <View style={styles.trustCopyColumn}>
-            <Caption style={styles.trustLabel}>Export and lapsed access</Caption>
-            <Body>{EXPORT_POLICY_COPY.alwaysExportable} {EXPORT_POLICY_COPY.lapsedVault}</Body>
-            <Caption style={[styles.trustCopy, { color: theme.semantic.textMuted }]}>
-              {EXPORT_POLICY_COPY.exportScope} {EXPORT_POLICY_COPY.previewLimitations[0]} {EXPORT_POLICY_COPY.previewLimitations[1]}
-            </Caption>
-          </View>
+        <Ionicons name="download-outline" size={19} color={theme.semantic.primary} />
+        <View style={styles.trustCopyColumn}>
+          <Caption style={styles.trustLabel}>Your memories stay yours</Caption>
+          <Body>
+            Export anytime. If your plan ends, everything you kept stays available to view and export.
+          </Body>
         </View>
-      </View>
-
-      <View style={styles.legalNotice}>
-        <Caption style={[styles.terms, { color: theme.semantic.textMuted }]}>
-          By continuing, you agree to the subscription terms. No free trial. Native billing is managed by Apple App Store or Google Play.
-        </Caption>
-        <View style={styles.legalLinks}>
-          <Pressable accessibilityRole="link" onPress={() => openPolicy('terms')} style={styles.legalLink}>
-            <Caption style={{ color: theme.semantic.primary }}>Terms</Caption>
-          </Pressable>
-          <Pressable accessibilityRole="link" onPress={() => openPolicy('privacy')} style={styles.legalLink}>
-            <Caption style={{ color: theme.semantic.primary }}>Privacy</Caption>
-          </Pressable>
-          <Pressable accessibilityRole="link" onPress={() => openPolicy('refunds')} style={styles.legalLink}>
-            <Caption style={{ color: theme.semantic.primary }}>Refunds</Caption>
-          </Pressable>
-        </View>
-      </View>
-
-      <Button
-        onPress={startPurchase}
-        loading={busyProductId === selectedProduct?.productId}
-        disabled={!selectedProduct || !!busyProductId || redeeming || restoring}
-      >
-        {selectedProduct.cta} — {selectedProduct.displayPrice}
-      </Button>
-
-      <View style={styles.secondaryActions}>
-        <Pressable onPress={restorePurchases} disabled={restoring} style={styles.textAction}>
-          <Caption style={{ color: theme.semantic.primary }}>{restoring ? 'Restoring...' : 'Restore purchases'}</Caption>
-        </Pressable>
-        <Pressable onPress={contactSupport} style={styles.textAction}>
-          <Caption style={{ color: theme.semantic.textMuted }}>Contact support</Caption>
-        </Pressable>
       </View>
 
       <View style={[styles.redeemPanel, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }, shadow.whisper]}>
-        <View style={styles.redeemHeader}>
-          <View>
-            <Eyebrow>Code</Eyebrow>
-            <Title style={styles.redeemTitle}>{GIFT_REDEMPTION_COPY.title}</Title>
-          </View>
-          <Ionicons name="ticket-outline" size={22} color={theme.semantic.primary} />
-        </View>
+        <Eyebrow>Code</Eyebrow>
+        <Title style={styles.redeemTitle}>{GIFT_REDEMPTION_COPY.title}</Title>
         <Field
           label={GIFT_REDEMPTION_COPY.fieldLabel}
           value={code}
@@ -382,222 +500,117 @@ export default function PurchaseScreen() {
           autoCapitalize="characters"
           inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         />
-        <Button
-          variant="ghost"
-          size="md"
-          onPress={redeem}
-          loading={redeeming}
-          disabled={redeeming || !!busyProductId || restoring}
-        >
+        <Button variant="ghost" size="md" onPress={redeem} loading={redeeming} disabled={redeeming || !!busyProductId || restoring}>
           Redeem code
         </Button>
       </View>
 
       {status ? <Caption style={[styles.status, { color: theme.semantic.textMuted }]}>{status}</Caption> : null}
-      <Caption style={[styles.terms, { color: theme.semantic.textMuted }]}>
-        Billing owner changes are handled by support.
-      </Caption>
+      <Pressable onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`)}>
+        <Caption style={[styles.disclosure, { color: theme.semantic.textMuted }]}>Billing help and ownership changes: {SUPPORT_EMAIL}</Caption>
+      </Pressable>
     </Screen>
   );
 }
 
-function purchaseAnalyticsContext(family) {
-  return {
-    family_id: family?.id || null,
-    actor_role: family?.me?.role || 'creator',
-    plan_state: 'unknown',
-    platform: analyticsPlatform(Platform.OS),
-    environment: analyticsEnvironment(),
-  };
-}
-
-function productKeyFromProductId(productId) {
-  if (productId === FAMILY_MONTHLY_PRODUCT_ID) return 'family_month';
-  if (productId === FAMILY_YEARLY_PRODUCT_ID) return 'family_year';
-  if (productId === VAULT_MONTHLY_PRODUCT_ID) return 'vault_month';
-  if (productId === VAULT_YEARLY_PRODUCT_ID) return 'vault_year';
-  return 'unknown';
-}
-
-function TierCard({ tier, active, onPress }) {
+function PlanCard({ plan, active, savings, onPress }) {
   const theme = useTheme();
+  const annual = plan.duration === 'annual';
+  const renewalLine = annual
+    ? (plan.trialEligible ? `14 days free, then ${plan.displayPrice}/year` : 'Renews annually until canceled')
+    : 'Renews monthly until canceled';
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="radio"
-      accessibilityLabel={`${tier.name} plan, ${tier.displayPrice}`}
+      accessibilityLabel={`${annual ? 'Annual' : 'Monthly'} Family plan, ${plan.displayPrice}`}
       accessibilityState={{ checked: active }}
+      testID={`family-${plan.duration}-plan`}
       style={[
         styles.planOption,
         {
           backgroundColor: active ? theme.semantic.card : theme.semantic.cardAlt,
           borderColor: active ? theme.semantic.primary : theme.semantic.border,
         },
+        active ? shadow.whisper : null,
       ]}
     >
-      <View style={styles.tierHeader}>
-        <View style={styles.planCopy}>
-          <Body style={styles.planTitle}>{tier.name}</Body>
-          <Caption>{tier.tagline}</Caption>
+      <View style={styles.planCopy}>
+        <View style={styles.planLabelRow}>
+          <Body style={styles.planTitle}>{annual ? 'Annual Family' : 'Monthly Family'}</Body>
+          {annual ? <Caption style={{ color: theme.semantic.primary }}>BEST VALUE</Caption> : null}
         </View>
-        <View style={styles.planPrice}>
-          <Caption style={{ color: active ? theme.semantic.primary : theme.semantic.textMuted }}>{tier.badge}</Caption>
-          <Body style={styles.planAmount}>{tier.displayPrice}</Body>
-        </View>
+        <Caption>
+          {annual ? `${plan.monthlyEquivalent}/month · ${plan.displayPrice}/year` : `${plan.displayPrice}/month`}
+        </Caption>
+        {annual && savings ? <Caption style={{ color: theme.semantic.primary }}>Save {savings}% vs. paying monthly</Caption> : null}
+        <Caption style={{ color: theme.semantic.textSoft }}>{renewalLine}</Caption>
       </View>
-      <View style={styles.tierFeatures}>
-        {tier.features.map((feature) => (
-          <View key={feature} style={styles.feature}>
-            <Ionicons
-              name={feature.startsWith('No ') ? 'remove-circle-outline' : 'checkmark-circle'}
-              size={15}
-              color={feature.startsWith('No ') ? theme.semantic.textMuted : theme.semantic.primary}
-            />
-            <Caption style={styles.featureText}>{feature}</Caption>
-          </View>
-        ))}
-      </View>
+      <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={22} color={active ? theme.semantic.primary : theme.semantic.textMuted} />
     </Pressable>
   );
 }
 
-function firstGoogleOfferToken(product) {
-  const legacyOffer = product?.subscriptionOfferDetailsAndroid?.[0]?.offerToken;
-  if (legacyOffer) return legacyOffer;
-  return product?.subscriptionOffers?.find((offer) => offer.offerToken || offer.offerTokenAndroid)?.offerToken
-    || product?.subscriptionOffers?.find((offer) => offer.offerToken || offer.offerTokenAndroid)?.offerTokenAndroid;
+function purchaseAnalyticsContext(family, planState = 'unknown') {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'creator',
+    plan_state: ['trialing', 'active', 'gift', 'lapsed', 'past_due'].includes(planState) ? planState : 'unknown',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
+}
+
+function singleParam(value) {
+  const single = Array.isArray(value) ? value[0] : value;
+  return typeof single === 'string' ? single : '';
+}
+
+function normalizePaywallSource(value) {
+  return ['first_value_preview', 'settings', 'book_export', 'feature_gate', 'restore'].includes(value)
+    ? value
+    : 'unknown';
+}
+
+function normalizeReturnTo(value, fallback = '/timeline') {
+  if (['/first-value-preview', '/timeline', '/library', '/settings-menu', '/add', '/letters'].includes(value)) {
+    return value;
+  }
+  if (/^\/moment\/[A-Za-z0-9-]+$/.test(value)) return value;
+  return fallback;
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingTop: space.xxl,
-    paddingBottom: space.xxxl,
-    gap: space.lg,
-  },
-  header: {
-    alignItems: 'flex-start',
-    gap: space.sm,
-  },
-  mark: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space.sm,
-  },
-  title: {
-    fontSize: 38,
-    lineHeight: 41,
-    fontStyle: 'italic',
-  },
-  lead: {
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  planList: {
-    gap: space.md,
-  },
-  trustPanel: {
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: space.lg,
-  },
-  trustRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: space.sm,
-  },
-  trustCopyColumn: {
-    flex: 1,
-    minWidth: 0,
-    gap: space.xs,
-  },
-  trustLabel: {
-    fontWeight: '800',
-  },
-  trustCopy: {
-    lineHeight: 18,
-  },
-  planOption: {
-    borderWidth: 1.5,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    gap: space.md,
-  },
-  tierHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: space.md,
-  },
-  tierFeatures: {
-    gap: space.xs,
-  },
-  planCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  planTitle: {
-    fontWeight: '700',
-  },
-  planPrice: {
-    alignItems: 'flex-end',
-    gap: space.xs,
-  },
-  planAmount: {
-    fontWeight: '800',
-  },
-  feature: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  featureText: {
-    flex: 1,
-  },
-  legalNotice: {
-    gap: space.xs,
-  },
-  legalLinks: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: space.md,
-  },
-  legalLink: {
-    minHeight: 32,
-    justifyContent: 'center',
-  },
-  secondaryActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: space.lg,
-  },
-  textAction: {
-    minHeight: 38,
-    justifyContent: 'center',
-  },
-  redeemPanel: {
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    gap: space.md,
-  },
-  redeemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: space.md,
-  },
-  redeemTitle: {
-    fontSize: 22,
-    lineHeight: 26,
-  },
-  status: {
-    textAlign: 'center',
-  },
-  terms: {
-    textAlign: 'center',
-    lineHeight: 19,
-  },
+  content: { paddingTop: space.lg, paddingBottom: space.xxxl, gap: space.lg },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  mark: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  closeButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  proofCard: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', minHeight: 106, ...shadow.whisper },
+  proofImage: { width: 106, minHeight: 106 },
+  proofCopy: { flex: 1, padding: space.md, justifyContent: 'center', gap: space.xs },
+  proofBody: { fontSize: 14, lineHeight: 20 },
+  header: { alignItems: 'flex-start', gap: space.sm },
+  title: { fontSize: 34, lineHeight: 37, fontStyle: 'italic' },
+  lead: { fontSize: 15, lineHeight: 22 },
+  loadingCard: { borderWidth: 1, borderRadius: radius.lg, padding: space.lg },
+  planList: { gap: space.sm },
+  planOption: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderRadius: radius.lg, padding: space.md, gap: space.md },
+  planCopy: { flex: 1, minWidth: 0, gap: space.xs },
+  planLabelRow: { flexDirection: 'row', justifyContent: 'space-between', gap: space.sm },
+  planTitle: { fontWeight: '700' },
+  disclosure: { textAlign: 'center', lineHeight: 19 },
+  errorCopy: { textAlign: 'center', lineHeight: 19 },
+  secondaryActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.lg },
+  textAction: { minHeight: 38, justifyContent: 'center' },
+  featurePanel: { borderWidth: 1, borderRadius: radius.lg, padding: space.lg, gap: space.sm },
+  feature: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.xs },
+  featureIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  featureText: { flex: 1, minWidth: 0, gap: 1 },
+  featureTitle: { fontWeight: '700' },
+  trustPanel: { flexDirection: 'row', borderWidth: 1, borderRadius: radius.lg, padding: space.lg, gap: space.sm },
+  trustCopyColumn: { flex: 1, minWidth: 0, gap: space.xs },
+  trustLabel: { fontWeight: '800' },
+  redeemPanel: { borderWidth: 1, borderRadius: radius.lg, padding: space.lg, gap: space.md },
+  redeemTitle: { fontSize: 22, lineHeight: 26 },
+  status: { textAlign: 'center' },
 });

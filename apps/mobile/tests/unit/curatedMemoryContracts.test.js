@@ -98,6 +98,7 @@ test('private photo access fails closed for Circle and lapsed states before Phot
   const background = source('backgroundAutoIngestTask.js');
   const foreground = source('useForegroundAutoIngest.js');
   const manual = source('ScanProgressScreen.js');
+  const firstValue = source('firstValuePreviewScan.js');
 
   assert.ok(launcher.indexOf("reason: 'role-cannot-scan'") < launcher.indexOf('const permission ='));
   assert.ok(launcher.indexOf("reason: 'inactive-entitlement'") < launcher.indexOf('const permission ='));
@@ -106,8 +107,11 @@ test('private photo access fails closed for Circle and lapsed states before Phot
   assert.ok(foreground.indexOf('const powerGate =') < foreground.indexOf('const permission ='));
   assert.match(foreground, /!entitlement\?\.isActive/);
   assert.match(foreground, /\['creator', 'partner'\]/);
-  assert.match(manual, /const canScan = writer && entitlement\?\.isActive === true/);
+  assert.match(manual, /const canScan = writer && \(entitlement\?\.isActive === true \|\| firstValueRequested\)/);
   assert.match(manual, /if \(!family \|\| !user \|\| billingLoading \|\| !canScan\) return;[\s\S]*await startLibraryScan/);
+  assert.ok(firstValue.indexOf("reason: 'role-cannot-scan'") < firstValue.indexOf('const permission ='));
+  assert.match(firstValue, /writeFirstValuePreview[\s\S]*Scan\.abort\(\)/);
+  assert.doesNotMatch(firstValue, /Tags\.setBaby|uploadForTag|supabase|publishFamilyLibraryConnection/);
   assert.doesNotMatch(manual, /readAutoIngestPowerGate|low-power-mode/);
 });
 
@@ -254,4 +258,20 @@ test('candidate observability never logs asset identifiers or private analysis e
     assert.doesNotMatch(implementation, /console\.(?:log|warn|error)\([^\n]*assetId/);
     assert.doesNotMatch(implementation, /console\.(?:log|warn|error)\([^\n]*(?:fingerprint|identityEvidence|localUri)/i);
   }
+});
+
+test('Family paywall sells curation relief while preserving parent authority and live pricing truth', () => {
+  const purchase = source('PurchaseScreen.js');
+
+  assert.match(purchase, /A curated family space/);
+  assert.match(purchase, /Your family’s story shouldn’t disappear in your camera roll\./);
+  assert.match(purchase, /brings forward the ones worth revisiting/);
+  assert.match(purchase, /keeps what you choose organized—without another project to manage/);
+  assert.match(purchase, /Nothing joins your family space until you choose Keep\./);
+  assert.match(purchase, /plan\.monthlyEquivalent/);
+  assert.match(purchase, /plan\.displayPrice/);
+  assert.match(purchase, /Save \{savings\}% vs\. paying monthly/);
+  assert.match(purchase, /Start my 14-day free trial/);
+  assert.match(purchase, /Trial eligibility is determined by/);
+  assert.doesNotMatch(purchase, /This real choice|Vault stays out|eligible store accounts|No introductory trial/);
 });
