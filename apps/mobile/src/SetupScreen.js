@@ -161,7 +161,7 @@ export default function SetupScreen() {
   const onSignOut = async () => {
     Alert.alert(
       'Sign out?',
-      "You can sign back in any time. Your moments stay safe in the cloud.",
+      "You can sign back in any time. Saved moments stay in Our Little World; private drafts and on-device discovery are cleared from this device.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -268,15 +268,15 @@ export default function SetupScreen() {
           {isFirstSetup ? 'Continue' : 'Save changes'}
         </Button>
 
-        {!isFirstSetup ? (
-          <Card variant="muted">
-            <Eyebrow>Account</Eyebrow>
-            <Spacer h={space.md} />
-            <Body>Signed in as {user?.email || '—'}</Body>
-            <Spacer h={space.lg} />
-            <Button variant="ghost" onPress={onSignOut}>Sign out</Button>
-          </Card>
-        ) : null}
+        <Card variant="muted">
+          <Eyebrow>Account</Eyebrow>
+          <Spacer h={space.md} />
+          <Body>Signed in as {user?.email || '—'}</Body>
+          <Spacer h={space.lg} />
+          <Button variant="ghost" onPress={onSignOut}>Sign out</Button>
+          <Spacer h={space.sm} />
+          <Button variant="quiet" onPress={() => router.push('/delete-account')}>Delete account</Button>
+        </Card>
       </V>
     </Screen>
   );

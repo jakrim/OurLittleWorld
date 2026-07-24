@@ -448,6 +448,9 @@ export default function PurchaseScreen() {
         <Pressable onPress={() => Linking.openURL('https://ourlittleworld.me/privacy/')} style={styles.textAction}>
           <Caption style={{ color: theme.semantic.primary }}>Privacy</Caption>
         </Pressable>
+        <Pressable onPress={() => router.push('/settings-menu')} style={styles.textAction}>
+          <Caption style={{ color: theme.semantic.primary }}>Account settings</Caption>
+        </Pressable>
       </View>
 
       <View style={[styles.featurePanel, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }, shadow.whisper]}>

@@ -10,11 +10,16 @@
  * object key + variant — never by bearer token.
  */
 
+import { accountDeletionMarkerKey, handleAccountDeletion } from './accountDeletion.js';
+
 const VARIANTS = new Set(['original', 'stream']);
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === '/internal/account-deletion') {
+      return handleAccountDeletion(request, env);
+    }
     const match = url.pathname.match(/^\/media\/([0-9a-f-]{36})\/([a-z_]+)\/([A-Za-z0-9._-]+)$/);
     if (!match) return withMetrics(new Response('Not found', { status: 404 }), 'miss');
     const [, familyId, variant, objectId] = match;
@@ -44,6 +49,12 @@ export default {
       const path = playbackToken || objectId;
       const playback = `https://${env.STREAM_CUSTOMER_DOMAIN}/${path}/manifest/video.m3u8`;
       return withMetrics(Response.redirect(playback, 302), 'redirect');
+    }
+
+    // A deletion marker overrides previously issued media sessions and any
+    // still-live Cache API entry. It contains no family content.
+    if (await env.ORIGINALS.head(accountDeletionMarkerKey(familyId))) {
+      return withMetrics(new Response('Family media was deleted', { status: 410 }), 'denied');
     }
 
     // 4. Cache by object key + variant after auth (never by token).

@@ -39,6 +39,10 @@ export async function deleteSharedAnnotationVoiceDraft(uri) {
   return true;
 }
 
+export async function purgeSharedAnnotationVoiceDrafts() {
+  await FileSystem.deleteAsync(DIRECTORY, { idempotent: true });
+}
+
 export function isSharedAnnotationVoiceDraft(uri) {
   return typeof uri === 'string' && uri.startsWith(DIRECTORY);
 }
