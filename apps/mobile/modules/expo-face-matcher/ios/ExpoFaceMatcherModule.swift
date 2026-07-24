@@ -5,6 +5,105 @@ import UIKit
 import Photos
 import CoreImage
 
+private final class MatchBatchToken: @unchecked Sendable {
+  private let lock = NSLock()
+  private var cancelReason: String?
+  private var imageCancels: [PHImageRequestID: () -> Void] = [:]
+  private var visionRequests: [ObjectIdentifier: VNRequest] = [:]
+
+  var isCancelled: Bool {
+    lock.lock()
+    let value = cancelReason != nil
+    lock.unlock()
+    return value
+  }
+
+  var reason: String? {
+    lock.lock()
+    let value = cancelReason
+    lock.unlock()
+    return value
+  }
+
+  func cancel(reason: String) {
+    lock.lock()
+    if cancelReason != nil {
+      lock.unlock()
+      return
+    }
+    cancelReason = reason
+    let cancels = Array(imageCancels.values)
+    let requests = Array(visionRequests.values)
+    imageCancels.removeAll()
+    visionRequests.removeAll()
+    lock.unlock()
+
+    for request in requests {
+      request.cancel()
+    }
+    for cancel in cancels {
+      cancel()
+    }
+  }
+
+  func registerImageRequest(id: PHImageRequestID, cancel: @escaping () -> Void) -> Bool {
+    lock.lock()
+    let cancelled = cancelReason != nil
+    if !cancelled {
+      imageCancels[id] = cancel
+    }
+    lock.unlock()
+    if cancelled {
+      cancel()
+      return false
+    }
+    return true
+  }
+
+  func unregisterImageRequest(id: PHImageRequestID) {
+    lock.lock()
+    imageCancels.removeValue(forKey: id)
+    lock.unlock()
+  }
+
+  func registerVisionRequest(_ request: VNRequest) -> Bool {
+    lock.lock()
+    let cancelled = cancelReason != nil
+    if !cancelled {
+      visionRequests[ObjectIdentifier(request)] = request
+    }
+    lock.unlock()
+    if cancelled {
+      request.cancel()
+      return false
+    }
+    return true
+  }
+
+  func unregisterVisionRequest(_ request: VNRequest) {
+    lock.lock()
+    visionRequests.removeValue(forKey: ObjectIdentifier(request))
+    lock.unlock()
+  }
+}
+
+private struct AnalyzedFace {
+  let embedding: [Double]
+  let captureQuality: Double?
+  let faceSizeRatio: Double
+  let sharpness: Double
+  let yaw: Double?
+  let roll: Double?
+  let brightness: Double
+  let fingerprint: [Double]
+}
+
+private struct AnalyzedCandidate {
+  let faceCount: Int
+  let faces: [AnalyzedFace]
+  let wholeImageFingerprint: [Double]
+}
+
 /**
  * ExpoFaceMatcher
  *
@@ -36,13 +135,22 @@ public class ExpoFaceMatcherModule: Module {
 
   // Reuse a single CIContext for crop work — cheaper than per-call.
   private let ciContext = CIContext(options: nil)
+  private let matchBatchRegistryLock = NSLock()
+  private var matchBatches: [String: MatchBatchToken] = [:]
 
   /// Bounded Vision/PHImageLoader concurrency per batch. Same decode + face
-  /// pipeline as serial; only wall time changes. Capped to reduce memory spikes.
+  /// pipeline as serial; only wall time changes. Two decoded 1280px images keep
+  /// peak memory predictable while still overlapping iCloud/local reads.
   private static var matchWorkerCount: Int {
     let cores = ProcessInfo.processInfo.processorCount
-    return max(1, min(4, cores))
+    return max(1, min(2, cores))
   }
+
+  /// PhotoKit may otherwise wait indefinitely for an iCloud original and hold
+  /// the whole native batch. Keep every per-asset load bounded.
+  private static let photoLoadTimeoutSeconds: Double = 6
+  private static let minBatchTimeoutSeconds: Double = 4
+  private static let maxBatchTimeoutSeconds: Double = 90
 
   public func definition() -> ModuleDefinition {
     Name("ExpoFaceMatcher")
@@ -216,73 +324,250 @@ public class ExpoFaceMatcherModule: Module {
         promise.resolve(results)
       }
     }
+
+    AsyncFunction("matchAgainstMany") {
+      (
+        references: [[String: Any]],
+        candidates: [[String: String]],
+        options: [String: Any],
+        promise: Promise
+      ) in
+
+      DispatchQueue.global(qos: .userInitiated).async {
+        let referenceRows: [(id: String, vector: [Double])] = references.compactMap { row in
+          guard
+            let id = row["referenceId"] as? String,
+            let embedding = row["embedding"] as? [Double],
+            !id.isEmpty,
+            !embedding.isEmpty
+          else {
+            return nil
+          }
+          return (id, self.l2Normalise(embedding))
+        }
+        guard !referenceRows.isEmpty, !candidates.isEmpty else {
+          promise.resolve([
+            "results": [[String: Any]](),
+            "processedAssetIds": [String](),
+            "timedOut": false,
+            "cancelled": false,
+            "durationMs": 0
+          ])
+          return
+        }
+
+        let batchId = (options["batchId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+          ?? UUID().uuidString
+        let requestedTimeoutMs = (options["timeoutMs"] as? NSNumber)?.doubleValue ?? 60_000
+        let timeoutSeconds = max(
+          Self.minBatchTimeoutSeconds,
+          min(Self.maxBatchTimeoutSeconds, requestedTimeoutMs / 1_000)
+        )
+        let token = self.registerMatchBatch(id: batchId)
+        let startedAt = Date()
+        let queue = OperationQueue()
+        queue.name = "expo.faceMatcher.multiReference"
+        queue.maxConcurrentOperationCount = Self.matchWorkerCount
+        queue.qualityOfService = .userInitiated
+        let group = DispatchGroup()
+        let resultLock = NSLock()
+        var acceptingResults = true
+        var results = [[String: Any]]()
+        var processedAssetIds = Set<String>()
+
+        for candidate in candidates {
+          group.enter()
+          queue.addOperation {
+            defer { group.leave() }
+            if token.isCancelled { return }
+            let assetId = candidate["assetId"] ?? ""
+            let uri = candidate["localUri"] ?? ""
+            let analysis = self.analyzeCandidate(uri: uri, token: token)
+            if token.isCancelled { return }
+            let rows = self.matchRows(
+              assetId: assetId,
+              analysis: analysis,
+              references: referenceRows
+            )
+            resultLock.lock()
+            if acceptingResults, !token.isCancelled {
+              results.append(contentsOf: rows)
+              if !assetId.isEmpty {
+                processedAssetIds.insert(assetId)
+              }
+            }
+            resultLock.unlock()
+          }
+        }
+
+        let waitResult = group.wait(timeout: .now() + timeoutSeconds)
+        let timedOut = waitResult == .timedOut
+        if timedOut {
+          resultLock.lock()
+          acceptingResults = false
+          resultLock.unlock()
+          token.cancel(reason: "timeout")
+          queue.cancelAllOperations()
+        }
+
+        resultLock.lock()
+        let resolvedResults = results
+        let resolvedAssetIds = Array(processedAssetIds).sorted()
+        resultLock.unlock()
+        let cancelled = token.reason == "cancelled"
+        self.finishMatchBatch(id: batchId, token: token)
+        promise.resolve([
+          "results": resolvedResults,
+          "processedAssetIds": resolvedAssetIds,
+          "timedOut": timedOut,
+          "cancelled": cancelled,
+          "durationMs": Int(Date().timeIntervalSince(startedAt) * 1_000)
+        ])
+      }
+    }
+
+    Function("cancelMatchBatch") { (batchId: String) -> Bool in
+      self.cancelMatchBatch(id: batchId)
+    }
+  }
+
+  private func registerMatchBatch(id: String) -> MatchBatchToken {
+    let token = MatchBatchToken()
+    matchBatchRegistryLock.lock()
+    let previous = matchBatches.updateValue(token, forKey: id)
+    matchBatchRegistryLock.unlock()
+    previous?.cancel(reason: "replaced")
+    return token
+  }
+
+  private func cancelMatchBatch(id: String) -> Bool {
+    matchBatchRegistryLock.lock()
+    let token = matchBatches[id]
+    matchBatchRegistryLock.unlock()
+    guard let token else { return false }
+    token.cancel(reason: "cancelled")
+    return true
+  }
+
+  private func finishMatchBatch(id: String, token: MatchBatchToken) {
+    matchBatchRegistryLock.lock()
+    if matchBatches[id] === token {
+      matchBatches.removeValue(forKey: id)
+    }
+    matchBatchRegistryLock.unlock()
+  }
+
+  private func analyzeCandidate(uri: String, token: MatchBatchToken? = nil) -> AnalyzedCandidate {
+    if token?.isCancelled == true {
+      return AnalyzedCandidate(faceCount: 0, faces: [], wholeImageFingerprint: [])
+    }
+    do {
+      guard let cgImage = try loadCGImage(uri: uri, token: token) else {
+        return AnalyzedCandidate(faceCount: 0, faces: [], wholeImageFingerprint: [])
+      }
+      if token?.isCancelled == true {
+        return AnalyzedCandidate(faceCount: 0, faces: [], wholeImageFingerprint: [])
+      }
+      let wholeImageFingerprint = perceptualFingerprint(cgImage)
+      let observations = try detectFaces(in: cgImage, token: token)
+      let qualityFaces = (try? detectFaceCaptureQuality(in: cgImage, token: token)) ?? []
+      var faces = [AnalyzedFace]()
+      faces.reserveCapacity(min(3, observations.count))
+      for face in observations.prefix(3) {
+        if token?.isCancelled == true { break }
+        let cropped = try crop(cgImage: cgImage, to: face.boundingBox, padding: 0.18)
+        let embedding = l2Normalise(try computeEmbedding(for: cropped, token: token))
+        let metrics = qualityMetrics(for: face, cropped: cropped, qualityFaces: qualityFaces)
+        faces.append(AnalyzedFace(
+          embedding: embedding,
+          captureQuality: metrics.captureQuality,
+          faceSizeRatio: metrics.faceSizeRatio,
+          sharpness: metrics.sharpness,
+          yaw: metrics.yaw,
+          roll: metrics.roll,
+          brightness: metrics.brightness,
+          fingerprint: perceptualFingerprint(cropped)
+        ))
+      }
+      return AnalyzedCandidate(
+        faceCount: observations.count,
+        faces: faces,
+        wholeImageFingerprint: wholeImageFingerprint
+      )
+    } catch {
+      return AnalyzedCandidate(faceCount: 0, faces: [], wholeImageFingerprint: [])
+    }
+  }
+
+  private func matchRows(
+    assetId: String,
+    analysis: AnalyzedCandidate,
+    references: [(id: String, vector: [Double])]
+  ) -> [[String: Any]] {
+    references.map { reference in
+      var bestScore = 0.0
+      var bestFace: AnalyzedFace?
+      for face in analysis.faces {
+        let score = cosine(reference.vector, face.embedding)
+        if score > bestScore {
+          bestScore = score
+          bestFace = face
+        }
+      }
+      return [
+        "assetId": assetId,
+        "referenceId": reference.id,
+        "score": bestScore,
+        "faceCount": analysis.faceCount,
+        "captureQuality": nullableDouble(bestFace?.captureQuality),
+        "faceSizeRatio": bestFace?.faceSizeRatio ?? 0,
+        "sharpness": bestFace?.sharpness ?? 0,
+        "yaw": nullableDouble(bestFace?.yaw),
+        "roll": nullableDouble(bestFace?.roll),
+        "brightness": bestFace?.brightness ?? 0,
+        "featureVector": bestFace?.embedding ?? [],
+        "visualFingerprint": analysis.wholeImageFingerprint + (bestFace?.fingerprint ?? [])
+      ]
+    }
   }
 
   /// Per-candidate scoring: identical pipeline to former serial loop (same load,
   /// detection, crop padding, top-3 faces, embeddings, cosine vs `refVec`).
   private func scoreCandidate(uri: String, refVec: [Double]) -> (score: Double, faceCount: Int, captureQuality: Double?, faceSizeRatio: Double, sharpness: Double, yaw: Double?, roll: Double?, brightness: Double, featureVector: [Double], visualFingerprint: [Double]) {
-    var score = 0.0
-    var faceCount = 0
-    var bestCaptureQuality: Double?
-    var bestFaceSizeRatio = 0.0
-    var bestSharpness = 0.0
-    var bestYaw: Double?
-    var bestRoll: Double?
-    var bestBrightness = 0.0
-    var bestFeatureVector: [Double] = []
-    var visualFingerprint: [Double] = []
-    do {
-      if let cgImage = try loadCGImage(uri: uri) {
-        let wholeImageFingerprint = perceptualFingerprint(cgImage)
-        visualFingerprint = wholeImageFingerprint
-        let faces = try detectFaces(in: cgImage)
-        faceCount = faces.count
-        let qualityFaces = (try? detectFaceCaptureQuality(in: cgImage)) ?? []
-        var best = 0.0
-        for face in faces.prefix(3) {
-          let cropped = try crop(cgImage: cgImage, to: face.boundingBox, padding: 0.18)
-          let emb = try computeEmbedding(for: cropped)
-          let dot = cosine(refVec, l2Normalise(emb))
-          if dot > best {
-            let metrics = qualityMetrics(for: face, cropped: cropped, qualityFaces: qualityFaces)
-            best = dot
-            bestCaptureQuality = metrics.captureQuality
-            bestFaceSizeRatio = metrics.faceSizeRatio
-            bestSharpness = metrics.sharpness
-            bestYaw = metrics.yaw
-            bestRoll = metrics.roll
-            bestBrightness = metrics.brightness
-            bestFeatureVector = l2Normalise(emb)
-            visualFingerprint = wholeImageFingerprint + perceptualFingerprint(cropped)
-          }
-        }
-        score = best
-      }
-    } catch {
-      score = 0
-    }
+    let analysis = analyzeCandidate(uri: uri)
+    let row = matchRows(
+      assetId: "",
+      analysis: analysis,
+      references: [(id: "legacy", vector: refVec)]
+    ).first
     return (
-      score,
-      faceCount,
-      bestCaptureQuality,
-      bestFaceSizeRatio,
-      bestSharpness,
-      bestYaw,
-      bestRoll,
-      bestBrightness,
-      bestFeatureVector,
-      visualFingerprint
+      row?["score"] as? Double ?? 0,
+      analysis.faceCount,
+      row?["captureQuality"] as? Double,
+      row?["faceSizeRatio"] as? Double ?? 0,
+      row?["sharpness"] as? Double ?? 0,
+      row?["yaw"] as? Double,
+      row?["roll"] as? Double,
+      row?["brightness"] as? Double ?? 0,
+      row?["featureVector"] as? [Double] ?? [],
+      row?["visualFingerprint"] as? [Double] ?? []
     )
   }
 
   // MARK: - Vision
 
   /// Detect faces in `cgImage`, returning observations sorted by area descending.
-  private func detectFaces(in cgImage: CGImage) throws -> [VNFaceObservation] {
+  private func detectFaces(
+    in cgImage: CGImage,
+    token: MatchBatchToken? = nil
+  ) throws -> [VNFaceObservation] {
     let req = VNDetectFaceRectanglesRequest()
     preferSimulatorCPU(req)
+    try prepareVisionRequest(req, token: token)
+    defer { token?.unregisterVisionRequest(req) }
     let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
     try handler.perform([req])
+    try ensureNotCancelled(token)
     let raw = req.results ?? []
     return raw.sorted { lhs, rhs in
       (lhs.boundingBox.size.width * lhs.boundingBox.size.height) >
@@ -290,11 +575,17 @@ public class ExpoFaceMatcherModule: Module {
     }
   }
 
-  private func detectFaceCaptureQuality(in cgImage: CGImage) throws -> [VNFaceObservation] {
+  private func detectFaceCaptureQuality(
+    in cgImage: CGImage,
+    token: MatchBatchToken? = nil
+  ) throws -> [VNFaceObservation] {
     let req = VNDetectFaceCaptureQualityRequest()
     preferSimulatorCPU(req)
+    try prepareVisionRequest(req, token: token)
+    defer { token?.unregisterVisionRequest(req) }
     let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
     try handler.perform([req])
+    try ensureNotCancelled(token)
     return req.results ?? []
   }
 
@@ -446,14 +737,20 @@ public class ExpoFaceMatcherModule: Module {
   }
 
   /// Compute a feature print from `cgImage` and return as an array of doubles.
-  private func computeEmbedding(for cgImage: CGImage) throws -> [Double] {
+  private func computeEmbedding(
+    for cgImage: CGImage,
+    token: MatchBatchToken? = nil
+  ) throws -> [Double] {
     let req = VNGenerateImageFeaturePrintRequest()
     if #available(iOS 17.0, *) {
       req.imageCropAndScaleOption = .scaleFill
     }
     preferSimulatorCPU(req)
+    try prepareVisionRequest(req, token: token)
+    defer { token?.unregisterVisionRequest(req) }
     let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
     try handler.perform([req])
+    try ensureNotCancelled(token)
     guard let obs = req.results?.first as? VNFeaturePrintObservation else {
       throw NSError(domain: "ExpoFaceMatcher", code: 1, userInfo: [NSLocalizedDescriptionKey: "No feature print observation"])
     }
@@ -469,24 +766,53 @@ public class ExpoFaceMatcherModule: Module {
     return doubles
   }
 
+  private func prepareVisionRequest(_ request: VNRequest, token: MatchBatchToken?) throws {
+    guard token?.registerVisionRequest(request) != false else {
+      throw cancellationError()
+    }
+  }
+
+  private func ensureNotCancelled(_ token: MatchBatchToken?) throws {
+    if token?.isCancelled == true {
+      throw cancellationError()
+    }
+  }
+
+  private func cancellationError() -> NSError {
+    NSError(
+      domain: "ExpoFaceMatcher",
+      code: 2,
+      userInfo: [NSLocalizedDescriptionKey: "Photo analysis was cancelled"]
+    )
+  }
+
   // MARK: - Image loading & cropping
 
   /// Resolve a `localUri` (file://, ph://, or assets-library://) to a CGImage.
-  private func loadCGImage(uri: String) throws -> CGImage? {
+  private func loadCGImage(
+    uri: String,
+    token: MatchBatchToken? = nil
+  ) throws -> CGImage? {
+    try ensureNotCancelled(token)
     guard let url = URL(string: uri) else { return nil }
     if url.scheme == "file" {
       let data = try Data(contentsOf: url)
+      try ensureNotCancelled(token)
       guard let img = UIImage(data: data) else { return nil }
       return img.cgImage ?? CIImage(image: img).flatMap { ciContext.createCGImage($0, from: $0.extent) }
     }
     if url.scheme == "ph" || url.scheme == "assets-library" {
-      return try loadFromPhotos(url: url)
+      return try loadFromPhotos(url: url, token: token)
     }
     // Fallback: try as data URL string for HTTP urls (not expected in our flow)
     return nil
   }
 
-  private func loadFromPhotos(url: URL) throws -> CGImage? {
+  private func loadFromPhotos(
+    url: URL,
+    token: MatchBatchToken? = nil
+  ) throws -> CGImage? {
+    try ensureNotCancelled(token)
     // expo-media-library returns URIs like:
     //   ph://9F2BC54A-1234-5678-ABCD-AB12CD34EF56/L0/001
     // PHAsset.localIdentifier is everything after "ph://" — the host + path.
@@ -501,23 +827,69 @@ public class ExpoFaceMatcherModule: Module {
     guard let asset = res.firstObject else { return nil }
     let manager = PHImageManager.default()
     let options = PHImageRequestOptions()
-    options.isSynchronous = true
-    options.deliveryMode = .highQualityFormat
+    options.isSynchronous = false
+    options.deliveryMode = .opportunistic
     options.isNetworkAccessAllowed = true
     options.resizeMode = .exact
     options.progressHandler = { _, _, _, _ in }
 
+    let semaphore = DispatchSemaphore(value: 0)
+    let resultLock = NSLock()
     var resultImage: UIImage?
+    var finished = false
     let target = CGSize(width: 1280, height: 1280)
-    manager.requestImage(
+    let requestId = manager.requestImage(
       for: asset,
       targetSize: target,
       contentMode: .aspectFit,
       options: options
-    ) { image, _ in
-      resultImage = image
+    ) { image, info in
+      let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) == true
+      let isCancelled = (info?[PHImageCancelledKey] as? Bool) == true
+      let hasError = info?[PHImageErrorKey] != nil
+
+      resultLock.lock()
+      if !finished, let image {
+        resultImage = image
+      }
+      let shouldFinish = isCancelled || hasError || !isDegraded
+      if shouldFinish, !finished {
+        finished = true
+        resultLock.unlock()
+        semaphore.signal()
+        return
+      }
+      resultLock.unlock()
     }
-    return resultImage?.cgImage
+    let cancelRequest = {
+      resultLock.lock()
+      let shouldSignal = !finished
+      finished = true
+      resultLock.unlock()
+      manager.cancelImageRequest(requestId)
+      if shouldSignal {
+        semaphore.signal()
+      }
+    }
+    if let token, !token.registerImageRequest(id: requestId, cancel: cancelRequest) {
+      return nil
+    }
+    defer { token?.unregisterImageRequest(id: requestId) }
+
+    let deadline = DispatchTime.now() + Self.photoLoadTimeoutSeconds
+    if semaphore.wait(timeout: deadline) == .timedOut {
+      cancelRequest()
+      resultLock.lock()
+      let bestAvailable = resultImage
+      resultLock.unlock()
+      return bestAvailable?.cgImage
+    }
+
+    try ensureNotCancelled(token)
+    resultLock.lock()
+    let resolvedImage = resultImage
+    resultLock.unlock()
+    return resolvedImage?.cgImage
   }
 
   /// Crop a CGImage to the given Vision bounding box (normalised 0..1, origin

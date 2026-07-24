@@ -260,6 +260,45 @@ test('candidate observability never logs asset identifiers or private analysis e
   }
 });
 
+test('First Look native analysis is one-pass, bounded, cancellable and fail-closed', () => {
+  const matcher = source('faceMatcher.js');
+  const matcherModel = source('faceMatcherModel.js');
+  const controller = source('scanController.js');
+  const firstValue = source('firstValuePreviewScan.js');
+  const scanScreen = source('ScanProgressScreen.js');
+  const swift = readFileSync(
+    new URL('../../modules/expo-face-matcher/ios/ExpoFaceMatcherModule.swift', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(swift, /AsyncFunction\("matchAgainstMany"\)/);
+  assert.match(swift, /Function\("cancelMatchBatch"\)/);
+  assert.match(swift, /group\.wait\(timeout:/);
+  assert.match(swift, /analyzeCandidate\(uri: uri, token: token\)/);
+  assert.match(swift, /token\.cancel\(reason: "timeout"\)/);
+  assert.match(swift, /request\.cancel\(\)/);
+  assert.match(swift, /manager\.cancelImageRequest\(requestId\)/);
+  assert.match(matcher, /native\.matchAgainstMany/);
+  assert.match(matcher, /mergeMultiReferenceMatches/);
+  assert.match(matcherModel, /identityConsensusPassed/);
+  assert.match(controller, /cancelNativeMatchBatch\(activeNativeBatchId\)/);
+  assert.match(controller, /remainingScanMs < MIN_NATIVE_MATCH_BATCH_TIMEOUT_MS/);
+  assert.match(controller, /timeoutMs: effectiveBatchTimeoutMs/);
+  assert.match(
+    controller,
+    /const batchId = `\$\{scanKey\}:batch:\$\{nativeBatchSequence\}`/,
+  );
+  assert.match(firstValue, /FIRST_VALUE_NATIVE_MATCH_BATCH_TIMEOUT_MS/);
+  assert.match(firstValue, /maxPhotoAssets: FIRST_VALUE_SCAN_MAX_PHOTOS/);
+  assert.match(firstValue, /maxScanDurationMs: FIRST_VALUE_SCAN_MAX_DURATION_MS/);
+  assert.match(firstValue, /includeVideos: false/);
+  assert.match(firstValue, /isFirstValueReferenceEcho/);
+  assert.match(firstValue, /onPreviewReady\?\.\(preview\)/);
+  assert.match(scanScreen, /if \(params\.source === 'first_value'\) firstValueRequestedRef\.current = true/);
+  assert.match(scanScreen, /\['done', 'failed'\]\.includes\(scan\.phase\) && !firstValueReady/);
+  assert.doesNotMatch(firstValue, /supabase|analytics|Sentry|PostHog/);
+});
+
 test('Family paywall sells curation relief while preserving parent authority and live pricing truth', () => {
   const purchase = source('PurchaseScreen.js');
 

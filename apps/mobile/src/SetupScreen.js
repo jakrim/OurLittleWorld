@@ -11,6 +11,7 @@ import {
   Button,
   Field,
   Brand,
+  BrandedBackHeader,
   Hero,
   Title,
   Body,
@@ -22,7 +23,6 @@ import {
   useTheme,
   space,
   radius,
-  shadow,
 } from './ui';
 import BirthDatePicker, { isValidBirthIso } from './ui/BirthDatePicker';
 import { Family, RELATIONSHIP_PRESETS } from './families';
@@ -145,8 +145,8 @@ export default function SetupScreen() {
         }, analyticsContext(family, Platform.OS));
         router.replace(
           isNative && permission.granted
-            ? { pathname: '/reference', params: { autoSeed: '1' } }
-            : '/reference',
+            ? { pathname: '/reference', params: { autoSeed: '1', source: 'first_value' } }
+            : { pathname: '/reference', params: { source: 'first_value' } },
         );
       } else {
         onBack();
@@ -192,7 +192,6 @@ export default function SetupScreen() {
             hero={'Tell us about\nyour little one.'}
             body={`Manage ${childName}'s name, birthday, photo access, and account.`}
             topLeft={{
-              icon: 'chevron-back',
               onPress: onBack,
               accessibilityLabel: 'Go back',
             }}
@@ -393,35 +392,19 @@ function relationshipValue(preset, customValue) {
  * Onboarding-style screen intro: brand row, optional leading chip, hero + body.
  */
 function IntroHeader({ hero, body, topLeft }) {
-  const theme = useTheme();
-
   return (
     <>
-      <View style={styles.introTopRow}>
-        {topLeft ? (
-          <Pressable
-            onPress={topLeft.onPress}
-            style={[
-              styles.introIconBtn,
-              styles.introIconBtnLeading,
-              {
-                backgroundColor: theme.semantic.card,
-                borderColor: theme.semantic.border,
-              },
-            ]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={topLeft.accessibilityLabel}
-          >
-            <Ionicons
-              name={topLeft.icon}
-              size={topLeft.iconSize ?? 20}
-              color={theme.semantic.textSoft}
-            />
-          </Pressable>
-        ) : null}
-        <Brand style={[styles.introBrand, topLeft && styles.introBrandWithLeading]}>our little world</Brand>
-      </View>
+      {topLeft ? (
+        <BrandedBackHeader
+          onBack={topLeft.onPress}
+          accessibilityLabel={topLeft.accessibilityLabel}
+          style={styles.introTopRow}
+        />
+      ) : (
+        <View style={styles.introTopRow}>
+          <Brand>our little world</Brand>
+        </View>
+      )}
       <Hero>{hero}</Hero>
       <Body>{body}</Body>
       <Spacer h={space.md} />
@@ -524,28 +507,7 @@ function PhotoAccessCard({
 
 const styles = StyleSheet.create({
   introTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: space.md,
-  },
-  introBrand: {
-    flex: 1,
-  },
-  introBrandWithLeading: {
-    textAlign: 'right',
-  },
-  introIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.whisper,
-  },
-  introIconBtnLeading: {
-    marginRight: space.md,
   },
   accessStatus: {
     flexDirection: 'row',

@@ -22,6 +22,11 @@ export type CandidateInput = {
   localUri: string;
 };
 
+export type ReferenceInput = {
+  referenceId: string;
+  embedding: number[];
+};
+
 export type MatchResult = {
   assetId: string;
   /** Cosine similarity to the reference embedding, ~[0..1]. */
@@ -37,6 +42,18 @@ export type MatchResult = {
   featureVector: number[];
   /** Whole-image plus selected-face perceptual fingerprint for near-duplicates. */
   visualFingerprint: number[];
+};
+
+export type MultiReferenceMatchResult = MatchResult & {
+  referenceId: string;
+};
+
+export type MatchBatchResult = {
+  results: MultiReferenceMatchResult[];
+  processedAssetIds: string[];
+  timedOut: boolean;
+  cancelled: boolean;
+  durationMs: number;
 };
 
 export type ExpoFaceMatcherModuleEvents = Record<string, never>;

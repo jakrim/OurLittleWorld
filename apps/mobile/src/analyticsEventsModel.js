@@ -25,6 +25,17 @@ export const ANALYTICS_EVENT_NAMES = Object.freeze([
   'invite_sent',
   'gift_started',
   'gift_redeemed',
+  'paywall_eligible',
+  'first_value_started',
+  'first_value_completed',
+  'paywall_viewed',
+  'plan_selected',
+  'checkout_started',
+  'trial_started',
+  'purchase_verified',
+  'purchase_failed',
+  'purchase_restored',
+  'paywall_dismissed',
   'purchase_started',
   'purchase_completed',
   'tonight_opened',
@@ -83,7 +94,7 @@ export const ANALYTICS_FORBIDDEN_KEYS = Object.freeze([
 const ENUMS = Object.freeze({
   source: ['mobile', 'web', 'supabase_edge'],
   environment: ['development', 'preview', 'production'],
-  platform: ['ios', 'web', 'unknown'],
+  platform: ['ios', 'android', 'web', 'unknown'],
   actor_role: ['creator', 'partner', 'circle', 'gift_recipient', 'unknown'],
   plan_state: ['none', 'trialing', 'active', 'gift', 'lapsed', 'past_due', 'unknown'],
   surface: [
@@ -99,6 +110,7 @@ const ENUMS = Object.freeze({
     'digest',
     'settings',
     'purchase',
+    'first_value_preview',
     'gift',
     'web_pricing',
     'web_gift',
@@ -119,6 +131,47 @@ const ENUMS = Object.freeze({
   ],
   media_kind: ['none', 'photo', 'video', 'photo_video', 'voice', 'mixed', 'unknown'],
 });
+
+const SUBSCRIPTION_FUNNEL_PROPERTIES = Object.freeze([
+  'paywall_source',
+  'paywall_version',
+  'offer_version',
+  'product',
+  'entitlement',
+  'product_id',
+  'duration',
+  'storefront_bucket',
+  'localized_amount',
+  'currency',
+  'trial_eligibility',
+  'experiment',
+  'cohort',
+  'product_load_success',
+  'verified_entitlement_outcome',
+  'preview_state',
+  'media_kind',
+  'failure_stage',
+]);
+
+const SUBSCRIPTION_FUNNEL_VALUES = Object.freeze({
+  paywall_source: ['first_value_preview', 'settings', 'book_export', 'feature_gate', 'restore', 'unknown'],
+  product: ['family'],
+  entitlement: ['family'],
+  duration: ['monthly', 'annual', 'unknown'],
+  storefront_bucket: ['us', 'non_us', 'unknown'],
+  trial_eligibility: ['eligible', 'ineligible', 'not_applicable', 'unknown'],
+  verified_entitlement_outcome: ['not_checked', 'granted', 'denied', 'unknown'],
+  preview_state: ['found', 'approved'],
+  failure_stage: ['product_load', 'checkout', 'verification', 'restore', 'unknown'],
+});
+
+function subscriptionFunnelSpec(required, values = {}) {
+  return {
+    required,
+    properties: SUBSCRIPTION_FUNNEL_PROPERTIES,
+    values: { ...SUBSCRIPTION_FUNNEL_VALUES, ...values },
+  };
+}
 
 const EVENT_SPECS = Object.freeze({
   onboarding_started: {
@@ -284,6 +337,50 @@ const EVENT_SPECS = Object.freeze({
       plan_state_after: ['gift', 'active', 'unknown'],
     },
   },
+  paywall_eligible: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'preview_state', 'media_kind',
+  ]),
+  first_value_started: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version',
+  ]),
+  first_value_completed: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'preview_state', 'media_kind',
+  ]),
+  paywall_viewed: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product_load_success',
+  ]),
+  plan_selected: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product', 'entitlement',
+    'product_id', 'duration', 'storefront_bucket', 'localized_amount', 'currency',
+    'trial_eligibility', 'experiment', 'cohort', 'product_load_success',
+  ]),
+  checkout_started: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product', 'entitlement',
+    'product_id', 'duration', 'storefront_bucket', 'localized_amount', 'currency',
+    'trial_eligibility', 'experiment', 'cohort', 'product_load_success',
+  ]),
+  trial_started: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product', 'entitlement',
+    'product_id', 'duration', 'storefront_bucket', 'localized_amount', 'currency',
+    'trial_eligibility', 'experiment', 'cohort', 'verified_entitlement_outcome',
+  ]),
+  purchase_verified: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product', 'entitlement',
+    'product_id', 'duration', 'storefront_bucket', 'localized_amount', 'currency',
+    'trial_eligibility', 'experiment', 'cohort', 'verified_entitlement_outcome',
+  ]),
+  purchase_failed: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product_id',
+    'duration', 'failure_stage', 'verified_entitlement_outcome',
+  ]),
+  purchase_restored: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version', 'product', 'entitlement',
+    'product_id', 'duration', 'storefront_bucket', 'localized_amount', 'currency',
+    'trial_eligibility', 'experiment', 'cohort', 'verified_entitlement_outcome',
+  ]),
+  paywall_dismissed: subscriptionFunnelSpec([
+    'surface', 'paywall_source', 'paywall_version', 'offer_version',
+  ]),
   purchase_started: {
     required: ['surface', 'purchase_source', 'product_key', 'purchase_channel'],
     values: {
@@ -419,6 +516,7 @@ export function buildAnalyticsEvent(eventName, properties = {}, context = {}) {
   const allowedProperties = new Set([
     ...COMMON_PROPERTIES,
     ...spec.required,
+    ...(spec.properties || []),
   ]);
   const input = { ...context, ...properties };
   for (const key of Object.keys(input)) {
@@ -472,7 +570,7 @@ function validateAnalyticsValue({ key, value, spec, eventName }) {
   if (allowed && !allowed.includes(value)) {
     throw new Error(`Invalid analytics value for ${eventName}.${key}: ${value}`);
   }
-  if (key.startsWith('has_') || key === 'happened_at_changed' || key === 'continuation') {
+  if (key.startsWith('has_') || key === 'happened_at_changed' || key === 'continuation' || key === 'product_load_success') {
     if (typeof value !== 'boolean') throw new Error(`Analytics property must be boolean: ${key}`);
   }
 }

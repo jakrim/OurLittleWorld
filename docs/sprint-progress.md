@@ -68,7 +68,7 @@ remote migration, push, App Store action, or notification deployment was perform
 - Deterministic proof: `candidateLedgerModel.test.js`,
   `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
   `curatedMemoryContracts.test.js`, plus the touched Today/notification tests.
-- Durable documentation: `docs/current-product-state.md`, `docs/architecture.md`,
+- Durable documentation: `docs/product-contract.md`, `docs/architecture.md`,
   `docs/curated-memory-library-plan.md`, this sprint log, and
   `reports/curated-memory-library-review-2026-07-18.html`.
 
@@ -194,7 +194,7 @@ TestFlight, signing, or production-data action was performed.
 - Proof: `mediaDbSchema.test.js`, `nightlyQueueModel.test.js`,
   `tonightCommitModel.test.js`, `tonightEnrichmentModel.test.js`,
   `tonightNotificationModel.test.js`, and `curatedMemoryContracts.test.js`.
-- Durable state: `docs/current-product-state.md`, `docs/architecture.md`,
+- Durable state: `docs/product-contract.md`, `docs/architecture.md`,
   `docs/curated-memory-library-plan.md`, and this log.
 
 ### Performance and tunables
@@ -1324,3 +1324,41 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   notifications, billing events, gift redemptions, partner grants, and partner-code
   redemptions for the user. A delete-and-reinstall of build 1.1.7 is still recommended
   before the physical-device test so iOS also clears the prior install's local cache.
+
+### First Look bounded native discovery and recovery (2026-07-24)
+
+- Reproduced the First Look wait with a synthetic-only simulator library and traced it
+  to the native matching contract, not a remote upload or server job. Each candidate
+  could be decoded and analyzed once per selected reference, the JavaScript timeout
+  did not cancel the native PhotoKit/Vision work, and progress described photos fetched
+  from the library as photos checked. A route-parameter refresh could also turn a long
+  First Look into the ordinary background-scan handoff.
+- Added a one-pass multi-reference native batch. Each candidate is decoded and analyzed
+  once, then compared with the existing conservative reference-consensus policy.
+  Native PhotoKit reads, Vision requests, the batch, and the screen Stop action are all
+  cancellable. Missing, cancelled, and timed-out rows fail closed and cannot surface an
+  unrelated candidate. Results, fingerprints, references, and asset identifiers remain
+  on device; only coarse fixed analytics events retain the existing boundary.
+- First Look now reads eight photos at a time, samples at most 48 photos, stops after
+  roughly 24 seconds, limits native work to two images concurrently, bounds each
+  PhotoKit original to six seconds and each native batch to eight seconds, and never
+  scans videos during this proof step. The screen says `8 of up to 48 prepared` instead
+  of implying it will process all 4,286 items. It exits immediately on a reliable
+  distinct candidate, excludes saved reference assets and near-exact reference echoes,
+  shows a useful no-match/permission recovery state, and keeps First Look latched for
+  the lifetime of the route.
+- Synthetic iPhone 16 Pro simulator proof covered a positive match in about 1.3 seconds,
+  stable preview rendering, reference-echo rejection, a 55-photo no-face library,
+  truthful prepared-versus-checked copy, and native Stop cancellation in about 1.0
+  second. The device log confirmed the in-flight Vision request was cancelled. A local
+  unsigned artifact could not preserve SecureStore login or exercise canonical Keep
+  because it lacks the Keychain entitlement; no production family, personal photo,
+  remote write, TestFlight build, or deployment was touched.
+- Verification: 42 focused matcher/reference/pacing/privacy-contract tests passed;
+  mobile TypeScript and CI Expo lint passed; the full 451-test unit suite passed on
+  rerun after one unrelated parallel-run fixture initialization failure passed both in
+  isolation and on the complete rerun; the iOS simulator build with the new Swift
+  module passed. `pnpm smoke:mobile` passed its 25 deterministic privacy/persistence
+  checks and then stopped as designed because `OLW_SMOKE_DEV_CODE` was not present in
+  the authorized local profile. The remaining proof is a signed internal build on the
+  physical iPhone with its real iCloud-backed library.
