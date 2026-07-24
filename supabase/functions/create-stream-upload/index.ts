@@ -68,6 +68,27 @@ Deno.serve(async (req) => {
       throw new HttpError(502, payload?.errors?.[0]?.message || 'Stream upload could not be prepared.');
     }
 
+    try {
+      // Persist the provider UID before returning the upload URL. If the app
+      // terminates before moment_media is finalized, account deletion can
+      // still find and remove the orphaned Stream upload.
+      await rpc('attach_media_upload_provider_object', {
+        p_reservation_id: row.reservation_id,
+        p_provider: 'stream',
+        p_provider_object_id: payload.result.uid,
+      }, token);
+    } catch {
+      await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${encodeURIComponent(payload.result.uid)}`,
+        {
+          method: 'DELETE',
+          headers: { authorization: `Bearer ${apiToken}` },
+        },
+      ).catch(() => undefined);
+      await rpc('release_media_upload', { p_reservation_id: row.reservation_id }, token).catch(() => undefined);
+      throw new HttpError(502, 'Stream upload could not be recorded safely.');
+    }
+
     return json({
       uploadURL: payload.result.uploadURL,
       uid: payload.result.uid,
