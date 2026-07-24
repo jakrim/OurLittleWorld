@@ -13,6 +13,8 @@ import {
 test('account deletion copy preserves the device-library and shared-history boundaries', () => {
   assert.match(ACCOUNT_DELETION_COPY.cameraRoll, /never deleted/i);
   assert.match(ACCOUNT_DELETION_COPY.sharedHistory, /another co-parent remains/i);
+  assert.match(ACCOUNT_DELETION_COPY.exportScope, /video, audio, and sharing limits/i);
+  assert.match(ACCOUNT_DELETION_COPY.multipleArchives, /each sole-parent family archive/i);
   assert.match(ACCOUNT_DELETION_COPY.storeSubscription, /does not cancel/i);
   assert.match(ACCOUNT_DELETION_COPY.finalWarning, /cannot be undone/i);
 });

@@ -181,11 +181,17 @@ export default function DeleteAccountScreen() {
               </View>
               <View style={styles.cardHeadingCopy}>
                 <Title style={styles.cardTitle}>{ACCOUNT_DELETION_COPY.exportFirst}</Title>
-                <Caption>Save a local copy of your parent-approved archive before continuing.</Caption>
+                <Caption>{ACCOUNT_DELETION_COPY.exportScope}</Caption>
               </View>
             </View>
             <Spacer h={space.md} />
             <Button variant="ghost" onPress={openExport}>Open archive export</Button>
+            {preview.soleWriterCount > 1 ? (
+              <>
+                <Spacer h={space.sm} />
+                <Caption>{ACCOUNT_DELETION_COPY.multipleArchives}</Caption>
+              </>
+            ) : null}
           </Card>
 
           <Card variant="muted">

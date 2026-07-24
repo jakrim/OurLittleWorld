@@ -3,6 +3,8 @@ export const ACCOUNT_DELETION_CONFIRMATION = 'DELETE';
 export const ACCOUNT_DELETION_COPY = Object.freeze({
   title: 'Delete your account',
   exportFirst: 'Export first',
+  exportScope: 'Create and verify the current family export before continuing. The export screen lists its current video, audio, and sharing limits.',
+  multipleArchives: 'Deletion applies across your family roles. Export each sole-parent family archive you want to keep before continuing.',
   cameraRoll: 'Photos and videos in your device library are never deleted.',
   sharedHistory: 'If another co-parent remains, the family memories you kept together stay with them and your attribution is removed.',
   soleWriter: 'Families where you are the only co-parent, including their stored media, will be permanently deleted.',
