@@ -2,6 +2,52 @@
 
 Loop state: COMPLETE WITH RECORDED BLOCKERS + INDEPENDENT REVIEW PASS DONE (2026-07-06). Working branch: `polish-sprints`. Source of truth: `docs/polish-backlog.md`.
 
+## Account deletion release candidate (2026-07-24)
+
+Status: implemented and locally rehearsed on isolated branch
+`codex/olw-account-deletion` from clean release base `5560b74`. Implementation
+commits are `dba9fb2`, `5588ff7`, and `82d8282`. No production migration,
+Edge/Worker deployment, signed binary upload, or public-store action was performed.
+
+- Parents can reach account controls from normal settings, incomplete setup,
+  no-family onboarding, lapsed/read-only access, and the purchase gate. The flow
+  opens the current archive export and discloses its video/audio/sharing limits,
+  loads a fail-closed role preview, requires a fresh email OTP plus exact `DELETE`,
+  then clears local SQLite, AsyncStorage, drafts, notifications, and session state.
+- The additive database lifecycle classifies sole writer, additional writer, and
+  Circle roles; checks legal hold before provider inventory; locks affected family
+  writes/membership; preserves shared family records with nullable authorship;
+  minimizes billing/legal rows; and hard-deletes Supabase Auth through a
+  service-only Edge boundary. Its aggregate ledger contains no content, paths, OTP,
+  private candidates, Photos identifiers, face evidence, fingerprints, rationale,
+  rejects, or drafts.
+- Supabase Storage, Cloudflare Stream, R2 originals, and Stripe are cleaned before
+  database finalization. Interrupted Stream direct uploads persist their provider
+  UID. R2 cleanup inventories and verifies the complete family prefix and writes a
+  non-content deletion marker first, so a valid short-lived media token cannot serve
+  a stale cached original.
+- Fresh migration replay and schema lint passed. Account deletion pgTAP passed
+  `39/39`; all database contracts passed `133/133`; legacy opaque-identity replay
+  passed `6/6`; Edge/Worker Deno tests passed `10/10`; mobile tests passed
+  `448/448`; repository lint/typecheck/build, web production build, Expo lint,
+  Expo Doctor `20/20`, Wrangler dry-run, and `git diff --check` passed.
+- The real local HTTP rehearsal used only synthetic users/families, Mailpit OTP,
+  PostgREST, Storage, Edge orchestration, database finalization, and Auth deletion.
+  It deleted the sole family and its object, preserved the shared family/object and
+  remaining writer, removed the target membership, nulled shared attribution, and
+  made the deleted Auth user unavailable.
+- Provider readback found no Supabase preview branch; production has the prior
+  `create-stream-upload` but no `delete-account`, and the current media Worker
+  predates this work. Latest EAS store build `1.1.0` (`1.1.11`) is from base
+  `5560b74` and does not contain deletion. The deterministic mobile smoke passed
+  `25/25`, then Maestro stopped because the authorized local
+  `OLW_SMOKE_DEV_CODE` profile is absent.
+- Remaining release gates are deliberately separate: representative
+  non-production provider rehearsal, secret configuration, authorized deployments,
+  a clean signed internal build, and synthetic physical-device/two-installation
+  deletion proof. Public marketing must not claim in-app deletion until those gates
+  pass.
+
 ## Curated Memory Library audit and delivery plan (2026-07-18)
 
 - Audited the current mobile routes, Today/Add/Our World flows, scan/checkpoint lifecycle, local media database, review state, day-first curation, best-photo and video models, moment enrichment, family-library contract, notifications, analytics, and supporting Supabase schema against the requested daily plus historical curated-memory vision.
