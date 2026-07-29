@@ -1409,6 +1409,36 @@ h3,
   word-break: break-word;
 }
 
+.checkout-completion {
+  display: grid;
+  gap: 14px;
+}
+
+.checkout-completion p {
+  margin: 0;
+}
+
+.checkout-install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.checkout-install-actions .button,
+.checkout-completion > .button,
+.pending-claim .button {
+  width: fit-content;
+}
+
+.pending-claim {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 18px;
+}
+
 .final-cta {
   padding: 92px 0;
   text-align: center;
@@ -1450,7 +1480,8 @@ h3,
   text-transform: uppercase;
 }
 
-.footer-cols a {
+.footer-cols a,
+.footer-link-button {
   display: block;
   color: var(--ink-soft);
   font-size: 14px;
@@ -1458,8 +1489,58 @@ h3,
   padding: 5px 0;
 }
 
-.footer-cols a:hover {
+.footer-link-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.footer-cols a:hover,
+.footer-link-button:hover {
   color: var(--primary);
+}
+
+.analytics-consent {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px;
+  align-items: center;
+  width: min(720px, calc(100vw - 40px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.analytics-consent p {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.analytics-consent .analytics-consent-title {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.analytics-consent-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.analytics-consent-actions .button {
+  min-height: 44px;
+  padding: 10px 16px;
+  white-space: nowrap;
 }
 
 .footer-base {
@@ -1702,6 +1783,18 @@ h3,
 }
 
 @media (max-width: 520px) {
+  .analytics-consent {
+    right: 12px;
+    bottom: 12px;
+    grid-template-columns: 1fr;
+    width: calc(100vw - 24px);
+  }
+
+  .analytics-consent-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
   .brand-link {
     min-width: 0;
     font-size: 21px;

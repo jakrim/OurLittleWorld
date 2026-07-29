@@ -2,16 +2,29 @@ import { Linking, Platform } from 'react-native';
 import { deepLinkToSubscriptions } from 'expo-iap';
 
 import { supabase } from './supabase';
+import {
+  FAMILY_MONTHLY_PRODUCT_ID,
+  FAMILY_PRODUCT_IDS,
+  FAMILY_YEARLY_PRODUCT_ID,
+  SUBSCRIPTION_GROUP_ID_IOS,
+  SUBSCRIPTION_PRODUCT_IDS,
+  VAULT_MONTHLY_PRODUCT_ID,
+  VAULT_PRODUCT_IDS,
+  VAULT_YEARLY_PRODUCT_ID,
+} from './subscriptionProducts';
 export { hasReadOnlyArchiveAccess, READ_ONLY_ARCHIVE_STATUSES } from './entitlementAccessModel';
+export {
+  FAMILY_MONTHLY_PRODUCT_ID,
+  FAMILY_PRODUCT_IDS,
+  FAMILY_YEARLY_PRODUCT_ID,
+  SUBSCRIPTION_GROUP_ID_IOS,
+  SUBSCRIPTION_PRODUCT_IDS,
+  VAULT_MONTHLY_PRODUCT_ID,
+  VAULT_PRODUCT_IDS,
+  VAULT_YEARLY_PRODUCT_ID,
+};
 
 export const SUPPORT_EMAIL = 'support@ourlittleworld.me';
-export const FAMILY_MONTHLY_PRODUCT_ID = 'olw.family.monthly';
-export const FAMILY_YEARLY_PRODUCT_ID = 'olw.family.yearly';
-export const VAULT_MONTHLY_PRODUCT_ID = 'olw.vault.monthly';
-export const VAULT_YEARLY_PRODUCT_ID = 'olw.vault.yearly';
-export const FAMILY_PRODUCT_IDS = [FAMILY_MONTHLY_PRODUCT_ID, FAMILY_YEARLY_PRODUCT_ID];
-export const VAULT_PRODUCT_IDS = [VAULT_MONTHLY_PRODUCT_ID, VAULT_YEARLY_PRODUCT_ID];
-export const SUBSCRIPTION_PRODUCT_IDS = [...FAMILY_PRODUCT_IDS, ...VAULT_PRODUCT_IDS];
 
 // Family-tier defaults, used until the entitlement row carries quota fields.
 const DEFAULT_QUOTAS = {

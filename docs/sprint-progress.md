@@ -1362,3 +1362,79 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   checks and then stopped as designed because `OLW_SMOKE_DEV_CODE` was not present in
   the authorized local profile. The remaining proof is a signed internal build on the
   physical iPhone with its real iCloud-backed library.
+
+### Age-aware starting-photo discovery and recovery (2026-07-24)
+
+- Replaced the fixed three-month automatic-reference requirement with an
+  age-aware, parent-confirmed evidence policy. A baby in the first 13 days can
+  produce a possible match from two repeated photos available that day; weeks
+  2–8 compare distinct days; roughly months 2–6 compare distinct weeks; and
+  older babies use the existing three-month coverage rule. Automatic selection
+  remains only a possible match until the parent confirms it.
+- When the local scan finds clear faces but cannot choose safely, it now returns
+  at most three measured, single-face representatives from distinct local
+  clusters. The screen shows the real library photos as explicitly unconfirmed
+  possibilities, lets the parent choose one, and keeps the native Photos picker
+  as an equal recovery path. It no longer discards useful scan output into an
+  empty picker.
+- Added a family-and-user-scoped local attempt record with a 24-hour expiry.
+  Suggestions, selection, terminal fallback, and cancellation remain on device.
+  Leaving for setup and returning resumes the same result; only `Try automatic
+  search again` starts another pass. The First Value Back action now routes to
+  setup through an allowed gate instead of returning to a guarded route that
+  immediately remounted `/reference?autoSeed=1`.
+- Named tunables: three maximum fallback suggestions, `0.45` minimum suggestion
+  quality, two same-day photos for days 0–13, two distinct days through day 55,
+  three distinct weeks through day 183, and three months afterward. All paths
+  still fail closed and require a parent decision.
+- Verification: 24 focused discovery/model/navigation tests passed; full mobile
+  TypeScript plus all 460 unit tests passed; CI Expo lint passed. On the existing
+  synthetic-only iPhone 16 Pro simulator, Maestro selected a real photo-library
+  item, left for setup, returned with the photo and choice intact without a new
+  progress scan, and opened the native Photos picker. Evidence is ignored at
+  `tmp/maestro-reference-proof/screenshots/reference-real-photo-selected.png`,
+  `reference-resumed-without-rescan.png`, and
+  `reference-native-photo-picker.png`. No personal media, production data,
+  remote service, build, push, or deployment was touched.
+
+### Automatic reference setup and First Look hang recovery (2026-07-28)
+
+- Removed the redundant full-library-looking transition after automatic reference
+  confirmation. A confident local cluster now prepares a second real photo from
+  that same confirmed cluster for First Look, so `Yes, this is <child>` can show
+  useful proof immediately. If no safe second photo exists, the existing bounded
+  First Look scan remains the fallback; no generated or placeholder baby image is
+  used.
+- Simplified the active setup screen to one calm promise: find one clear photo,
+  suggest it, and ask the parent to confirm. While automatic setup is running it
+  no longer shows library totals, technical percentages, face counts, `Step 1 of
+  2`, or competing manual-picker controls. The native picker appears only when
+  automatic setup cannot decide safely.
+- Kept discovery age-aware. Newborns can qualify from two repeated same-day photos,
+  weeks-old babies use distinct days, young infants use distinct weeks, and older
+  babies use monthly evidence. The bounded sampling order now mixes birth, age,
+  and recent windows and always includes both earliest-available and newer-facing
+  reads instead of spending the whole budget in one period.
+- Added independent fail-safe limits to both stages. Automatic setup samples at
+  most 24 items, analyzes in 12-item waves with three concurrent requests, stops
+  starting native work after an individual four-second media timeout, has a
+  22-second analysis budget, and exits the screen by a 24-second watchdog. First
+  Look remains capped at 48 photos and roughly 24 seconds, with an independent
+  26-second screen watchdog that treats cancellation as a finished, recoverable
+  state. Scan copy now describes a short private search instead of implying that
+  thousands of library items must complete.
+- Simulator proof on `OLW Marketing Capture 16 Pro` covered the simplified active
+  screen, automatic fallback within the watchdog, a real synthetic baby-photo
+  possibility, parent confirmation, and a completed no-match First Look without
+  hanging. Ignored evidence is under
+  `tmp/maestro-reference-proof/screenshots/reference-auto-running-simplified-final.png`,
+  `reference-auto-fast-fallback-2026-07-28.png`, and
+  `reference-manual-fallback-finished-without-hang-2026-07-28.png`.
+- Verification: 50 focused discovery/matcher/pacing/privacy tests passed; mobile
+  TypeScript plus all 461 unit tests passed; CI Expo lint, repository typecheck,
+  `pnpm agent:validate`, and `git diff --check` passed. `pnpm smoke:mobile`
+  passed all 25 deterministic checks and then stopped at the documented
+  `OLW_SMOKE_DEV_CODE` local-profile gate. No personal media, production data,
+  remote service, commit, push, build, TestFlight submission, or deployment was
+  touched. The existing TestFlight binary still needs a new native build before
+  these fixes can be checked against the physical 4,351-item iCloud library.

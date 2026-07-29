@@ -232,7 +232,10 @@ export default function LetterComposeSheetScreen() {
             setSaving(true);
             await completeSave(letter, { videoPosterOnly: true });
           },
-          onSeeVault: () => router.push('/purchase'),
+          onSeeVault: () => router.push({
+            pathname: '/purchase',
+            params: { source: 'feature_gate', returnTo: '/letters' },
+          }),
         });
         return;
       }

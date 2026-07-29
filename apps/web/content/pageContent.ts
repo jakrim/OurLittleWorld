@@ -53,6 +53,40 @@ export const pageContent = {
   home: rawPageContent.home,
   pricing: rawPageContent.pricing
     .replace(
+      '<a class="button button-primary button-full" href="#checkout">Choose Family</a>',
+      '<a class="button button-primary button-full" href="#checkout" data-plan-choice="family_yearly">Choose Family yearly</a>',
+    )
+    .replace(
+      '<a class="button button-ghost button-full" href="#checkout">Choose Vault</a>',
+      '<a class="button button-ghost button-full" href="#checkout" data-plan-choice="vault_yearly">Choose Vault yearly</a>',
+    )
+    .replace(
+      'Enter a few details, choose a plan, and continue to secure checkout for your private family space.',
+      'Choose a plan, enter your email, and continue to secure checkout. You can add your name and family details in the app.',
+    )
+    .replace(
+      `            <div class="field">
+              <label for="parent-name">Your name</label>
+              <input id="parent-name" name="name" autocomplete="name" required>
+            </div>
+`,
+      '',
+    )
+    .replace(
+      `            <div class="field">
+              <label for="child-stage">Where are you starting?</label>
+              <select id="child-stage" name="stage" required>
+                <option value="">Choose one</option>
+                <option>Expecting</option>
+                <option>Newborn</option>
+                <option>First year</option>
+                <option>Toddler years</option>
+              </select>
+            </div>
+`,
+      '',
+    )
+    .replace(
       'Family is built for the private baby book most parents will keep up with. Vault adds room for longer videos and original-quality backup for selected memories.',
       `Family is built for the private baby book most parents will keep up with. Vault adds room for longer videos and original-quality backup for selected memories. ${exportPolicyCopy.lapsedVault}`,
     )

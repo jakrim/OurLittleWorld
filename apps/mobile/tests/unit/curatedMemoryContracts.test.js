@@ -291,11 +291,12 @@ test('First Look native analysis is one-pass, bounded, cancellable and fail-clos
   assert.match(firstValue, /FIRST_VALUE_NATIVE_MATCH_BATCH_TIMEOUT_MS/);
   assert.match(firstValue, /maxPhotoAssets: FIRST_VALUE_SCAN_MAX_PHOTOS/);
   assert.match(firstValue, /maxScanDurationMs: FIRST_VALUE_SCAN_MAX_DURATION_MS/);
+  assert.match(firstValue, /FIRST_VALUE_SCAN_WATCHDOG_MS/);
   assert.match(firstValue, /includeVideos: false/);
   assert.match(firstValue, /isFirstValueReferenceEcho/);
   assert.match(firstValue, /onPreviewReady\?\.\(preview\)/);
   assert.match(scanScreen, /if \(params\.source === 'first_value'\) firstValueRequestedRef\.current = true/);
-  assert.match(scanScreen, /\['done', 'failed'\]\.includes\(scan\.phase\) && !firstValueReady/);
+  assert.match(scanScreen, /\['done', 'failed', 'aborted'\]\.includes\(scan\.phase\) && !firstValueReady/);
   assert.doesNotMatch(firstValue, /supabase|analytics|Sentry|PostHog/);
 });
 

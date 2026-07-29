@@ -1,344 +1,370 @@
 from pathlib import Path
-import math
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "app-store" / "screenshots"
-IPHONE_DIR = OUT / "iphone-65"
-IPAD_DIR = OUT / "ipad-pro-129"
+APP_STORE_DIR = ROOT / "app-store"
+SOURCE_DIR = APP_STORE_DIR / "source-ui" / "iphone-16-pro"
+OUT_DIR = APP_STORE_DIR / "screenshots" / "iphone-65"
+REVIEW_DIR = APP_STORE_DIR / "review"
 
-CREAM = "#fbf5ee"
-PEACH = "#f4d5ca"
-TERRACOTTA = "#c96f4f"
-INK = "#2d221f"
-MUTED = "#7b625a"
-PLUM = "#5f4351"
-MOSS = "#7d987b"
-SAGE = "#dfe8d8"
-GOLD = "#d6a14c"
+CANVAS_SIZE = (1284, 2778)
+CREAM = "#fbf6f0"
+INK = "#2d211e"
+MUTED = "#78675f"
+TERRACOTTA = "#c96b4b"
+PLUM = "#6f4e5e"
+MOSS = "#748b75"
+GOLD = "#b9893e"
 WHITE = "#fffdf9"
-LINE = "#eadbd2"
+LINE = "#eadbd1"
 
+FONT_DIR = ROOT / "node_modules" / "@expo-google-fonts"
+NEWSREADER = FONT_DIR / "newsreader" / "500Medium" / "Newsreader_500Medium.ttf"
+MANROPE_REG = FONT_DIR / "manrope" / "400Regular" / "Manrope_400Regular.ttf"
+MANROPE_SEMI = FONT_DIR / "manrope" / "600SemiBold" / "Manrope_600SemiBold.ttf"
+MANROPE_BOLD = FONT_DIR / "manrope" / "700Bold" / "Manrope_700Bold.ttf"
+BALQIS = ROOT / "assets" / "fonts" / "Balqis.ttf"
 
-def font(path, size):
-    return ImageFont.truetype(str(ROOT / path), size=size)
-
-
-FONT_DISPLAY = ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", 84)
-FONT_DISPLAY_BIG = ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", 98)
-FONT_BRAND = font("assets/fonts/Balqis.ttf", 70)
-FONT_BODY = font("assets/fonts/DMSans-BoldItalic.ttf", 34)
-FONT_BODY_REG = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 32)
-FONT_BODY_BOLD = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 34)
-FONT_SMALL = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 26)
-FONT_SMALL_BOLD = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 26)
-FONT_TINY_BOLD = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 22)
-
+LEGACY_IPHONE_FILES = {
+    "01-baby-book.png",
+    "02-timeline.png",
+    "03-firsts.png",
+    "04-letters.png",
+    "05-library.png",
+}
 
 SLIDES = [
     {
-        "name": "01-baby-book",
-        "headline": "Private baby book\nfor the early years.",
-        "subhead": "Save photos, firsts, notes, voice memories, and family letters in one shared space.",
-        "screen": "welcome",
+        "name": "01-you-decide",
+        "source": "01-discovery.png",
+        "eyebrow": "PRIVATE PHOTO DISCOVERY",
+        "headline": "Likely moments.\nYou decide what stays.",
+        "subhead": (
+            "If you allow photo access, discovery stays on this device until "
+            "you approve what belongs."
+        ),
+        "proof": "ON-DEVICE · PARENT APPROVED",
+        "accent": TERRACOTTA,
     },
     {
-        "name": "02-timeline",
-        "headline": "Photos, notes,\nand voice together.",
-        "subhead": "Keep the tiny context your camera roll cannot explain.",
-        "screen": "timeline",
+        "name": "02-one-calm-step",
+        "source": "02-today.png",
+        "eyebrow": "ONE CALM NEXT STEP",
+        "headline": "Remember more.\nDo less.",
+        "subhead": (
+            "Today brings the next prompt, First, review, or family-memory "
+            "action into one quiet place."
+        ),
+        "proof": "TODAY · ADD · OUR WORLD",
+        "accent": PLUM,
     },
     {
-        "name": "03-firsts",
-        "headline": "Save baby firsts\nas they happen.",
-        "subhead": "First smiles, steps, words, foods, and family milestones stay organized by age.",
-        "screen": "firsts",
+        "name": "03-capture-your-way",
+        "source": "03-add.png",
+        "eyebrow": "CAPTURE IT YOUR WAY",
+        "headline": "Photos. Notes.\nVoices. Letters.",
+        "subhead": (
+            "Add the moment before the details slip away—without required "
+            "titles, tags, or filing."
+        ),
+        "proof": "PHOTO · NOTE · VOICE · FIRST · LETTER",
+        "accent": TERRACOTTA,
     },
     {
-        "name": "04-letters",
-        "headline": "Write letters\nfor later.",
-        "subhead": "Save notes for your child or partner, kept in your private baby book.",
-        "screen": "letters",
+        "name": "04-held-together",
+        "source": "04-world.png",
+        "eyebrow": "ONE PRIVATE FAMILY RECORD",
+        "headline": "Everything you keep,\nheld together.",
+        "subhead": (
+            "Photos, words, voices, Firsts, and letters live in the same "
+            "private family world."
+        ),
+        "proof": "NO PUBLIC FEED",
+        "accent": MOSS,
     },
     {
-        "name": "05-library",
-        "headline": "Private family archive.\nNo public feed.",
-        "subhead": "Search and revisit moments by day, place, and memory without likes or algorithms.",
-        "screen": "library",
+        "name": "05-story-behind-photo",
+        "source": "05-moment.png",
+        "eyebrow": "CONTEXT THAT STAYS CONNECTED",
+        "headline": "Keep the story\nbehind the photo.",
+        "subhead": (
+            "Link a saved moment to a First, a letter, its place, and the day "
+            "it belongs to."
+        ),
+        "proof": "PHOTO · FIRST · LETTER · PLACE",
+        "accent": GOLD,
+    },
+    {
+        "name": "06-day-by-day",
+        "source": "06-timeline.png",
+        "eyebrow": "DAY BY DAY · MONTH BY MONTH",
+        "headline": "Watch your family\nstory take shape.",
+        "subhead": (
+            "Browse saved days and a timeline that grows only from moments "
+            "your family keeps."
+        ),
+        "proof": "ONLY PARENT-KEPT MOMENTS",
+        "accent": PLUM,
+    },
+    {
+        "name": "07-find-again",
+        "source": "07-places.png",
+        "eyebrow": "LESS FILING · MORE FINDING",
+        "headline": "Find the moments\nyou meant to revisit.",
+        "subhead": (
+            "Browse by month, place, collection, or search—without a public "
+            "feed deciding what matters."
+        ),
+        "proof": "MONTHS · PLACES · COLLECTIONS · SEARCH",
+        "accent": MOSS,
+    },
+    {
+        "name": "08-private-export",
+        "source": "08-export.png",
+        "eyebrow": "YOUR FAMILY RECORD",
+        "headline": "Private by design.\nExportable by you.",
+        "subhead": (
+            "Build a family archive PDF or share a private summary. No likes, "
+            "followers, or public link."
+        ),
+        "proof": "PDF ARCHIVE · PRIVATE SUMMARY",
+        "accent": TERRACOTTA,
     },
 ]
 
 
-def mkdirs():
-    IPHONE_DIR.mkdir(parents=True, exist_ok=True)
-    IPAD_DIR.mkdir(parents=True, exist_ok=True)
+def load_font(path, size):
+    return ImageFont.truetype(str(path), size=size)
 
 
-def text_size(draw, text, fnt):
-    box = draw.textbbox((0, 0), text, font=fnt)
-    return box[2] - box[0], box[3] - box[1]
+FONT_HEADLINE = load_font(NEWSREADER, 86)
+FONT_SUBHEAD = load_font(MANROPE_REG, 31)
+FONT_EYEBROW = load_font(MANROPE_BOLD, 23)
+FONT_PROOF = load_font(MANROPE_BOLD, 20)
+FONT_SAMPLE = load_font(MANROPE_SEMI, 18)
+FONT_BRAND = load_font(BALQIS, 56)
+FONT_REVIEW_TITLE = load_font(NEWSREADER, 48)
+FONT_REVIEW_LABEL = load_font(MANROPE_SEMI, 18)
 
 
-def draw_center(draw, xy, text, fnt, fill, spacing=8):
-    x, y, w = xy
-    lines = text.split("\n")
-    total_h = sum(text_size(draw, line, fnt)[1] for line in lines) + spacing * (len(lines) - 1)
-    cy = y
-    for line in lines:
-        tw, th = text_size(draw, line, fnt)
-        draw.text((x + (w - tw) / 2, cy), line, font=fnt, fill=fill)
-        cy += th + spacing
-    return total_h
+def hex_rgb(value):
+    value = value.lstrip("#")
+    return tuple(int(value[index:index + 2], 16) for index in (0, 2, 4))
 
 
-def wrap_text(draw, text, fnt, max_w):
-    words = text.split()
+def mix(left, right, amount):
+    a = hex_rgb(left)
+    b = hex_rgb(right)
+    values = tuple(round(a[index] * (1 - amount) + b[index] * amount) for index in range(3))
+    return "#" + "".join(f"{value:02x}" for value in values)
+
+
+def make_gradient(size, accent):
+    width, height = size
+    top = hex_rgb(mix(CREAM, accent, 0.16))
+    bottom = hex_rgb(CREAM)
+    image = Image.new("RGB", size)
+    draw = ImageDraw.Draw(image)
+    for y in range(height):
+        ratio = min(1.0, y / max(1, height * 0.62))
+        color = tuple(round(top[index] * (1 - ratio) + bottom[index] * ratio) for index in range(3))
+        draw.line((0, y, width, y), fill=color)
+    return image.convert("RGBA")
+
+
+def draw_decor(base, accent):
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    accent_rgb = hex_rgb(accent)
+    draw.ellipse((930, -190, 1460, 340), fill=(*accent_rgb, 22))
+    draw.ellipse((-260, 500, 260, 1020), fill=(*accent_rgb, 14))
+    draw.arc((880, -110, 1390, 400), start=82, end=268, fill=(*accent_rgb, 54), width=3)
+    draw.line((84, 118, 1200, 118), fill=(*hex_rgb(LINE), 130), width=2)
+    base.alpha_composite(overlay)
+
+
+def text_width(draw, value, font):
+    bounds = draw.textbbox((0, 0), value, font=font)
+    return bounds[2] - bounds[0]
+
+
+def wrap_lines(draw, value, font, max_width):
     lines = []
-    current = ""
-    for word in words:
-        test = word if not current else f"{current} {word}"
-        if text_size(draw, test, fnt)[0] <= max_w:
-            current = test
-        else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
+    for paragraph in value.split("\n"):
+        words = paragraph.split()
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if text_width(draw, candidate, font) <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
     return lines
 
 
-def draw_wrapped(draw, x, y, text, fnt, fill, max_w, spacing=10):
-    for line in wrap_text(draw, text, fnt, max_w):
-        draw.text((x, y), line, font=fnt, fill=fill)
-        y += text_size(draw, line, fnt)[1] + spacing
+def draw_wrapped(draw, xy, value, font, fill, max_width, spacing):
+    x, y = xy
+    lines = wrap_lines(draw, value, font, max_width)
+    line_height = draw.textbbox((0, 0), "Ag", font=font)[3]
+    for line in lines:
+        draw.text((x, y), line, font=font, fill=fill)
+        y += line_height + spacing
     return y
 
 
-def rounded_shadow(base, box, radius, shadow=22):
-    x0, y0, x1, y1 = box
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    ld = ImageDraw.Draw(layer)
-    ld.rounded_rectangle((x0, y0, x1, y1), radius=radius, fill=(78, 42, 25, 42))
-    layer = layer.filter(ImageFilter.GaussianBlur(shadow))
-    base.alpha_composite(layer)
+def draw_multiline(draw, xy, value, font, fill, spacing):
+    x, y = xy
+    draw.multiline_text((x, y), value, font=font, fill=fill, spacing=spacing)
+    bounds = draw.multiline_textbbox((x, y), value, font=font, spacing=spacing)
+    return bounds[3]
 
 
-def draw_device(draw, base, x, y, w, h, screen_kind):
-    rounded_shadow(base, (x, y, x + w, y + h), int(w * 0.105), 30)
-    draw.rounded_rectangle((x, y, x + w, y + h), radius=int(w * 0.105), fill="#201817")
-    pad = int(w * 0.035)
-    sx, sy = x + pad, y + pad
-    sw, sh = w - 2 * pad, h - 2 * pad
-    draw.rounded_rectangle((sx, sy, sx + sw, sy + sh), radius=int(w * 0.075), fill=CREAM)
-    draw.rounded_rectangle((x + w * 0.34, y + pad * 0.45, x + w * 0.66, y + pad * 1.55), radius=int(pad * 0.55), fill="#070707")
-    draw_app_screen(draw, base, sx, sy, sw, sh, screen_kind)
+def draw_pill(draw, xy, text, accent):
+    x, y = xy
+    width = text_width(draw, text, FONT_PROOF) + 48
+    height = 50
+    draw.rounded_rectangle(
+        (x, y, x + width, y + height),
+        radius=25,
+        fill=mix(CREAM, accent, 0.22),
+        outline=mix(CREAM, accent, 0.48),
+        width=2,
+    )
+    draw.text((x + 24, y + 13), text, font=FONT_PROOF, fill=accent)
+    return width
 
 
-def draw_tablet(draw, base, x, y, w, h, screen_kind):
-    rounded_shadow(base, (x, y, x + w, y + h), int(w * 0.055), 34)
-    draw.rounded_rectangle((x, y, x + w, y + h), radius=int(w * 0.055), fill="#201817")
-    pad = int(w * 0.028)
-    sx, sy = x + pad, y + pad
-    sw, sh = w - 2 * pad, h - 2 * pad
-    draw.rounded_rectangle((sx, sy, sx + sw, sy + sh), radius=int(w * 0.035), fill=CREAM)
-    column_w = min(720, int(sw * 0.52))
-    column_x = int(sx + (sw - column_w) / 2)
-    draw_app_screen(draw, base, column_x, sy, column_w, sh, screen_kind, tablet=False)
+def rounded_image(image, radius):
+    mask = Image.new("L", image.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, image.width, image.height), radius=radius, fill=255)
+    output = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    output.paste(image, (0, 0), mask)
+    return output
 
 
-def draw_brand(base, x, y, size):
-    icon = Image.open(ROOT / "assets" / "brand" / "icon.png").convert("RGBA")
-    icon = icon.resize((size, size), Image.Resampling.LANCZOS)
-    base.alpha_composite(icon, (x, y))
+def place_device(base, screenshot):
+    inner_width = 972
+    inner_height = round(inner_width * screenshot.height / screenshot.width)
+    inner_x = (base.width - inner_width) // 2
+    inner_y = 690
+    frame_padding = 15
+    frame = (
+        inner_x - frame_padding,
+        inner_y - frame_padding,
+        inner_x + inner_width + frame_padding,
+        inner_y + inner_height + frame_padding,
+    )
+
+    shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle(
+        (frame[0] - 6, frame[1] + 18, frame[2] + 6, frame[3] + 30),
+        radius=82,
+        fill=(55, 32, 25, 62),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(30))
+    base.alpha_composite(shadow)
+
+    draw = ImageDraw.Draw(base)
+    draw.rounded_rectangle(frame, radius=82, fill=INK)
+
+    resized = screenshot.resize((inner_width, inner_height), Image.Resampling.LANCZOS)
+    clipped = rounded_image(resized, radius=67)
+    base.alpha_composite(clipped, (inner_x, inner_y))
 
 
-def draw_app_screen(draw, base, x, y, w, h, kind, tablet=False):
-    scale = w / 640
-    margin = int(48 * scale)
-    draw.rounded_rectangle((x, y, x + w, y + h), radius=int(44 * scale), fill=CREAM)
-
-    if kind == "welcome":
-        draw_brand(base, int(x + w / 2 - 48 * scale), int(y + 88 * scale), int(96 * scale))
-        draw_center(draw, (x, y + 198 * scale, w), "our little world", FONT_BRAND if not tablet else font("assets/fonts/Balqis.ttf", int(48 * scale)), TERRACOTTA)
-        card = (x + margin, y + 370 * scale, x + w - margin, y + 680 * scale)
-        draw_card(draw, card, "10 MONTHS", "Crawls, claps, tiny routines", ["Photos from day one", "Firsts, notes, growth"])
-        draw_center(draw, (x + margin, y + 760 * scale, w - 2 * margin), "DIGITAL BABY BOOK", font("assets/fonts/DMSans-BoldItalic.ttf", int(22 * scale)), TERRACOTTA)
-        draw_center(draw, (x + margin, y + 830 * scale, w - 2 * margin), "Your baby's story,\nkept from the very\nbeginning.", ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(48 * scale)), INK, 6)
-        draw_center(draw, (x + margin, y + 1110 * scale, w - 2 * margin), "Private for your family.\nNo feed. No algorithm.", ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(24 * scale)), MUTED, 8)
-        draw.rounded_rectangle((x + margin, y + h - 150 * scale, x + w - margin, y + h - 72 * scale), radius=int(40 * scale), fill=TERRACOTTA)
-        draw_center(draw, (x + margin, y + h - 128 * scale, w - 2 * margin), "Start your baby book", font("assets/fonts/DMSans-BoldItalic.ttf", int(27 * scale)), WHITE, 0)
-        return
-
-    draw.text((x + margin, y + 72 * scale), "our little world", font=font("assets/fonts/Balqis.ttf", int(42 * scale)), fill=TERRACOTTA)
-    if kind == "timeline":
-        draw.text((x + margin, y + 150 * scale), "Theo's world", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(50 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "today", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(22 * scale)), fill=TERRACOTTA)
-        draw_prompt(draw, x + margin, y + 280 * scale, w - 2 * margin, scale)
-        draw_photo_grid(draw, x + margin, y + 560 * scale, w - 2 * margin, scale)
-        draw_timeline(draw, x + margin, y + 920 * scale, w - 2 * margin, scale)
-    elif kind == "firsts":
-        draw.text((x + margin, y + 150 * scale), "firsts so far.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(50 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "The little doors they walk through.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
-        entries = [("First laugh", "June 10", MOSS), ("First solid food", "May 28", GOLD), ("First stand", "Saved today", TERRACOTTA), ("First trip", "Brooklyn", PLUM)]
-        yy = y + 300 * scale
-        for title, detail, color in entries:
-            draw_first(draw, x + margin, yy, w - 2 * margin, scale, title, detail, color)
-            yy += 165 * scale
-    elif kind == "letters":
-        draw.text((x + margin, y + 150 * scale), "letters for later.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(50 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "Small notes, kept with the story.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
-        yy = y + 315 * scale
-        letters = [("About your laugh", "Saved with today's story."), ("For next birthday", "A note for later."), ("The day you crawled", "Saved after bedtime.")]
-        for title, detail in letters:
-            draw_letter(draw, x + margin, yy, w - 2 * margin, scale, title, detail)
-            yy += 210 * scale
-    elif kind == "library":
-        draw.text((x + margin, y + 150 * scale), "a quieter archive.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(48 * scale)), fill=INK)
-        draw.text((x + margin, y + 222 * scale), "Photos, places, and saved moments.", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(22 * scale)), fill=MUTED)
-        draw_search(draw, x + margin, y + 292 * scale, w - 2 * margin, scale)
-        draw_album(draw, x + margin, y + 430 * scale, w - 2 * margin, scale)
-        draw_places(draw, x + margin, y + 925 * scale, w - 2 * margin, scale)
+def draw_brand(base, draw):
+    draw.text((82, 52), "our little world", font=FONT_BRAND, fill=TERRACOTTA)
+    icon_path = ROOT / "assets" / "brand" / "icon.png"
+    icon = Image.open(icon_path).convert("RGBA").resize((74, 74), Image.Resampling.LANCZOS)
+    base.alpha_composite(icon, (1118, 40))
 
 
-def draw_card(draw, box, eyebrow, title, rows):
-    x0, y0, x1, y1 = box
-    draw.rounded_rectangle(box, radius=48, fill=WHITE, outline="#ffffff", width=3)
-    draw.rectangle((x0 + 42, y0 + 42, x0 + 48, y1 - 42), fill=PEACH)
-    draw.text((x0 + 92, y0 + 56), eyebrow, font=FONT_TINY_BOLD, fill=TERRACOTTA)
-    draw_wrapped(draw, x0 + 92, y0 + 94, title, FONT_BODY_BOLD, INK, x1 - x0 - 150, 6)
-    yy = y0 + 178
-    for row in rows:
-        draw.ellipse((x0 + 92, yy, x0 + 130, yy + 38), fill="#f8eee8")
-        draw.text((x0 + 152, yy + 2), row, font=FONT_SMALL_BOLD, fill=MUTED)
-        yy += 62
+def render_slide(slide):
+    source_path = SOURCE_DIR / slide["source"]
+    if not source_path.exists():
+        raise FileNotFoundError(f"Missing source capture: {source_path}")
+
+    base = make_gradient(CANVAS_SIZE, slide["accent"])
+    draw_decor(base, slide["accent"])
+    draw = ImageDraw.Draw(base)
+    draw_brand(base, draw)
+
+    draw.text((82, 139), slide["eyebrow"], font=FONT_EYEBROW, fill=slide["accent"])
+    headline_bottom = draw_multiline(
+        draw,
+        (82, 178),
+        slide["headline"],
+        FONT_HEADLINE,
+        INK,
+        spacing=3,
+    )
+    subhead_bottom = draw_wrapped(
+        draw,
+        (84, headline_bottom + 24),
+        slide["subhead"],
+        FONT_SUBHEAD,
+        MUTED,
+        max_width=1070,
+        spacing=8,
+    )
+    pill_y = min(622, subhead_bottom + 22)
+    draw_pill(draw, (84, pill_y), slide["proof"], slide["accent"])
+    sample_text = "SAMPLE STORY · FAMILY PHOTOS USED WITH PERMISSION"
+    sample_width = text_width(draw, sample_text, FONT_SAMPLE)
+    draw.text((1200 - sample_width, pill_y + 16), sample_text, font=FONT_SAMPLE, fill=MUTED)
+
+    screenshot = Image.open(source_path).convert("RGBA")
+    place_device(base, screenshot)
+    return base.convert("RGB")
 
 
-def draw_prompt(draw, x, y, w, scale):
-    h = 220 * scale
-    draw.rounded_rectangle((x, y, x + w, y + h), radius=int(34 * scale), fill=WHITE)
-    draw.text((x + 32 * scale, y + 28 * scale), "DAILY PROMPT", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(20 * scale)), fill=TERRACOTTA)
-    draw_wrapped(draw, x + 32 * scale, y + 72 * scale, "What tiny thing do you want to remember about today?", ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", int(32 * scale)), INK, w - 64 * scale, int(6 * scale))
-    draw.rounded_rectangle((x + 32 * scale, y + h - 64 * scale, x + 210 * scale, y + h - 24 * scale), radius=int(20 * scale), fill=SAGE)
-    draw.text((x + 56 * scale, y + h - 56 * scale), "Add note", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(18 * scale)), fill="#49644a")
-
-
-def draw_photo_grid(draw, x, y, w, scale):
-    gap = 14 * scale
-    size = (w - 2 * gap) / 3
-    colors = [PEACH, SAGE, "#efd7a4", "#e5c4cd", "#d8e1ef", "#ead9cc"]
-    for i in range(6):
-        cx = x + (i % 3) * (size + gap)
-        cy = y + (i // 3) * (size + gap)
-        draw.rounded_rectangle((cx, cy, cx + size, cy + size), radius=int(22 * scale), fill=colors[i])
-        draw.ellipse((cx + size * 0.18, cy + size * 0.15, cx + size * 0.46, cy + size * 0.43), fill=WHITE)
-        draw.rounded_rectangle((cx + size * 0.12, cy + size * 0.58, cx + size * 0.88, cy + size * 0.78), radius=int(10 * scale), fill=(255, 255, 255))
-
-
-def draw_timeline(draw, x, y, w, scale):
-    draw.text((x, y), "Recent moments", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(24 * scale)), fill=INK)
-    yy = y + 56 * scale
-    for title, detail, color in [("First park morning", "4 photos saved", MOSS), ("Late-night note", "A tiny laugh after bath", TERRACOTTA), ("Weekly digest", "Sunday memory set", GOLD)]:
-        draw.rounded_rectangle((x, yy, x + w, yy + 96 * scale), radius=int(24 * scale), fill=WHITE)
-        draw.ellipse((x + 22 * scale, yy + 22 * scale, x + 74 * scale, yy + 74 * scale), fill=color)
-        draw.text((x + 96 * scale, yy + 18 * scale), title, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(22 * scale)), fill=INK)
-        draw.text((x + 96 * scale, yy + 52 * scale), detail, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(18 * scale)), fill=MUTED)
-        yy += 116 * scale
-
-
-def draw_first(draw, x, y, w, scale, title, detail, color):
-    draw.rounded_rectangle((x, y, x + w, y + 132 * scale), radius=int(28 * scale), fill=WHITE)
-    draw.ellipse((x + 24 * scale, y + 26 * scale, x + 102 * scale, y + 104 * scale), fill=color)
-    draw.text((x + 130 * scale, y + 28 * scale), title, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(27 * scale)), fill=INK)
-    draw.text((x + 130 * scale, y + 70 * scale), detail, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(20 * scale)), fill=MUTED)
-    draw.rounded_rectangle((x + w - 156 * scale, y + 42 * scale, x + w - 28 * scale, y + 90 * scale), radius=int(24 * scale), fill="#f8eee8")
-    draw.text((x + w - 126 * scale, y + 52 * scale), "Saved", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(17 * scale)), fill=TERRACOTTA)
-
-
-def draw_letter(draw, x, y, w, scale, title, detail):
-    draw.rounded_rectangle((x, y, x + w, y + 168 * scale), radius=int(30 * scale), fill=WHITE)
-    draw.rectangle((x + 32 * scale, y + 34 * scale, x + 38 * scale, y + 134 * scale), fill=PEACH)
-    draw.text((x + 64 * scale, y + 32 * scale), title, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(26 * scale)), fill=INK)
-    draw.text((x + 64 * scale, y + 76 * scale), detail, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(20 * scale)), fill=MUTED)
-    draw.rounded_rectangle((x + 64 * scale, y + 114 * scale, x + 226 * scale, y + 148 * scale), radius=int(17 * scale), fill=SAGE)
-    draw.text((x + 88 * scale, y + 121 * scale), "kept", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(16 * scale)), fill="#49644a")
-
-
-def draw_search(draw, x, y, w, scale):
-    draw.rounded_rectangle((x, y, x + w, y + 78 * scale), radius=int(28 * scale), fill=WHITE)
-    draw.ellipse((x + 28 * scale, y + 25 * scale, x + 56 * scale, y + 53 * scale), outline=MUTED, width=max(1, int(3 * scale)))
-    draw.line((x + 50 * scale, y + 48 * scale, x + 66 * scale, y + 64 * scale), fill=MUTED, width=max(1, int(3 * scale)))
-    draw.text((x + 88 * scale, y + 24 * scale), "Search-ready, not noisy", font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(20 * scale)), fill=MUTED)
-
-
-def draw_album(draw, x, y, w, scale):
-    draw.text((x, y), "Saved moments", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(24 * scale)), fill=INK)
-    y += 54 * scale
-    gap = 16 * scale
-    card_w = (w - gap) / 2
-    for i, title in enumerate(["Morning light", "Bath laughs", "Tiny hands", "Park blanket"]):
-        cx = x + (i % 2) * (card_w + gap)
-        cy = y + (i // 2) * (card_w * 0.82 + gap)
-        draw.rounded_rectangle((cx, cy, cx + card_w, cy + card_w * 0.82), radius=int(24 * scale), fill=[PEACH, SAGE, "#efd7a4", "#e5c4cd"][i])
-        draw.rounded_rectangle((cx + 18 * scale, cy + card_w * 0.58, cx + card_w - 18 * scale, cy + card_w * 0.74), radius=int(16 * scale), fill=(255, 255, 255))
-        draw.text((cx + 32 * scale, cy + card_w * 0.61), title, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(16 * scale)), fill=INK)
-
-
-def draw_places(draw, x, y, w, scale):
-    draw.text((x, y), "Places", font=font("assets/fonts/DMSans-BoldItalic.ttf", int(24 * scale)), fill=INK)
-    y += 50 * scale
-    for i, (place, count, color) in enumerate([("home", "122", MOSS), ("park", "34", GOLD), ("grandparents", "18", PLUM)]):
-        yy = y + i * 82 * scale
-        draw.rounded_rectangle((x, yy, x + w, yy + 64 * scale), radius=int(22 * scale), fill=WHITE)
-        draw.ellipse((x + 22 * scale, yy + 17 * scale, x + 52 * scale, yy + 47 * scale), fill=color)
-        draw.text((x + 72 * scale, yy + 18 * scale), place, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", int(19 * scale)), fill=INK)
-        draw.text((x + w - 78 * scale, yy + 18 * scale), count, font=font("assets/fonts/DMSans-BoldItalic.ttf", int(19 * scale)), fill=MUTED)
-
-
-def poster(size, slide, device="phone"):
-    W, H = size
-    img = Image.new("RGBA", (W, H), CREAM)
-    draw = ImageDraw.Draw(img)
-    for i in range(H):
-        t = i / H
-        r = int(251 * (1 - t) + 244 * t)
-        g = int(245 * (1 - t) + 213 * t)
-        b = int(238 * (1 - t) + 202 * t)
-        draw.line((0, i, W, i), fill=(r, g, b, 255))
-    draw.ellipse((-W * 0.22, H * 0.18, W * 0.52, H * 0.58), fill=(255, 255, 255, 70))
-    draw.ellipse((W * 0.57, H * 0.02, W * 1.18, H * 0.34), fill=(255, 255, 255, 58))
-
-    top = 132 if device == "phone" else 96
-    draw_center(draw, (80, top, W - 160), slide["headline"], FONT_DISPLAY_BIG if device == "phone" else ImageFont.truetype("/System/Library/Fonts/Supplemental/Georgia.ttf", 102), INK, 12)
-    sub_font = FONT_BODY_REG if device == "phone" else ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 40)
-    sub_y = top + (250 if device == "phone" else 250)
-    lines = wrap_text(draw, slide["subhead"], sub_font, W - 230)
-    yy = sub_y
-    for line in lines:
-        tw, th = text_size(draw, line, sub_font)
-        draw.text(((W - tw) / 2, yy), line, font=sub_font, fill=MUTED)
-        yy += th + 9
-
-    if device == "phone":
-        dw, dh = 690, 1495
-        dx, dy = (W - dw) // 2, H - dh - 170
-        draw_device(draw, img, dx, dy, dw, dh, slide["screen"])
-    else:
-        tw, th = 1540, 1690
-        dx, dy = (W - tw) // 2, H - th - 150
-        draw_tablet(draw, img, dx, dy, tw, th, slide["screen"])
-
-    return img.convert("RGB")
+def render_review_board(paths):
+    board = Image.new("RGB", (1240, 1440), "#eee7e1")
+    draw = ImageDraw.Draw(board)
+    draw.text((54, 36), "Our Little World · iPhone 6.5 screenshot story", font=FONT_REVIEW_TITLE, fill=INK)
+    thumb_width = 256
+    thumb_height = round(thumb_width * CANVAS_SIZE[1] / CANVAS_SIZE[0])
+    for index, path in enumerate(paths):
+        column = index % 4
+        row = index // 4
+        x = 54 + column * 296
+        y = 120 + row * 645
+        image = Image.open(path).convert("RGB").resize((thumb_width, thumb_height), Image.Resampling.LANCZOS)
+        board.paste(image, (x, y))
+        label = path.stem.replace("-", " ")
+        draw.text((x, y + thumb_height + 12), label, font=FONT_REVIEW_LABEL, fill=MUTED)
+    return board
 
 
 def main():
-    mkdirs()
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    REVIEW_DIR.mkdir(parents=True, exist_ok=True)
+
+    for filename in LEGACY_IPHONE_FILES:
+        path = OUT_DIR / filename
+        if path.exists():
+            path.unlink()
+
+    paths = []
     for slide in SLIDES:
-        poster((1284, 2778), slide, "phone").save(IPHONE_DIR / f"{slide['name']}.png", quality=96)
-        poster((2048, 2732), slide, "tablet").save(IPAD_DIR / f"{slide['name']}.png", quality=96)
-    print(f"Wrote {len(SLIDES)} iPhone screenshots to {IPHONE_DIR}")
-    print(f"Wrote {len(SLIDES)} iPad screenshots to {IPAD_DIR}")
+        output_path = OUT_DIR / f"{slide['name']}.png"
+        render_slide(slide).save(output_path, "PNG", optimize=True)
+        paths.append(output_path)
+
+    review_path = REVIEW_DIR / "iphone-65-storyboard.png"
+    render_review_board(paths).save(review_path, "PNG", optimize=True)
+
+    print(f"Wrote {len(paths)} real-UI iPhone screenshots to {OUT_DIR}")
+    print(f"Wrote review storyboard to {review_path}")
+    print("iPad screenshots were intentionally left unchanged pending a real iPad UI capture.")
 
 
 if __name__ == "__main__":

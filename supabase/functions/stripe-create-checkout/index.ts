@@ -1,4 +1,5 @@
 import {
+  checkoutAttributionFromInput,
   codeHint,
   corsHeaders,
   errorResponse,
@@ -9,6 +10,7 @@ import {
   planFromInput,
   readJson,
   requiredEnv,
+  setStripeMetadata,
   stripeFormRequest,
 } from '../_shared/billing.ts';
 
@@ -43,12 +45,13 @@ Deno.serve(async (req) => {
     params.set('metadata[stripe_price_id]', priceId);
     params.set('metadata[claim_code_hash]', claimCodeHash);
     params.set('metadata[claim_code_hint]', codeHint(claimCode));
-    params.set('metadata[name]', String(body.name || '').slice(0, 120));
-    params.set('metadata[stage]', String(body.stage || '').slice(0, 80));
     params.set('subscription_data[metadata][kind]', 'self_subscription');
     params.set('subscription_data[metadata][plan_key]', plan.planKey);
     params.set('subscription_data[metadata][claim_code_hash]', claimCodeHash);
     params.set('subscription_data[metadata][claim_code_hint]', codeHint(claimCode));
+    const attribution = checkoutAttributionFromInput(body);
+    setStripeMetadata(params, attribution);
+    setStripeMetadata(params, attribution, 'subscription_data[metadata]');
 
     const session = await stripeFormRequest('/v1/checkout/sessions', params);
     return json({ url: session.url });

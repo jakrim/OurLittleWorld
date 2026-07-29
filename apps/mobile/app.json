@@ -23,7 +23,7 @@
     "ios": {
       "icon": "./assets/brand/our-little-world.icon",
       "bundleIdentifier": "com.jessekrim.ourlittleworld",
-      "buildNumber": "1.1.7",
+      "buildNumber": "1.1.10",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Our Little World uses photo access for optional on-device discovery. Photos and videos you save are uploaded to your private family archive.",
@@ -61,7 +61,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/brand/adaptive-icon.png",
         "backgroundColor": "#FAF4EE"
-      }
+      },
+      "versionCode": 2
     },
     "plugins": [
       "./plugins/with-ios-scene-lifecycle",

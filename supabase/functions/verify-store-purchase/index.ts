@@ -157,8 +157,9 @@ async function verifyApplePurchase({
     throw new HttpError(402, 'Apple subscription is not active.');
   }
 
+  const isIntroTrial = productId === 'olw.family.yearly' && Number(transactionPayload.offerType) === 1;
   return {
-    status: 'active',
+    status: isIntroTrial ? 'trialing' : 'active',
     startsAt: msToIso(transactionPayload.purchaseDate || purchase.transactionDate) || new Date().toISOString(),
     expiresAt,
     graceEndsAt: null,
@@ -169,6 +170,7 @@ async function verifyApplePurchase({
     metadata: {
       app_account_token: transactionPayload.appAccountToken || null,
       environment: transactionPayload.environment || purchase.environmentIOS || null,
+      introductory_trial: isIntroTrial,
     },
   };
 }
@@ -217,9 +219,12 @@ async function verifyGooglePurchase({
     await googleAcknowledgeSubscription(productId, purchaseToken).catch(() => undefined);
   }
 
+  const startsAt = payload.startTime || (purchase.transactionDate ? msToIso(purchase.transactionDate) : new Date().toISOString());
+  const isIntroTrial = isGoogleIntroTrial({ payload, lineItem, productId, startsAt, expiresAt });
+  const mappedStatus = mapGoogleStatus(payload.subscriptionState);
   return {
-    status: mapGoogleStatus(payload.subscriptionState),
-    startsAt: purchase.transactionDate ? msToIso(purchase.transactionDate) : new Date().toISOString(),
+    status: mappedStatus === 'active' && isIntroTrial ? 'trialing' : mappedStatus,
+    startsAt,
     expiresAt,
     graceEndsAt: payload.subscriptionState === 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD' ? expiresAt : null,
     providerSubscriptionId: purchaseToken,
@@ -229,8 +234,31 @@ async function verifyGooglePurchase({
     metadata: {
       package_name: env('GOOGLE_PLAY_PACKAGE_NAME', purchase.packageNameAndroid || ''),
       acknowledgement_state: payload.acknowledgementState || null,
+      introductory_trial: isIntroTrial,
     },
   };
+}
+
+function isGoogleIntroTrial({
+  payload,
+  lineItem,
+  productId,
+  startsAt,
+  expiresAt,
+}: {
+  payload: Record<string, any>;
+  lineItem: Record<string, any>;
+  productId: string;
+  startsAt: string;
+  expiresAt: string;
+}) {
+  if (productId !== 'olw.family.yearly') return false;
+  const offer = lineItem.offerDetails || {};
+  const offerText = [offer.offerId, ...(offer.offerTags || [])].filter(Boolean).join(' ').toLowerCase();
+  if (offerText.includes('trial')) return true;
+  if (!offer.offerId && !(offer.offerTags || []).length) return false;
+  const periodMs = new Date(expiresAt).getTime() - new Date(startsAt || payload.startTime).getTime();
+  return Number.isFinite(periodMs) && periodMs > 0 && periodMs <= 21 * 86400000;
 }
 
 function mapGoogleStatus(state?: string) {

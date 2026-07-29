@@ -67,9 +67,11 @@ Production build:
 
 Screenshots:
 
-- iPhone 6.5-inch: `app-store/screenshots/iphone-65/`
-- iPad Pro 12.9-inch: `app-store/screenshots/ipad-pro-129/`
-- Uploaded to App Store Connect: yes
+- Replacement iPhone 6.5-inch set: `app-store/screenshots/iphone-65/`
+- Replacement set review: `app-store/review/index.html`
+- Existing iPad Pro 12.9-inch set: `app-store/screenshots/ipad-pro-129/`
+- App Store Connect still has the earlier iPhone and iPad sets; these replacement
+  iPhone assets have not been uploaded.
 
 ## Owner-Owned Remaining Items
 

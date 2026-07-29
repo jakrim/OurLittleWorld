@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -41,6 +41,7 @@ import { analyticsEnvironment, analyticsPlatform, childAgeBand } from './analyti
  */
 export default function SetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family, refresh } = useFamily();
   const { user } = useAuth();
@@ -113,6 +114,16 @@ export default function SetupScreen() {
   };
 
   const onBack = () => {
+    if (params.source === 'first_value') {
+      router.replace({
+        pathname: '/reference',
+        params: {
+          source: 'first_value',
+          ...(params.resumeDiscovery === '1' ? { autoSeed: 'resume' } : {}),
+        },
+      });
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace('/timeline');
   };

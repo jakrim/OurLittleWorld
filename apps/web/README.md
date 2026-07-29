@@ -59,12 +59,17 @@ NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY=https://...
 NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL=https://...
 NEXT_PUBLIC_OLW_CHECKOUT_GIFT=https://...
 NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT=https://...
+NEXT_PUBLIC_OLW_CHECKOUT_STATUS_ENDPOINT=https://...
 NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT=https://...
+NEXT_PUBLIC_OLW_IOS_APP_URL=https://apps.apple.com/...
+NEXT_PUBLIC_OLW_ANDROID_APP_URL=https://play.google.com/...
 ```
 
 - `NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY` and `NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL` can be hosted checkout/payment links for the family plans.
 - `NEXT_PUBLIC_OLW_CHECKOUT_GIFT` can be a simple gift payment link.
 - `giftCheckoutEndpoint` is preferred for real gifting because it can store recipient email, gift note, delivery date, redemption code, and payment state.
+- `checkoutStatusEndpoint` verifies the Stripe Checkout Session and waits for webhook provisioning before exposing a claim code or recording a completion event.
+- The iOS and Android app URLs add install buttons to the verified purchase success page. The existing-app deep link works independently.
 - `partnerInquiryEndpoint` is required if the partner form should submit without relying on email fallback.
 
 If these values are blank, the forms do not fake success. They show an honest fallback message with an email link.
@@ -89,3 +94,8 @@ NEXT_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT=unknown
 `granted` only when the product's consent policy permits it, or store
 `olw.analytics-consent.v1=granted` after an explicit preference action. Do not use
 a Get Mentors or LiveVault project token.
+
+The site now provides explicit Allow / No thanks controls plus a persistent
+Analytics choices link. Consent-granted checkout requests copy only bounded,
+allowlisted UTM campaign/creative fields into Stripe metadata; form values and
+purchase codes are never included in analytics attribution.

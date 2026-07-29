@@ -5,7 +5,13 @@ export const AUTO_SEED_MAX_AGE_WINDOWS = 12;
 export const AUTO_SEED_MONTH_SUBWINDOWS = 4;
 export const AUTO_SEED_SLICE_DIRECTION_LIMIT = 4;
 export const AUTO_SEED_RECENT_DAYS = 7;
-export const AUTO_SEED_MAX_CANDIDATES = 456;
+export const AUTO_SEED_MAX_CANDIDATES = 24;
+export const AUTO_SEED_ANALYSIS_WAVE_SIZE = 12;
+export const AUTO_SEED_MAX_DURATION_MS = 22_000;
+export const AUTO_SEED_EMBED_TIMEOUT_MS = 4_000;
+export const AUTO_SEED_UI_WATCHDOG_MS = 24_000;
+export const AUTO_SEED_SUGGESTION_LIMIT = 3;
+export const AUTO_SEED_MIN_SUGGESTION_QUALITY = 0.45;
 export const AUTO_SEED_MONTH_SAMPLE_LIMIT = (
   AUTO_SEED_MONTH_SUBWINDOWS * AUTO_SEED_SLICE_DIRECTION_LIMIT * 2
 );
@@ -26,6 +32,9 @@ const DAY_MS = 86400000;
 const BIRTH_WINDOW_DAYS = 14;
 const AUTO_SEED_MIN_NON_EMPTY_MONTH_BUCKETS = 3;
 const AUTO_SEED_MAX_REFERENCES = 12;
+const NEWBORN_EVIDENCE_MAX_DAYS = 13;
+const DAILY_EVIDENCE_MAX_DAYS = 55;
+const WEEKLY_EVIDENCE_MAX_DAYS = 183;
 
 export function autoSeedProgressPercent({ phase, completed = 0, total = 0 } = {}) {
   const fraction = total > 0 ? Math.max(0, Math.min(1, completed / total)) : 0;
@@ -39,20 +48,14 @@ export function autoSeedProgressPercent({ phase, completed = 0, total = 0 } = {}
 export function autoSeedProgressCopy({ phase, completed = 0, total = 0, facesFound = 0 } = {}) {
   if (phase === 'sampling') {
     return {
-      title: completed > 0 && total > 0
-        ? `Checking time periods ${Math.min(completed, total)} of ${total}`
-        : 'Finding photos from birthday to today',
-      detail: 'We check a bounded spread across time, not every photo in your library.',
+      title: 'Finding one clear photo',
+      detail: 'Checking a small sample across time.',
     };
   }
   if (phase === 'analyzing') {
     return {
-      title: total > 0
-        ? `Checking photo ${Math.min(completed, total)} of ${total}`
-        : 'Checking the sampled photos',
-      detail: facesFound > 0
-        ? `${facesFound} ${facesFound === 1 ? 'photo has' : 'photos have'} a face so far.`
-        : 'Looking for a face that appears across the months.',
+      title: facesFound > 0 ? 'Comparing clear faces' : 'Looking for a clear face',
+      detail: 'This should only take a moment.',
     };
   }
   if (phase === 'saving') {
@@ -64,6 +67,53 @@ export function autoSeedProgressCopy({ phase, completed = 0, total = 0, facesFou
   return {
     title: 'Starting automatic discovery',
     detail: 'Looking for photos from birthday to today.',
+  };
+}
+
+export function autoSeedEvidencePolicy({ birthdayISO, now = new Date() } = {}) {
+  const birth = parseLocalDate(birthdayISO);
+  const today = startOfLocalDay(now);
+  const ageDays = birth
+    ? Math.max(0, Math.floor((today.getTime() - birth.getTime()) / DAY_MS))
+    : null;
+
+  if (ageDays != null && ageDays <= NEWBORN_EVIDENCE_MAX_DAYS) {
+    return {
+      key: 'newborn',
+      unit: 'day',
+      ageDays,
+      minDistinctBuckets: 1,
+      minClusterMembers: 2,
+      minCoverage: 1,
+    };
+  }
+  if (ageDays != null && ageDays <= DAILY_EVIDENCE_MAX_DAYS) {
+    return {
+      key: 'early-weeks',
+      unit: 'day',
+      ageDays,
+      minDistinctBuckets: 2,
+      minClusterMembers: 2,
+      minCoverage: 0.5,
+    };
+  }
+  if (ageDays != null && ageDays <= WEEKLY_EVIDENCE_MAX_DAYS) {
+    return {
+      key: 'young-infant',
+      unit: 'week',
+      ageDays,
+      minDistinctBuckets: 3,
+      minClusterMembers: 3,
+      minCoverage: 0.55,
+    };
+  }
+  return {
+    key: 'older-baby',
+    unit: 'month',
+    ageDays,
+    minDistinctBuckets: AUTO_SEED_MIN_NON_EMPTY_MONTH_BUCKETS,
+    minClusterMembers: 3,
+    minCoverage: AUTO_SEED_MIN_BUCKET_COVERAGE,
   };
 }
 
@@ -107,13 +157,17 @@ export function buildAutoSeedSamplingPlan(birthdayISO, now = new Date()) {
     windows.filter((window) => window.kind === 'month'),
     AUTO_SEED_MAX_AGE_WINDOWS,
   );
-  const plan = [];
+  const queryGroups = [];
 
   if (birthWindow) {
-    appendWindowSlices(plan, birthWindow, 2, AUTO_SEED_SLICE_DIRECTION_LIMIT);
+    const birthQueries = [];
+    appendWindowSlices(birthQueries, birthWindow, 2, AUTO_SEED_SLICE_DIRECTION_LIMIT);
+    queryGroups.push(birthQueries);
   }
   for (const window of monthWindows) {
-    appendWindowSlices(plan, window, AUTO_SEED_MONTH_SUBWINDOWS, AUTO_SEED_SLICE_DIRECTION_LIMIT);
+    const monthQueries = [];
+    appendWindowSlices(monthQueries, window, AUTO_SEED_MONTH_SUBWINDOWS, AUTO_SEED_SLICE_DIRECTION_LIMIT);
+    queryGroups.push(monthQueries);
   }
 
   const birthMs = parseLocalDate(birthdayISO)?.getTime() || 0;
@@ -122,16 +176,35 @@ export function buildAutoSeedSamplingPlan(birthdayISO, now = new Date()) {
   for (let startMs = recentStartMs; startMs < endMs; startMs += DAY_MS) {
     const end = Math.min(endMs, startMs + DAY_MS);
     const date = new Date(startMs);
-    appendDirectionalQueries(plan, {
+    const recentQueries = [];
+    appendDirectionalQueries(recentQueries, {
       key: `recent:${date.toISOString().slice(0, 10)}`,
       bucketKey: monthKey(date),
       bucketKind: 'month',
       startMs,
       endMs: end,
     }, AUTO_SEED_SLICE_DIRECTION_LIMIT);
+    queryGroups.push(recentQueries);
   }
 
-  return plan.slice(0, Math.ceil(AUTO_SEED_MAX_CANDIDATES / AUTO_SEED_SLICE_DIRECTION_LIMIT));
+  // Interleave age windows so the first small analysis wave represents the
+  // child's life to date. The previous month-by-month plan could inspect
+  // hundreds of early photos before reaching recent ones.
+  const plan = interleave(queryGroups);
+  const queryLimit = Math.ceil(AUTO_SEED_MAX_CANDIDATES / AUTO_SEED_SLICE_DIRECTION_LIMIT);
+  const boundedPlan = plan.slice(0, queryLimit);
+  const earliestAscending = queryGroups[0]?.find((query) => query.sortAscending);
+  if (
+    earliestAscending
+    && boundedPlan.length === queryLimit
+    && !boundedPlan.some((query) => query.sortAscending)
+  ) {
+    // The first interleaved round is newest-first in every age window. Reserve
+    // one slot for the beginning of the birth window so the small sample is not
+    // biased toward the end of each slice.
+    boundedPlan[boundedPlan.length - 1] = earliestAscending;
+  }
+  return boundedPlan;
 }
 
 export function cosineSimilarity(a, b) {
@@ -195,27 +268,57 @@ export function clusterAutoSeedFaces(
 export function selectAutoSeedCluster({
   faces,
   threshold = AUTO_SEED_CLUSTER_SIMILARITY,
-  minCoverage = AUTO_SEED_MIN_BUCKET_COVERAGE,
+  minCoverage,
+  birthdayISO,
+  now = new Date(),
+  evidencePolicy,
 } = {}) {
-  const nonEmptyMonthBucketKeys = unique(
-    (faces || [])
-      .filter((face) => face?.bucketKind === 'month' && face?.embedding?.length)
-      .map((face) => face.bucketKey),
+  const policy = evidencePolicy || autoSeedEvidencePolicy({ birthdayISO, now });
+  const requiredCoverage = minCoverage ?? policy.minCoverage;
+  const preparedFaces = (faces || [])
+    .filter((face) => face?.embedding?.length)
+    .map((face) => ({
+      ...face,
+      evidenceBucketKey: autoSeedEvidenceBucketKey(face, policy, birthdayISO),
+    }));
+  const nonEmptyEvidenceBucketKeys = unique(
+    preparedFaces.map((face) => face.evidenceBucketKey),
   );
-  if (nonEmptyMonthBucketKeys.length < AUTO_SEED_MIN_NON_EMPTY_MONTH_BUCKETS) {
-    return { status: 'fallback', reason: 'not-enough-month-buckets', nonEmptyMonthBucketCount: nonEmptyMonthBucketKeys.length };
+  const clusters = clusterAutoSeedFaces(preparedFaces, threshold)
+    .map((cluster) => ({
+      ...cluster,
+      evidenceBucketKeys: unique(cluster.members.map((member) => member.evidenceBucketKey)),
+    }))
+    .sort((a, b) => (
+      b.evidenceBucketKeys.length - a.evidenceBucketKeys.length
+      || b.members.length - a.members.length
+    ));
+  if (nonEmptyEvidenceBucketKeys.length < policy.minDistinctBuckets) {
+    return {
+      status: 'fallback',
+      reason: 'not-enough-time-coverage',
+      nonEmptyBucketCount: nonEmptyEvidenceBucketKeys.length,
+      evidencePolicy: policy,
+      clusters,
+    };
   }
 
-  const clusters = clusterAutoSeedFaces(faces, threshold)
-    .sort((a, b) => b.monthBucketKeys.length - a.monthBucketKeys.length || b.members.length - a.members.length);
   const winner = clusters[0] || null;
-  const coverage = winner ? winner.monthBucketKeys.length / nonEmptyMonthBucketKeys.length : 0;
-  if (!winner || coverage < minCoverage) {
+  const coverage = winner
+    ? winner.evidenceBucketKeys.length / nonEmptyEvidenceBucketKeys.length
+    : 0;
+  if (
+    !winner
+    || winner.members.length < policy.minClusterMembers
+    || winner.evidenceBucketKeys.length < policy.minDistinctBuckets
+    || coverage < requiredCoverage
+  ) {
     return {
       status: 'fallback',
       reason: 'low-cluster-coverage',
-      nonEmptyMonthBucketCount: nonEmptyMonthBucketKeys.length,
+      nonEmptyBucketCount: nonEmptyEvidenceBucketKeys.length,
       coverage,
+      evidencePolicy: policy,
       clusters,
     };
   }
@@ -224,9 +327,33 @@ export function selectAutoSeedCluster({
     status: 'matched',
     cluster: winner,
     coverage,
-    nonEmptyMonthBucketCount: nonEmptyMonthBucketKeys.length,
+    nonEmptyBucketCount: nonEmptyEvidenceBucketKeys.length,
+    evidencePolicy: policy,
     clusters,
   };
+}
+
+export function selectAutoSeedSuggestions({
+  faces,
+  clusters,
+  limit = AUTO_SEED_SUGGESTION_LIMIT,
+  minQuality = AUTO_SEED_MIN_SUGGESTION_QUALITY,
+} = {}) {
+  const sourceClusters = Array.isArray(clusters) && clusters.length
+    ? clusters
+    : clusterAutoSeedFaces(faces || []);
+  return sourceClusters
+    .map((cluster) => selectAutoSeedRepresentative(cluster.members))
+    .filter((candidate) => (
+      candidate
+      && Number(candidate.faceCount || 1) === 1
+      && Number(candidate.qualityScore || 0) >= minQuality
+    ))
+    .sort(compareAutoSeedCandidates)
+    .filter((candidate, index, items) => (
+      items.findIndex((item) => item.assetId === candidate.assetId) === index
+    ))
+    .slice(0, Math.max(0, Math.min(AUTO_SEED_SUGGESTION_LIMIT, limit)));
 }
 
 export function identityCentrality(candidate, members) {
@@ -297,12 +424,18 @@ export function selectAutoSeedRepresentative(members) {
   return scoreAutoSeedCandidates(members).sort(compareAutoSeedCandidates)[0] || null;
 }
 
+export function selectAutoSeedFirstLookCandidate(members, representativeAssetId) {
+  return scoreAutoSeedCandidates(members)
+    .filter((candidate) => candidate.assetId !== representativeAssetId)
+    .sort(compareAutoSeedCandidates)[0] || null;
+}
+
 export function selectAutoSeedReferences(members, maxReferences = AUTO_SEED_MAX_REFERENCES) {
   const scored = scoreAutoSeedCandidates(members);
   const representative = [...scored].sort(compareAutoSeedCandidates)[0] || null;
   const byBucket = new Map();
   for (const member of scored) {
-    const key = member.bucketKey || `asset:${member.assetId}`;
+    const key = member.evidenceBucketKey || member.bucketKey || `asset:${member.assetId}`;
     const previous = byBucket.get(key);
     if (!previous || compareAutoSeedCandidates(member, previous) < 0) byBucket.set(key, member);
   }
@@ -317,6 +450,24 @@ export function selectAutoSeedReferences(members, maxReferences = AUTO_SEED_MAX_
   }
   return uniqueByAsset(selected)
     .sort((a, b) => Number(a.creationTime || 0) - Number(b.creationTime || 0));
+}
+
+function autoSeedEvidenceBucketKey(candidate, policy, birthdayISO) {
+  const captured = new Date(Number(candidate?.creationTime));
+  if (Number.isNaN(captured.getTime())) {
+    return candidate?.bucketKey || `asset:${candidate?.assetId || 'unknown'}`;
+  }
+  if (policy.unit === 'day') return localDayKey(captured);
+  if (policy.unit === 'week') {
+    const birth = parseLocalDate(birthdayISO);
+    if (!birth) return `week:${localDayKey(captured)}`;
+    const dayOffset = Math.max(
+      0,
+      Math.floor((startOfLocalDay(captured).getTime() - birth.getTime()) / DAY_MS),
+    );
+    return `week:${Math.floor(dayOffset / 7)}`;
+  }
+  return candidate?.bucketKey || monthKey(captured);
 }
 
 export function selectAutoSeedPreview(members) {
@@ -341,6 +492,17 @@ function appendWindowSlices(plan, window, count, limit) {
 function appendDirectionalQueries(plan, slice, limit) {
   plan.push({ ...slice, pageSize: limit, sortAscending: false });
   plan.push({ ...slice, pageSize: limit, sortAscending: true });
+}
+
+function interleave(groups) {
+  const output = [];
+  const maxLength = Math.max(0, ...groups.map((group) => group.length));
+  for (let index = 0; index < maxLength; index += 1) {
+    for (const group of groups) {
+      if (group[index]) output.push(group[index]);
+    }
+  }
+  return output;
 }
 
 function faceSizeScore(value) {
@@ -464,6 +626,18 @@ function addMonths(date, count) {
 
 function startOfNextDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+}
+
+function startOfLocalDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function localDayKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 function monthKey(date) {

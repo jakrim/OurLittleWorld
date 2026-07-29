@@ -253,6 +253,54 @@ export function supportEmail() {
   return env('OLW_SUPPORT_EMAIL', 'support@ourlittleworld.me');
 }
 
+const CHECKOUT_ATTRIBUTION_KEYS = [
+  'first_utm_source',
+  'first_utm_medium',
+  'first_utm_campaign',
+  'first_utm_term',
+  'first_utm_content',
+  'last_utm_source',
+  'last_utm_medium',
+  'last_utm_campaign',
+  'last_utm_term',
+  'last_utm_content',
+  'landing_path',
+  'landing_angle',
+] as const;
+
+/**
+ * Keep paid-acquisition context useful without accepting arbitrary metadata or
+ * form contents. Attribution is persisted only after the visitor has granted
+ * the website's analytics preference.
+ */
+export function checkoutAttributionFromInput(input: Record<string, unknown>) {
+  if (input.attribution_consent !== 'granted') return {};
+
+  const attribution: Record<string, string> = { attribution_consent: 'granted' };
+  for (const key of CHECKOUT_ATTRIBUTION_KEYS) {
+    const value = boundedMetadataValue(input[key], key === 'landing_path' ? 240 : 160);
+    if (value) attribution[key] = value;
+  }
+  return attribution;
+}
+
+export function setStripeMetadata(
+  params: URLSearchParams,
+  metadata: Record<string, string>,
+  prefix = 'metadata',
+) {
+  for (const [key, value] of Object.entries(metadata)) {
+    params.set(`${prefix}[${key}]`, value);
+  }
+}
+
+function boundedMetadataValue(value: unknown, maxLength: number) {
+  return String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
 export async function stripeFormRequest(path: string, params: URLSearchParams, method = 'POST') {
   const secretKey = requiredEnv('STRIPE_SECRET_KEY');
   const response = await fetch(`https://api.stripe.com${path}`, {

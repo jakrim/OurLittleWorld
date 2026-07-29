@@ -20,19 +20,32 @@ import {
   referenceStorageKey as makeReferenceStorageKey,
 } from './recognitionReferences';
 import { bootstrapBirthdayReference } from './referenceAutoSeed';
-import { autoSeedProgressCopy, autoSeedProgressPercent } from './referenceAutoSeedModel';
+import {
+  AUTO_SEED_UI_WATCHDOG_MS,
+  autoSeedProgressCopy,
+} from './referenceAutoSeedModel';
+import {
+  clearReferenceAutoSeedAttempt,
+  readReferenceAutoSeedAttempt,
+  writeReferenceAutoSeedAttempt,
+} from './referenceAutoSeedAttemptStore';
+import { previewFromMatch } from './firstValuePreviewModel';
+import {
+  clearFirstValuePreview,
+  readFirstValuePreview,
+  writeFirstValuePreview,
+} from './firstValuePreviewStore';
 
 /**
- * "Pick a photo of your baby." We embed it via the native face matcher
- * and stash the embedding in AsyncStorage (per-user, per-device) so the
- * scan screen can use it. Wife and husband each pick their own reference
- * because each device has its own library.
+ * Find or pick one clear starting photo. Face evidence and fallback
+ * suggestions stay in local, family-and-user-scoped storage so each writer's
+ * device can review its own library without exposing unsaved photos.
  *
  * Behaviour notes:
  *   - If a previous reference exists for this (family, user), we restore
  *     it on mount so the user can re-enter without re-picking.
- *   - The back chevron / iOS swipe-back returns to wherever they came
- *     from (we use `navigate`, not `replace`).
+ *   - First-value Back uses the stable setup route and resumes a completed
+ *     local result. It never falls through the app gate and restarts scanning.
  */
 export default function ReferencePhotoScreen() {
   const router = useRouter();
@@ -42,7 +55,7 @@ export default function ReferencePhotoScreen() {
   const { user } = useAuth();
   const progressPreviewRequested = __DEV__ && params.progressPreview === '1';
   const firstValueRequested = params.source === 'first_value';
-  const autoSeedRequested = params.autoSeed === '1' || progressPreviewRequested;
+  const autoSeedRequested = params.autoSeed === '1' || params.autoSeed === 'resume' || progressPreviewRequested;
   const autoSeedStarted = useRef(false);
   const autoSeedSignal = useRef(null);
 
@@ -53,27 +66,71 @@ export default function ReferencePhotoScreen() {
   const [restored, setRestored] = useState(false);
   const [referenceCount, setReferenceCount] = useState(0);
   const [autoSeedState, setAutoSeedState] = useState({ status: autoSeedRequested ? 'idle' : 'manual' });
+  const [autoSeedRun, setAutoSeedRun] = useState(0);
+  const [restoreComplete, setRestoreComplete] = useState(false);
 
-  // Restore the previously-saved reference if one exists.
+  // Restore a saved reference or a recent local-only fallback result before
+  // deciding whether a new PhotoKit pass is necessary.
   useEffect(() => {
     if (!family?.id || !user?.id) return;
     let alive = true;
     (async () => {
       try {
-        const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
+        const [profile, attempt] = await Promise.all([
+          readReferenceProfile({ familyId: family.id, userId: user.id }),
+          autoSeedRequested
+            ? readReferenceAutoSeedAttempt({
+              familyId: family.id,
+              userId: user.id,
+              birthdayISO: family.babyBirthday,
+            })
+            : null,
+        ]);
         if (!alive) return;
         const representative = representativeReference(profile);
         setReferenceCount(profile.references.length);
         if (representative?.uri) setPicked({ uri: representative.uri, assetId: representative.assetId });
         if (representative?.embedding?.length) setEmbedding(representative);
         if (representative?.uri || representative?.embedding) setRestored(true);
-      } catch {}
+        if (autoSeedRequested && representative?.source === 'auto-seed' && !representative.parentConfirmed) {
+          autoSeedStarted.current = true;
+          setAutoSeedState({ status: 'ready' });
+        } else if (autoSeedRequested && (representative?.uri || representative?.embedding)) {
+          autoSeedStarted.current = true;
+          setAutoSeedState({ status: 'manual', reason: 'saved-reference' });
+        } else if (attempt) {
+          autoSeedStarted.current = true;
+          setAutoSeedState(attempt);
+          const selected = attempt.suggestions?.find(
+            (suggestion) => suggestion.assetId === attempt.selectedAssetId,
+          );
+          if (selected) {
+            setPicked({
+              uri: selected.localUri || selected.uri,
+              width: selected.width,
+              height: selected.height,
+              assetId: selected.assetId,
+              creationTime: selected.creationTime,
+            });
+            setEmbedding(selected);
+          }
+        }
+      } catch {
+        // A corrupt local attempt must not block the manual photo path.
+      } finally {
+        if (alive) setRestoreComplete(true);
+      }
     })();
     return () => { alive = false; };
-  }, [family?.id, user?.id]);
+  }, [autoSeedRequested, family?.babyBirthday, family?.id, user?.id]);
 
   useEffect(() => {
-    if (!autoSeedRequested || !family?.id || !user?.id) return;
+    if (
+      !restoreComplete
+      || (!autoSeedRequested && autoSeedRun === 0)
+      || !family?.id
+      || !user?.id
+    ) return;
     if (progressPreviewRequested) {
       setAutoSeedState({
         status: 'running',
@@ -90,6 +147,8 @@ export default function ReferencePhotoScreen() {
 
     let alive = true;
     const signal = { aborted: false };
+    let watchdogFired = false;
+    let watchdog = null;
     autoSeedSignal.current = signal;
     setAutoSeedState({
       status: 'running',
@@ -97,21 +156,31 @@ export default function ReferencePhotoScreen() {
     });
     (async () => {
       try {
-        const result = await bootstrapBirthdayReference({
-          familyId: family.id,
-          userId: user.id,
-          birthdayISO: family.babyBirthday,
-          signal,
-          onProgress: (progress) => {
-            if (!alive || signal.aborted) return;
-            setAutoSeedState((current) => (
-              current.status === 'running'
-                ? { ...current, progress }
-                : current
-            ));
-          },
-        });
-        if (!alive || signal.aborted) return;
+        const result = await Promise.race([
+          bootstrapBirthdayReference({
+            familyId: family.id,
+            userId: user.id,
+            birthdayISO: family.babyBirthday,
+            signal,
+            onProgress: (progress) => {
+              if (!alive || signal.aborted) return;
+              setAutoSeedState((current) => (
+                current.status === 'running'
+                  ? { ...current, progress }
+                  : current
+              ));
+            },
+          }),
+          new Promise((resolve) => {
+            watchdog = setTimeout(() => {
+              watchdogFired = true;
+              signal.aborted = true;
+              resolve({ status: 'fallback', reason: 'timeout' });
+            }, AUTO_SEED_UI_WATCHDOG_MS);
+          }),
+        ]);
+        if (watchdog) clearTimeout(watchdog);
+        if (!alive || (signal.aborted && !watchdogFired)) return;
         if (__DEV__ && result.diagnostics) {
           console.info('discovery diagnostics', result.diagnostics);
         }
@@ -130,21 +199,76 @@ export default function ReferencePhotoScreen() {
           setReferenceCount(result.referenceCount || 0);
           setRestored(true);
           setError(null);
-          setAutoSeedState({ status: 'ready', coverage: result.coverage });
+          const firstLookPreview = previewFromMatch(result.firstLookPreview);
+          if (firstLookPreview) {
+            await writeFirstValuePreview({
+              familyId: family.id,
+              userId: user.id,
+              preview: firstLookPreview,
+            });
+          } else {
+            await clearFirstValuePreview({ familyId: family.id, userId: user.id });
+          }
+          await clearReferenceAutoSeedAttempt({ familyId: family.id, userId: user.id });
+          setAutoSeedState({
+            status: 'ready',
+            coverage: result.coverage,
+            evidencePolicy: result.evidencePolicy,
+          });
+        } else if (result.suggestions?.length) {
+          setPicked(null);
+          setEmbedding(null);
+          setRestored(false);
+          const nextAttempt = {
+            status: 'suggestions',
+            reason: result.reason,
+            suggestions: result.suggestions,
+            evidencePolicy: result.evidencePolicy,
+            selectedAssetId: null,
+          };
+          setAutoSeedState(nextAttempt);
+          await writeReferenceAutoSeedAttempt({
+            familyId: family.id,
+            userId: user.id,
+            birthdayISO: family.babyBirthday,
+            attempt: nextAttempt,
+          });
         } else {
-          setAutoSeedState({ status: 'manual', reason: result.reason });
+          const nextAttempt = {
+            status: 'manual',
+            reason: result.reason,
+            evidencePolicy: result.evidencePolicy,
+          };
+          setAutoSeedState(nextAttempt);
+          await writeReferenceAutoSeedAttempt({
+            familyId: family.id,
+            userId: user.id,
+            birthdayISO: family.babyBirthday,
+            attempt: nextAttempt,
+          });
         }
       } catch (err) {
+        if (watchdog) clearTimeout(watchdog);
         console.warn('auto seed reference failed', err?.message);
-        if (alive) setAutoSeedState({ status: 'manual', reason: 'error' });
+        if (alive) {
+          const nextAttempt = { status: 'manual', reason: 'error' };
+          setAutoSeedState(nextAttempt);
+          await writeReferenceAutoSeedAttempt({
+            familyId: family.id,
+            userId: user.id,
+            birthdayISO: family.babyBirthday,
+            attempt: nextAttempt,
+          });
+        }
       }
     })();
     return () => {
       alive = false;
       signal.aborted = true;
+      if (watchdog) clearTimeout(watchdog);
       if (autoSeedSignal.current === signal) autoSeedSignal.current = null;
     };
-  }, [autoSeedRequested, family?.babyBirthday, family?.id, progressPreviewRequested, user?.id]);
+  }, [autoSeedRequested, autoSeedRun, family?.babyBirthday, family?.id, progressPreviewRequested, restoreComplete, user?.id]);
 
   const pick = async () => {
     setError(null);
@@ -160,7 +284,17 @@ export default function ReferencePhotoScreen() {
     setPicked({ uri: a.uri, width: a.width, height: a.height, assetId: a.assetId || null });
     setEmbedding(null);
     setRestored(false);
-    setAutoSeedState({ status: 'manual' });
+    setAutoSeedState((current) => ({
+      status: 'manual',
+      reason: 'parent-picked',
+      evidencePolicy: current.evidencePolicy,
+      fallbackSuggestions: current.status === 'suggestions'
+        ? current.suggestions
+        : current.fallbackSuggestions,
+      fallbackSelectedAssetId: current.status === 'suggestions'
+        ? current.selectedAssetId
+        : current.fallbackSelectedAssetId,
+    }));
 
     if (!isNative) {
       // No native module yet — accept any photo; we'll fall back to
@@ -186,6 +320,7 @@ export default function ReferencePhotoScreen() {
   const pickDifferentFromAutoSeed = async () => {
     if (!family || !user) return;
     await clearAutoSeedReferences({ familyId: family.id, userId: user.id });
+    await clearFirstValuePreview({ familyId: family.id, userId: user.id });
     setPicked(null);
     setEmbedding(null);
     setRestored(false);
@@ -197,19 +332,108 @@ export default function ReferencePhotoScreen() {
 
   const chooseManualInstead = async () => {
     if (autoSeedSignal.current) autoSeedSignal.current.aborted = true;
-    setAutoSeedState({ status: 'manual', reason: 'user-chose-manual' });
-    if (family?.id && user?.id) {
+    const preserveSuggestions = autoSeedState.status === 'suggestions';
+    if (!preserveSuggestions) {
+      setAutoSeedState({ status: 'manual', reason: 'user-chose-manual' });
+    }
+    if (!preserveSuggestions && family?.id && user?.id) {
       await clearAutoSeedReferences({ familyId: family.id, userId: user.id });
+      await clearFirstValuePreview({ familyId: family.id, userId: user.id });
+      await writeReferenceAutoSeedAttempt({
+        familyId: family.id,
+        userId: user.id,
+        birthdayISO: family.babyBirthday,
+        attempt: { status: 'manual', reason: 'user-chose-manual' },
+      });
     }
     await pick();
+  };
+
+  const returnToSuggestions = () => {
+    const suggestions = autoSeedState.fallbackSuggestions || [];
+    const selected = suggestions.find(
+      (suggestion) => suggestion.assetId === autoSeedState.fallbackSelectedAssetId,
+    );
+    setPicked(selected ? {
+      uri: selected.localUri || selected.uri,
+      width: selected.width,
+      height: selected.height,
+      assetId: selected.assetId,
+      creationTime: selected.creationTime,
+    } : null);
+    setEmbedding(selected || null);
+    setError(null);
+    setAutoSeedState({
+      status: 'suggestions',
+      reason: 'parent-returned',
+      suggestions,
+      evidencePolicy: autoSeedState.evidencePolicy,
+      selectedAssetId: selected?.assetId || null,
+    });
+  };
+
+  const selectSuggestedPhoto = (suggestion) => {
+    const uri = suggestion?.localUri || suggestion?.uri || null;
+    if (!uri || !suggestion?.embedding?.length) return;
+    setPicked({
+      uri,
+      width: suggestion.width,
+      height: suggestion.height,
+      assetId: suggestion.assetId || null,
+      creationTime: suggestion.creationTime,
+    });
+    setEmbedding(suggestion);
+    setRestored(false);
+    setError(null);
+    setAutoSeedState((current) => ({
+      ...current,
+      selectedAssetId: suggestion.assetId,
+    }));
+    if (family?.id && user?.id) {
+      void writeReferenceAutoSeedAttempt({
+        familyId: family.id,
+        userId: user.id,
+        birthdayISO: family.babyBirthday,
+        attempt: {
+          ...autoSeedState,
+          selectedAssetId: suggestion.assetId,
+        },
+      });
+    }
+  };
+
+  const retryAutomaticDiscovery = async () => {
+    if (!family?.id || !user?.id) return;
+    if (autoSeedSignal.current) autoSeedSignal.current.aborted = true;
+    await clearAutoSeedReferences({ familyId: family.id, userId: user.id });
+    await clearReferenceAutoSeedAttempt({ familyId: family.id, userId: user.id });
+    await clearFirstValuePreview({ familyId: family.id, userId: user.id });
+    setPicked(null);
+    setEmbedding(null);
+    setRestored(false);
+    setReferenceCount(0);
+    setError(null);
+    autoSeedStarted.current = false;
+    setAutoSeedState({ status: 'idle' });
+    setAutoSeedRun((current) => current + 1);
   };
 
   const onContinue = async () => {
     if (!family || !user) return;
     if (autoSeedState.status === 'ready') {
       await confirmRepresentativeReference({ familyId: family.id, userId: user.id });
+      await clearReferenceAutoSeedAttempt({ familyId: family.id, userId: user.id });
+      const preparedPreview = firstValueRequested
+        ? await readFirstValuePreview({ familyId: family.id, userId: user.id })
+        : null;
       Scan.reset();
-      router.push(firstValueRequested ? { pathname: '/scan', params: { source: 'first_value' } } : '/scan');
+      router.replace(
+        preparedPreview
+          ? '/first-value-preview'
+          : firstValueRequested
+            ? { pathname: '/scan', params: { source: 'first_value' } }
+            : '/scan',
+      );
       return;
     }
     if (isNative && !embedding) {
@@ -236,22 +460,39 @@ export default function ReferencePhotoScreen() {
       brightness: embedding?.brightness,
       setRepresentative: true,
     });
+    await clearReferenceAutoSeedAttempt({ familyId: family.id, userId: user.id });
     // Picking a new reference always means a fresh scan — clear stale matches.
     Scan.reset();
     router.push(firstValueRequested ? { pathname: '/scan', params: { source: 'first_value' } } : '/scan');
   };
 
-  const onBack = () => {
+  const onBack = async () => {
+    if (autoSeedSignal.current) autoSeedSignal.current.aborted = true;
+    if (autoSeeding && family?.id && user?.id) {
+      await writeReferenceAutoSeedAttempt({
+        familyId: family.id,
+        userId: user.id,
+        birthdayISO: family.babyBirthday,
+        attempt: { status: 'manual', reason: 'cancelled' },
+      });
+    }
+    if (firstValueRequested) {
+      router.replace({
+        pathname: '/setup',
+        params: { source: 'first_value', resumeDiscovery: '1' },
+      });
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace('/timeline');
   };
 
   const autoSeeding = autoSeedState.status === 'running' || autoSeedState.status === 'idle';
   const autoConfirming = autoSeedState.status === 'ready';
+  const autoSuggesting = autoSeedState.status === 'suggestions';
   const hasUsableReference = autoConfirming || (!isNative ? !!picked : !!embedding?.embedding?.length);
   const progress = autoSeedState.progress || { phase: 'sampling', completed: 0, total: 0, facesFound: 0 };
   const progressCopy = autoSeedProgressCopy(progress);
-  const progressPercent = autoSeedProgressPercent(progress);
   const automaticFallback = autoSeedRequested
     && autoSeedState.status === 'manual'
     && !['user-chose-manual', 'user-correction'].includes(autoSeedState.reason);
@@ -268,6 +509,7 @@ export default function ReferencePhotoScreen() {
           style: 'destructive',
           onPress: async () => {
             await clearReferenceProfile({ familyId: family.id, userId: user.id });
+            await clearFirstValuePreview({ familyId: family.id, userId: user.id });
             setPicked(null);
             setEmbedding(null);
             setRestored(false);
@@ -284,76 +526,125 @@ export default function ReferencePhotoScreen() {
       <BrandedBackHeader onBack={onBack} style={styles.topRow} />
 
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
-        <Hero>{heroCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Hero>
-        <Body>{bodyCopy({ autoSeeding, autoConfirming, restored, babyName: family?.babyName })}</Body>
+        <Hero>
+          {heroCopy({
+            autoSeeding,
+            autoConfirming,
+            autoSuggesting,
+            restored,
+            babyName: family?.babyName,
+          })}
+        </Hero>
+        <Body>
+          {bodyCopy({
+            autoSeeding,
+            autoConfirming,
+            autoSuggesting,
+            restored,
+            babyName: family?.babyName,
+          })}
+        </Body>
 
         <Spacer h={space.md} />
 
-        <Pressable
-          onPress={autoConfirming ? pickDifferentFromAutoSeed : pick}
-          disabled={autoSeeding || busy}
-          accessibilityRole="button"
-          accessibilityLabel={autoConfirming ? 'Pick a different reference photo' : 'Pick reference photo'}
-          style={[
-            styles.frame,
-            {
-              backgroundColor: theme.semantic.cardAlt,
-              borderColor: theme.semantic.border,
-            },
-            autoSeeding && styles.progressFrame,
-          ]}
-        >
-          {autoSeeding ? (
-            <View
-              style={styles.placeholder}
-              testID="birthday-discovery-progress"
-              accessibilityLiveRegion="polite"
-            >
-              <ActivityIndicator color={theme.semantic.primary} />
-              <Spacer h={space.md} />
-              <Body align="center" style={{ color: theme.semantic.textSoft }}>{progressCopy.title}</Body>
+        {autoSuggesting ? (
+          <View
+            style={[
+              styles.suggestionPanel,
+              {
+                backgroundColor: theme.semantic.cardAlt,
+                borderColor: theme.semantic.border,
+              },
+            ]}
+            testID="birthday-discovery-suggestions"
+          >
+            <View style={styles.suggestionGrid}>
+              {(autoSeedState.suggestions || []).map((suggestion, index) => {
+                const uri = suggestion.localUri || suggestion.uri;
+                const selected = autoSeedState.selectedAssetId === suggestion.assetId;
+                return (
+                  <Pressable
+                    key={suggestion.assetId || uri || index}
+                    onPress={() => selectSuggestedPhoto(suggestion)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Possible photo ${index + 1}`}
+                    accessibilityState={{ selected }}
+                    style={[
+                      styles.suggestionCard,
+                      { borderColor: selected ? theme.semantic.primary : theme.semantic.border },
+                      selected && styles.suggestionCardSelected,
+                    ]}
+                  >
+                    <Image source={{ uri }} style={styles.suggestionImage} contentFit="cover" />
+                    {selected ? (
+                      <View style={[styles.suggestionCheck, { backgroundColor: theme.semantic.primary }]}>
+                        <Ionicons name="checkmark" size={16} color={theme.colors.onPrimary} />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Caption align="center" style={{ color: theme.semantic.textMuted }}>
+              These are possibilities, not confirmed matches. You decide which photo is {family?.babyName || 'your baby'}.
+            </Caption>
+          </View>
+        ) : (
+          <Pressable
+            onPress={autoConfirming ? pickDifferentFromAutoSeed : pick}
+            disabled={autoSeeding || busy}
+            accessibilityRole="button"
+            accessibilityLabel={autoConfirming ? 'Pick a different reference photo' : 'Pick reference photo'}
+            style={[
+              styles.frame,
+              {
+                backgroundColor: theme.semantic.cardAlt,
+                borderColor: theme.semantic.border,
+              },
+              autoSeeding && styles.progressFrame,
+            ]}
+          >
+            {autoSeeding ? (
               <View
-                style={[styles.progressTrack, { backgroundColor: theme.semantic.border }]}
-                accessibilityRole="progressbar"
-                accessibilityValue={{ min: 0, max: 100, now: progressPercent }}
+                style={styles.placeholder}
+                testID="birthday-discovery-progress"
+                accessibilityLiveRegion="polite"
               >
-                <View style={[styles.progressFill, { backgroundColor: theme.semantic.primary, width: `${progressPercent}%` }]} />
+                <ActivityIndicator color={theme.semantic.primary} />
+                <Spacer h={space.md} />
+                <Body align="center" style={{ color: theme.semantic.textSoft }}>{progressCopy.title}</Body>
+                <Caption align="center" style={{ marginTop: 4 }}>
+                  {progressCopy.detail}
+                </Caption>
+                <Caption align="center" style={[styles.privateCaption, { color: theme.semantic.textMuted }]}>
+                  Photos stay on this iPhone.
+                </Caption>
               </View>
-              <Caption align="center" style={{ marginTop: 4 }}>
-                {progressCopy.detail}
-              </Caption>
-              <Caption align="center" style={[styles.progressPercent, { color: theme.semantic.textMuted }]}>
-                {progressPercent}% - stays on this device
-              </Caption>
-            </View>
-          ) : picked ? (
-            <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" />
-          ) : (
-            <View style={styles.placeholder}>
-              <Ionicons name="happy-outline" size={56} color={theme.semantic.primary} />
-              <Spacer h={space.md} />
-              <Body align="center" style={{ color: theme.semantic.textSoft }}>Tap to pick a photo</Body>
-              <Caption align="center" style={{ marginTop: 4 }}>
-                A clear, well-lit shot of their face works best.
-              </Caption>
-            </View>
-          )}
-          {picked ? (
-            <View style={styles.changeBadge}>
-              <Caption style={{ color: theme.colors.onPrimary, fontWeight: '700' }}>
-                {autoConfirming ? 'Tap to pick another' : restored ? 'Tap to change' : 'Tap to replace'}
-              </Caption>
-            </View>
-          ) : null}
-        </Pressable>
+            ) : picked ? (
+              <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" />
+            ) : (
+              <View style={styles.placeholder}>
+                <Ionicons name="happy-outline" size={56} color={theme.semantic.primary} />
+                <Spacer h={space.md} />
+                <Body align="center" style={{ color: theme.semantic.textSoft }}>Choose from Photos</Body>
+                <Caption align="center" style={{ marginTop: 4 }}>
+                  A clear, well-lit photo of their face works best.
+                </Caption>
+              </View>
+            )}
+            {picked && !autoSeeding ? (
+              <View style={styles.changeBadge}>
+                <Caption style={{ color: theme.colors.onPrimary, fontWeight: '700' }}>
+                  {autoConfirming ? 'Tap to pick another' : restored ? 'Tap to change' : 'Tap to replace'}
+                </Caption>
+              </View>
+            ) : null}
+          </Pressable>
+        )}
 
-        {autoSeeding ? (
+        {automaticFallback ? (
           <Caption align="center" style={{ color: theme.semantic.textMuted }}>
-            Large libraries can take a few minutes. You can switch to one clear photo at any time.
-          </Caption>
-        ) : automaticFallback ? (
-          <Caption align="center" style={{ color: theme.semantic.textMuted }}>
-            Automatic setup could not find one clear repeated face. Choose a photo to continue.
+            We could not choose confidently. Nothing was used as {family?.babyName || 'your baby'}'s starting photo.
           </Caption>
         ) : null}
 
@@ -361,10 +652,10 @@ export default function ReferencePhotoScreen() {
           <H gap="sm" align="center" justify="center">
             <Ionicons name="sparkles-outline" size={16} color={theme.semantic.textSoft} />
             <Caption style={{ color: theme.semantic.textSoft, fontWeight: '700' }}>
-              Seeded {referenceCount} local references from the birthday onward
+              Suggested from your own photo library
             </Caption>
           </H>
-        ) : restored && !error ? (
+        ) : restored && !error && !autoSeeding ? (
           <H gap="sm" align="center" justify="center">
             <Ionicons name="bookmark" size={16} color={theme.semantic.textSoft} />
             <Caption style={{ color: theme.semantic.textSoft, fontWeight: '700' }}>
@@ -390,19 +681,43 @@ export default function ReferencePhotoScreen() {
 
         <Spacer h={space.md} />
 
-        {autoSeeding ? (
-          <Button variant="ghost" onPress={chooseManualInstead}>
-            Choose one photo instead
-          </Button>
+        {autoSeeding ? null : autoSuggesting ? (
+          <>
+            <Button onPress={onContinue} disabled={!hasUsableReference}>
+              {hasUsableReference ? `Yes, this is ${family?.babyName || 'my baby'}` : 'Choose a photo above'}
+            </Button>
+            <Button variant="ghost" onPress={chooseManualInstead}>
+              Choose another from Photos
+            </Button>
+            <Button variant="quiet" onPress={retryAutomaticDiscovery}>
+              Try automatic search again
+            </Button>
+          </>
         ) : (
-          <Button onPress={onContinue} loading={busy} disabled={!hasUsableReference || busy}>
-            {autoConfirming
-              ? 'Yes, start review scan'
-              : restored ? 'Continue with this reference' : 'Start review scan'}
-          </Button>
+          <>
+            <Button onPress={onContinue} loading={busy} disabled={!hasUsableReference || busy}>
+              {autoConfirming
+                ? `Yes, this is ${family?.babyName || 'my baby'}`
+                : restored ? 'Continue with this photo' : 'Start finding memories'}
+            </Button>
+            {isNative && !hasUsableReference ? (
+              <Button variant="quiet" onPress={retryAutomaticDiscovery}>
+                Try automatic search again
+              </Button>
+            ) : null}
+            {autoSeedState.fallbackSuggestions?.length ? (
+              <Button variant="quiet" onPress={returnToSuggestions}>
+                Return to suggested photos
+              </Button>
+            ) : null}
+          </>
         )}
 
-        {autoConfirming ? (
+        {autoSeeding ? (
+          <Button variant="quiet" onPress={onBack}>
+            Back
+          </Button>
+        ) : autoConfirming ? (
           <Button variant="quiet" onPress={pickDifferentFromAutoSeed}>
             Pick a different photo
           </Button>
@@ -424,23 +739,35 @@ export function referenceStorageKey(args) {
   return makeReferenceStorageKey(args);
 }
 
-function heroCopy({ autoSeeding, autoConfirming, restored, babyName }) {
-  if (autoSeeding) return `Setting up photo discovery.`;
+function heroCopy({ autoSeeding, autoConfirming, autoSuggesting, restored, babyName }) {
+  if (autoSeeding) return `Finding ${babyName || 'your baby'}.`;
   if (autoConfirming) return `Is this ${babyName || 'your baby'}?`;
-  if (restored) return `Review photo discovery.`;
-  return `Choose one photo to finish discovery.`;
+  if (autoSuggesting) return `We found a few possibilities.`;
+  if (restored) return `Your starting photo.`;
+  return `Choose one clear photo.`;
 }
 
-function bodyCopy({ autoSeeding, autoConfirming, restored, babyName }) {
-  const learningCopy = `Matching uses the full local reference set, not this photo alone.`;
+function bodyCopy({
+  autoSeeding,
+  autoConfirming,
+  autoSuggesting,
+  restored,
+  babyName,
+}) {
+  const name = babyName || 'your baby';
   if (autoSeeding) {
-    return `Step 1 of 2: starting from ${babyName || 'your baby'}'s birthday, we check a bounded spread of photos on this device for a face that repeats across time. You will confirm a possible match before review starts.`;
+    return `We’ll suggest one clear photo for you to confirm.`;
   }
   if (autoConfirming) {
-    return `Step 2 of 2: confirm that this clear representative is ${babyName || 'your baby'}, then review the likely photos before anything reaches your family world. ${learningCopy}`;
+    return `We think this may be ${name}, but you are the authority. Confirm it to start finding likely memories; nothing is shared until you keep it.`;
   }
-  if (restored) return `This is the saved representative for the local reference set. ${learningCopy} The original stays in Photos.`;
-  return `When birthday-first discovery is unavailable or cannot find a likely match, one clear face photo helps this device review likely matches. Scanning stays on your phone; moments you save go to your private family archive.`;
+  if (autoSuggesting) {
+    return `We found clear faces but could not safely decide which one is ${name}. Choose a real photo below, or open Photos to pick another.`;
+  }
+  if (restored) {
+    return `This is the photo this device uses to find likely memories of ${name}. The original stays in Photos, and you approve every memory.`;
+  }
+  return `Pick a clear, well-lit photo of ${name}'s face. It stays on this device and helps find likely memories for you to approve.`;
 }
 
 const styles = StyleSheet.create({
@@ -458,7 +785,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   progressFrame: {
-    aspectRatio: 1.3,
+    aspectRatio: 1.45,
+  },
+  suggestionPanel: {
+    width: '100%',
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    padding: space.md,
+    gap: space.md,
+    ...shadow.whisper,
+  },
+  suggestionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+    justifyContent: 'center',
+  },
+  suggestionCard: {
+    width: '31%',
+    aspectRatio: 0.82,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    overflow: 'hidden',
+  },
+  suggestionCardSelected: {
+    borderWidth: 4,
+  },
+  suggestionImage: {
+    width: '100%',
+    height: '100%',
+  },
+  suggestionCheck: {
+    position: 'absolute',
+    top: space.sm,
+    right: space.sm,
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   preview: {
     width: '100%',
@@ -469,20 +834,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     width: '100%',
   },
-  progressTrack: {
-    width: '82%',
-    height: 8,
-    borderRadius: radius.pill,
-    overflow: 'hidden',
-    marginTop: space.lg,
-    marginBottom: space.sm,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: radius.pill,
-  },
-  progressPercent: {
-    marginTop: space.sm,
+  privateCaption: {
+    marginTop: space.md,
     fontWeight: '700',
   },
   changeBadge: {

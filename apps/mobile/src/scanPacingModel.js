@@ -2,6 +2,7 @@ export const DEFAULT_SCAN_PHOTO_PAGE_SIZE = 60;
 export const FIRST_VALUE_SCAN_PHOTO_PAGE_SIZE = 8;
 export const FIRST_VALUE_SCAN_MAX_PHOTOS = 48;
 export const FIRST_VALUE_SCAN_MAX_DURATION_MS = 24_000;
+export const FIRST_VALUE_SCAN_WATCHDOG_MS = 26_000;
 
 export function resolveScanPhotoPageSize(value) {
   const parsed = Number(value);
@@ -22,28 +23,22 @@ export function firstValueProgressCopy({
   const totalCount = Math.max(0, Number(total) || 0);
   const maxPhotoCount = Math.max(1, Number(maxPhotos) || FIRST_VALUE_SCAN_MAX_PHOTOS);
   const searchLimit = Math.min(totalCount || maxPhotoCount, maxPhotoCount);
-  if (batchSize > 0 && checkedCount === 0) {
-    return {
-      eyebrow: `${batchSize.toLocaleString()} of up to ${searchLimit.toLocaleString()} prepared`,
-      detail: 'A quick private sample—not your whole library.',
-    };
-  }
   if (batchSize > 0) {
     return {
-      eyebrow: `${checkedCount.toLocaleString()} checked`,
+      eyebrow: 'Quick private search',
       detail: timedOutBatches > 0
-        ? 'Skipping a slow original and checking the next small group.'
-        : 'Checking the next small group on your phone.',
+        ? 'Skipping a slow photo and checking a few more.'
+        : `Checking a small sample of up to ${searchLimit.toLocaleString()} photos.`,
     };
   }
   return {
-    eyebrow: checkedCount > 0
-      ? `${checkedCount.toLocaleString()} checked`
-      : 'Preparing a small private search',
+    eyebrow: 'Quick private search',
     detail: timedOutBatches > 0 || skippedCount > 0
       ? skippedCount > 0
-        ? `${skippedCount.toLocaleString()} slow ${skippedCount === 1 ? 'photo was' : 'photos were'} skipped so you never have to wait.`
-        : 'A slow original was skipped so you never have to wait on it.'
-      : 'Nothing is uploaded before you approve it.',
+        ? 'A few slow photos were skipped so you never have to wait.'
+        : 'A slow photo was skipped so you never have to wait.'
+      : checkedCount > 0
+        ? 'Finishing this short search.'
+        : 'Preparing a few photos on this iPhone.',
   };
 }

@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import SiteEnhancer from "./SiteEnhancer";
+import AnalyticsConsent from "./AnalyticsConsent";
 
 const navItems = [
   { href: "/story/", label: "Story" },
@@ -74,6 +75,13 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
                 <p className="footer-h">Company</p>
                 <Link href="/partners/">Partners</Link>
                 <Link href="/privacy/">Privacy</Link>
+                <button
+                  className="footer-link-button"
+                  type="button"
+                  data-analytics-preferences
+                >
+                  Analytics choices
+                </button>
                 <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
               <div>
@@ -92,6 +100,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       </footer>
 
       <SiteEnhancer />
+      <AnalyticsConsent />
     </>
   );
 }

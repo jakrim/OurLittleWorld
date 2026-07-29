@@ -186,7 +186,7 @@ export default function ScanProgressScreen() {
     firstValueRequested
     && (
       startError
-      || (['done', 'failed'].includes(scan.phase) && !firstValueReady)
+      || (['done', 'failed', 'aborted'].includes(scan.phase) && !firstValueReady)
     )
   ) {
     return (
@@ -260,12 +260,14 @@ export default function ScanProgressScreen() {
         </Eyebrow>
         <Spacer h={space.sm} />
         <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
-          Looking for {family?.babyName || 'them'}…
+          {firstValueRequested
+            ? 'Finding one memory…'
+            : `Looking for ${family?.babyName || 'them'}…`}
         </Hero>
         <Spacer h={space.md} />
         <Caption align="center">
           {firstValueRequested
-            ? `${firstValueProgress.detail} We stop after one reliable candidate.`
+            ? firstValueProgress.detail
             : scan.matches.length > 0
               ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
               : 'First review builds trust; later clear matches can save automatically.'}
@@ -286,7 +288,7 @@ export default function ScanProgressScreen() {
           </>
         ) : null}
         <Button variant="ghost" onPress={stopScan}>
-          Stop scan
+          {firstValueRequested ? 'Cancel search' : 'Stop scan'}
         </Button>
       </View>
     </Screen>

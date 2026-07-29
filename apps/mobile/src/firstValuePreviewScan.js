@@ -12,6 +12,7 @@ import {
   FIRST_VALUE_SCAN_MAX_DURATION_MS,
   FIRST_VALUE_SCAN_MAX_PHOTOS,
   FIRST_VALUE_SCAN_PHOTO_PAGE_SIZE,
+  FIRST_VALUE_SCAN_WATCHDOG_MS,
 } from './scanPacingModel';
 import { FIRST_VALUE_NATIVE_MATCH_BATCH_TIMEOUT_MS } from './faceMatcherModel';
 
@@ -65,6 +66,13 @@ export async function startFirstValuePreviewScan({ family, user, onPreviewReady 
     },
   });
 
-  completion.catch(() => {});
-  return { started: true, scanKey: Scan.getState().scanKey };
+  const scanKey = Scan.getState().scanKey;
+  const watchdog = setTimeout(() => {
+    const active = Scan.getState();
+    if (active.scanKey === scanKey && Scan.isRunning()) Scan.abort();
+  }, FIRST_VALUE_SCAN_WATCHDOG_MS);
+  completion
+    .catch(() => {})
+    .finally(() => clearTimeout(watchdog));
+  return { started: true, scanKey };
 }
