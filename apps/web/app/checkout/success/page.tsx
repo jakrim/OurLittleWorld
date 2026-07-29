@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import CheckoutCompletion from "@/components/CheckoutCompletion";
 
-import CheckoutCompletionStatus from "@/components/CheckoutCompletionStatus";
 import CommercialAvailability from "@/components/CommercialAvailability";
 import { metadataFor } from "@/lib/siteSeo";
 

@@ -294,6 +294,62 @@ export function supportEmail() {
   return env('OLW_SUPPORT_EMAIL', 'support@ourlittleworld.me');
 }
 
+const ACQUISITION_FIELDS = [
+  'campaign',
+  'angle',
+  'creative',
+  'channel',
+  'landing_page',
+  'first_campaign',
+  'first_angle',
+  'first_creative',
+  'first_channel',
+  'first_landing_page',
+  'last_campaign',
+  'last_angle',
+  'last_creative',
+  'last_channel',
+  'last_landing_page',
+] as const;
+
+export type AcquisitionMetadata = Partial<Record<typeof ACQUISITION_FIELDS[number], string>>;
+
+export function acquisitionMetadataFromBody(body: Record<string, unknown>): AcquisitionMetadata {
+  return acquisitionMetadataFromRecord(Object.fromEntries(
+    ACQUISITION_FIELDS.map((key) => [key, body[`attribution_${key}`]]),
+  ));
+}
+
+export function acquisitionMetadataFromRecord(record: Record<string, unknown>): AcquisitionMetadata {
+  const output: AcquisitionMetadata = {};
+  for (const key of ACQUISITION_FIELDS) {
+    const value = safeAcquisitionValue(key, record[key]);
+    if (value) output[key] = value;
+  }
+  return output;
+}
+
+export function appendAcquisitionMetadata(
+  params: URLSearchParams,
+  acquisition: AcquisitionMetadata,
+  prefixes = ['metadata'],
+) {
+  for (const prefix of prefixes) {
+    for (const [key, value] of Object.entries(acquisition)) {
+      params.set(`${prefix}[acquisition_${key}]`, value);
+    }
+  }
+}
+
+function safeAcquisitionValue(key: typeof ACQUISITION_FIELDS[number], value: unknown) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, 120);
+  if (!trimmed) return null;
+  if (key.endsWith('landing_page')) return /^\/[a-zA-Z0-9/_-]*$/.test(trimmed) ? trimmed : null;
+  if (trimmed.includes('://') || trimmed.includes('@')) return null;
+  return /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/.test(trimmed) ? trimmed : null;
+}
+
 const CHECKOUT_ATTRIBUTION_KEYS = [
   'first_utm_source',
   'first_utm_medium',
@@ -342,7 +398,12 @@ function boundedMetadataValue(value: unknown, maxLength: number) {
     .slice(0, maxLength);
 }
 
-export async function stripeFormRequest(path: string, params: URLSearchParams, method = 'POST') {
+export async function stripeFormRequest(
+  path: string,
+  params: URLSearchParams,
+  method = 'POST',
+  options: { idempotencyKey?: string } = {},
+) {
   const secretKey = requiredEnv('STRIPE_SECRET_KEY');
   const headers = new Headers({
     authorization: `Basic ${btoa(`${secretKey}:`)}`,

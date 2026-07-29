@@ -24,9 +24,19 @@ begin
     'olw_internal_qa_mailchimp_date_fix_20260713',
     'reconcile'
   ) then
-    raise exception using
-      errcode = 'P0001',
-      message = 'internal_qa_retry_not_queued';
+    -- A clean replay can already have an active job from the immediately
+    -- preceding controlled-QA migration. That is equivalent to a successful
+    -- queue request; fail only when neither a new nor an active job exists.
+    if not exists (
+      select 1
+      from public.marketing_sync_outbox
+      where contact_id = qa_contact_id
+        and state in ('pending', 'processing', 'retry')
+    ) then
+      raise exception using
+        errcode = 'P0001',
+        message = 'internal_qa_retry_not_queued';
+    end if;
   end if;
 end
 $$;

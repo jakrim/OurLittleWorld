@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import CheckoutCompletion from "@/components/CheckoutCompletion";
+import CommercialAvailability from "@/components/CommercialAvailability";
 
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",

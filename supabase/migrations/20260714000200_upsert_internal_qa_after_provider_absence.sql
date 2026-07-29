@@ -24,9 +24,18 @@ begin
     'olw_internal_qa_provider_absence_20260713',
     'upsert'
   ) then
-    raise exception using
-      errcode = 'P0001',
-      message = 'internal_qa_upsert_not_queued';
+    -- On a clean schema replay an earlier controlled-QA job can still own the
+    -- one-active-job slot. Treat that active job as successful queue coverage.
+    if not exists (
+      select 1
+      from public.marketing_sync_outbox
+      where contact_id = qa_contact_id
+        and state in ('pending', 'processing', 'retry')
+    ) then
+      raise exception using
+        errcode = 'P0001',
+        message = 'internal_qa_upsert_not_queued';
+    end if;
   end if;
 end
 $$;

@@ -32,7 +32,6 @@ import {
 import { ThemeProvider } from '../src/ui';
 import useForegroundAutoIngest from '../src/useForegroundAutoIngest';
 import usePushNotifications from '../src/usePushNotifications';
-import { initializePosthogAnalytics } from '../src/posthogAnalyticsTransport';
 
 export const unstable_settings = {
   initialRouteName: 'index',

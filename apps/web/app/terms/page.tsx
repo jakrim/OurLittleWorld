@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
 import { exportPolicyCopy } from "@/content/exportPolicy";
 
 export const metadata: Metadata = {

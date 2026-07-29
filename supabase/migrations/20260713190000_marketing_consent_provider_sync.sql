@@ -648,7 +648,14 @@ begin
     where contact_id = target_contact_id;
   end if;
 
-  return inserted_id is not null;
+  -- Idempotent callers should treat an already-active job as successful queue
+  -- coverage. This also makes historical operational migrations replay-safe.
+  return inserted_id is not null or exists (
+    select 1
+    from public.marketing_sync_outbox
+    where contact_id = target_contact_id
+      and state in ('pending', 'processing', 'retry')
+  );
 end
 $$;
 

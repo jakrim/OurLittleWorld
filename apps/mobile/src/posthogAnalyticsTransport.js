@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { setAnalyticsTransport } from './analytics.js';
 
-const CONSENT_KEY = 'our-little-world.analytics-consent.v1';
+export const ANALYTICS_CONSENT_KEY = 'our-little-world.analytics-consent.v1';
 const ALLOWED_CONSENT = new Set(['granted', 'denied', 'unknown']);
 const DEFAULT_HOST = 'https://us.i.posthog.com';
 
@@ -21,8 +21,7 @@ export function createPosthogAnalyticsTransport({
   consent = 'unknown',
   fetchImpl = globalThis.fetch,
 } = {}) {
-  const normalizedConsent = String(consent || 'unknown').toLowerCase();
-  if (!ALLOWED_CONSENT.has(normalizedConsent)) throw new Error('Invalid analytics consent state');
+  const normalizedConsent = normalizeConsent(consent);
   if (normalizedConsent !== 'granted') {
     return async () => ({ accepted: false, reason: 'consent_not_granted' });
   }
@@ -55,31 +54,44 @@ export function createPosthogAnalyticsTransport({
   };
 }
 
-export async function readAnalyticsConsent() {
-  const stored = await AsyncStorage.getItem(CONSENT_KEY);
-  if (ALLOWED_CONSENT.has(stored)) return stored;
-  const configuredDefault = process.env.EXPO_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT;
-  return configuredDefault === 'granted' ? 'granted' : 'unknown';
+export async function readAnalyticsConsent(storage = AsyncStorage) {
+  const stored = await storage.getItem(ANALYTICS_CONSENT_KEY);
+  return normalizeConsent(stored);
 }
 
-export async function setAnalyticsConsent(consent) {
-  const normalized = String(consent || '').toLowerCase();
-  if (!ALLOWED_CONSENT.has(normalized)) throw new Error('Invalid analytics consent state');
-  await AsyncStorage.setItem(CONSENT_KEY, normalized);
+export async function setAnalyticsConsent(consent, storage = AsyncStorage) {
+  const normalized = normalizeConsent(consent);
+  await storage.setItem(ANALYTICS_CONSENT_KEY, normalized);
+  if (normalized !== 'granted') sessionId = null;
   return initializePosthogAnalytics({ consent: normalized });
+}
+
+export async function revokeAnalyticsConsent(storage = AsyncStorage) {
+  sessionId = null;
+  return setAnalyticsConsent('denied', storage);
 }
 
 export async function initializePosthogAnalytics({ consent } = {}) {
   const resolvedConsent = consent || await readAnalyticsConsent();
   const apiKey = process.env.EXPO_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_API_KEY;
   const host = process.env.EXPO_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_POSTHOG_HOST || DEFAULT_HOST;
-  if (!apiKey || resolvedConsent !== 'granted') {
+  if (resolvedConsent !== 'granted') {
     setAnalyticsTransport(createPosthogAnalyticsTransport({ consent: resolvedConsent }));
-    return { enabled: false, consent: resolvedConsent, reason: apiKey ? 'consent_not_granted' : 'token_not_configured' };
+    return { enabled: false, consent: resolvedConsent, reason: 'consent_not_granted' };
+  }
+  if (!apiKey) {
+    setAnalyticsTransport(async () => ({ accepted: false, reason: 'token_not_configured' }));
+    return { enabled: false, consent: resolvedConsent, reason: 'token_not_configured' };
   }
   const transport = createPosthogAnalyticsTransport({ apiKey, host, consent: resolvedConsent });
   setAnalyticsTransport(transport);
   return { enabled: true, consent: resolvedConsent, provider: 'posthog' };
+}
+
+function normalizeConsent(value) {
+  const normalized = String(value || 'unknown').toLowerCase();
+  if (!ALLOWED_CONSENT.has(normalized)) throw new Error('Invalid analytics consent state');
+  return normalized;
 }
 
 function normalizePosthogHost(host) {

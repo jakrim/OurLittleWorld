@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import StaticPage from "@/components/StaticPage";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
 import { exportPolicyCopy } from "@/content/exportPolicy";
 import { giftOfferCopy } from "@/content/giftOffer";
 

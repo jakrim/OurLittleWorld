@@ -114,6 +114,10 @@ export function publicPageContent(
         "A year of Our Little World gives new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately.",
         "Planned gift years will give new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately.",
       )
+      .replace(
+        /A \$\d+(?:\.\d{2})? Family gift year gives new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately\./,
+        "Planned gift years will give new parents a private place to keep the photos, firsts, notes, and letters that start disappearing almost immediately.",
+      )
       .replaceAll(
         "Send it before the baby arrives so the family can start from day one.",
         "Plan it before the baby arrives so the family can start from day one once gifting is available.",

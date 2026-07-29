@@ -477,6 +477,11 @@ const COMMON_PROPERTIES = Object.freeze([
   'child_id',
   'actor_role',
   'plan_state',
+  'campaign',
+  'angle',
+  'creative',
+  'channel',
+  'landing_page',
 ]);
 
 const DEFAULT_ENVELOPE = Object.freeze({

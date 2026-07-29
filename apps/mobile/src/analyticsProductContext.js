@@ -39,3 +39,16 @@ export function mediaKindForAssets(assets, hasVoice = false) {
   if (hasVoice) return 'voice';
   return 'none';
 }
+
+export function sanitizeAcquisitionContext(input = {}) {
+  const output = {};
+  for (const key of ['campaign', 'angle', 'creative', 'channel']) {
+    const value = typeof input[key] === 'string' ? input[key].trim().slice(0, 120) : '';
+    if (value && !value.includes('://') && !value.includes('@') && /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/.test(value)) {
+      output[key] = value;
+    }
+  }
+  const landingPage = typeof input.landing_page === 'string' ? input.landing_page.trim().slice(0, 120) : '';
+  if (/^\/[a-zA-Z0-9/_-]*$/.test(landingPage)) output.landing_page = landingPage;
+  return output;
+}

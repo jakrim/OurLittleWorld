@@ -10,6 +10,7 @@ import {
   marketingTarget,
   trackMarketingEvent,
 } from "@/lib/marketingAnalytics";
+import { publicCommercialConfig } from "@/lib/commercialConfig";
 
 const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "support@ourlittleworld.me";
 const supabaseFunctionsBase = process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL
@@ -232,9 +233,27 @@ export default function SiteEnhancer() {
         }
 
         const kind = form.getAttribute("data-conversion-form");
-        const payload = {
+        if ((kind === "self" || kind === "gift") && !publicCommercialConfig.checkoutEnabled) {
+          setStatus(status, "Purchases are not publicly available yet. Join the launch list for a verified availability update.", {
+            label: "Join the launch list",
+            href: "/#launch-list",
+          });
+          return;
+        }
+        if (form.dataset.submitting === "true") return;
+        form.dataset.submitting = "true";
+        const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        const unlock = () => {
+          delete form.dataset.submitting;
+          if (submitButton) submitButton.disabled = false;
+        };
+        const checkoutAttemptId = form.dataset.checkoutAttemptId || crypto.randomUUID();
+        form.dataset.checkoutAttemptId = checkoutAttemptId;
+        const payload: Record<string, string> = {
           ...formPayload(form),
           ...checkoutAttributionPayload(),
+          checkout_attempt_id: checkoutAttemptId,
         };
 
         if (kind === "self") {
@@ -269,17 +288,6 @@ export default function SiteEnhancer() {
               });
               unlock();
             }
-            return;
-          }
-
-          const checkoutUrl = checkoutLinks[plan as keyof typeof checkoutLinks];
-          if (checkoutUrl) {
-            setStatus(status, "Opening secure checkout...");
-            window.location.href = appendParams(checkoutUrl, {
-              prefilled_email: payload.email,
-              client_reference_id: `self-${Date.now()}`,
-              olw_plan: plan,
-            });
             return;
           }
 

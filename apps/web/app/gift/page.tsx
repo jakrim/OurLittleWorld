@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import StaticPage from "@/components/StaticPage";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
 import { giftOfferCopy } from "@/content/giftOffer";
 
 export const metadata: Metadata = {

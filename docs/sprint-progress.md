@@ -1484,3 +1484,34 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   remote service, commit, push, build, TestFlight submission, or deployment was
   touched. The existing TestFlight binary still needs a new native build before
   these fixes can be checked against the physical 4,351-item iCloud library.
+
+### Cross-worktree internal release convergence (2026-07-29)
+
+- Preserved the latest canonical discovery, curated-memory, Expo 57, billing,
+  web, and release work, then merged the clean account-deletion, growth
+  measurement/lifecycle, and release-evidence branches. Older hybrid,
+  book-first redesign, Expo 55, and superseded visual branches remain preserved
+  in Git but were not merged because they would reverse the current private
+  family-memory direction or downgrade the native runtime.
+- Reconciled merge seams instead of accepting one side blindly: mobile and web
+  analytics now remain explicit-consent-only with revocation; acquisition
+  context is allowlisted and rejects contact-like values; checkout attribution,
+  idempotency, commercial availability, SEO structured data, account deletion,
+  and canonical family billing compile and test together.
+- Made the historical marketing QA queue migrations replay-safe. Queue requests
+  now treat an already-active job as idempotent success and still fail when no
+  new or active job exists. A complete local reset applied every migration
+  through `20260724120000_account_deletion_lifecycle.sql`; database lint reported
+  no schema errors.
+- Release versions are pinned to app version `1.1.0`, iOS build `1.1.12`, and
+  Android version code `3`. Both binaries use the `release-candidate` store
+  profile and the existing production environment, while submission remains
+  limited to TestFlight and the Google Play internal track.
+- Verification before build: `pnpm test` passed 31 shared Node tests, 477 mobile
+  tests, and 16 web tests; `pnpm lint`, `pnpm typecheck`, `pnpm build`,
+  `pnpm agent:validate`, `git diff --check`, 16 applicable Deno tests, four
+  media-gateway Worker tests, and `pnpm db:reset:migrations` passed.
+  `pnpm smoke:mobile` passed its 25 deterministic checks and stopped at the
+  documented `OLW_SMOKE_DEV_CODE` gate, so signed-device Maestro verification
+  remains separate from deterministic release proof. No production database,
+  Edge Function, Worker, notification, or website deployment was performed.

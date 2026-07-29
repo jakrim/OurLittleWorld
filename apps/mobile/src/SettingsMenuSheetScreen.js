@@ -392,6 +392,21 @@ export default function SettingsMenuSheetScreen() {
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
   };
 
+  const updateAnalyticsConsent = async (nextConsent) => {
+    if (analyticsConsentBusy) return;
+    setAnalyticsConsentBusy(true);
+    try {
+      const result = nextConsent === 'revoked'
+        ? await revokeAnalyticsConsent()
+        : await setAnalyticsConsent(nextConsent);
+      setAnalyticsConsentState(result.consent);
+    } catch (err) {
+      Alert.alert('Could not update analytics', err?.message || 'Try again.');
+    } finally {
+      setAnalyticsConsentBusy(false);
+    }
+  };
+
   const confirmSignOut = () => {
     Alert.alert(
       'Sign out?',

@@ -2,6 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { deepLinkToSubscriptions } from 'expo-iap';
 
 import { supabase } from './supabase';
+import { sanitizeAcquisitionContext } from './analyticsProductContext';
 import {
   FAMILY_MONTHLY_PRODUCT_ID,
   FAMILY_PRODUCT_IDS,

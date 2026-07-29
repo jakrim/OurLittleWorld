@@ -5,7 +5,8 @@ import Link from "next/link";
 import AnalyticsConsentControls from "./AnalyticsConsentControls";
 import CommercialAvailability from "./CommercialAvailability";
 import SiteEnhancer from "./SiteEnhancer";
-import AnalyticsConsent from "./AnalyticsConsent";
+import WebsiteErrorMonitor from "./WebsiteErrorMonitor";
+import { primaryCommercialAction, publicCommercialConfig } from "@/lib/commercialConfig";
 
 const navItems = [
   { href: "/story/", label: "Story" },
@@ -85,13 +86,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
               <div>
                 <p className="footer-h">Company</p>
                 <Link href="/privacy/">Privacy</Link>
-                <button
-                  className="footer-link-button"
-                  type="button"
-                  data-analytics-preferences
-                >
-                  Analytics choices
-                </button>
+                <Link href="/email-preferences/">Email preferences</Link>
                 <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
               <div>
@@ -111,7 +106,8 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       </footer>
 
       <SiteEnhancer />
-      <AnalyticsConsent />
+      <WebsiteErrorMonitor />
+      <AnalyticsConsentControls compact />
     </>
   );
 }

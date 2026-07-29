@@ -1,12 +1,22 @@
 "use client";
 
-type MarketingEventName =
+export type MarketingEventName =
   | "landing_view"
+  | "homepage_viewed"
+  | "hero_primary_cta_clicked"
+  | "hero_email_started"
+  | "hero_email_succeeded"
+  | "pricing_viewed"
   | "primary_cta_clicked"
   | "checkout_started"
   | "checkout_completed"
+  | "checkout_failed"
   | "gift_started"
-  | "gift_completed";
+  | "gift_checkout_started"
+  | "gift_completed"
+  | "store_interest_clicked"
+  | "launch_interest_clicked"
+  | "launch_signup_completed";
 
 type MarketingEventProperties = {
   path?: string;
@@ -88,10 +98,29 @@ export function getAnalyticsConsent(): AnalyticsConsent {
   return value === "granted" || value === "denied" ? value : "unknown";
 }
 
+export function readAnalyticsConsent(): AnalyticsConsent {
+  return getAnalyticsConsent();
+}
+
 export function setAnalyticsConsent(consent: Exclude<AnalyticsConsent, "unknown">) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ANALYTICS_CONSENT_KEY, consent);
   window.dispatchEvent(new CustomEvent(ANALYTICS_CONSENT_EVENT, { detail: consent }));
+}
+
+export function revokeAnalyticsConsent() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(FIRST_TOUCH_KEY);
+  window.sessionStorage.removeItem(LAST_TOUCH_KEY);
+  window.localStorage.removeItem("olw.analytics-anonymous-id.v1");
+  setAnalyticsConsent("denied");
+}
+
+export function subscribeToAnalyticsConsent(listener: (consent: AnalyticsConsent) => void) {
+  if (typeof window === "undefined") return () => undefined;
+  const handler = () => listener(getAnalyticsConsent());
+  window.addEventListener(ANALYTICS_CONSENT_EVENT, handler);
+  return () => window.removeEventListener(ANALYTICS_CONSENT_EVENT, handler);
 }
 
 export function checkoutAttributionPayload(): Record<string, string> {
@@ -117,6 +146,7 @@ export function marketingTarget(href: string | null): MarketingEventProperties["
   if (!href) return "other";
   if (href.includes("/gift")) return "gift";
   if (href.includes("/pricing") || href.includes("#checkout")) return "pricing";
+  if (href.includes("#launch-list")) return "store";
   if (href.includes("apps.apple.com") || href.includes("play.google.com")) return "store";
   if (href.includes("/partners")) return "partner";
   return "other";

@@ -21,8 +21,10 @@ test('private family fields are rejected recursively before transport', () => {
     media_count_bucket: '1',
     has_voice: false,
     has_text_note: true,
+    happened_at_changed: false,
+    child_age_band: '6_12m',
     nested: { caption: 'first smile' },
-  }), /Forbidden analytics field: caption|Unknown analytics property: nested/);
+  }), /Forbidden analytics field: (?:nested\.)?caption|Unknown analytics property: nested/);
 
   assert.throws(() => buildAnalyticsEvent('gift_redeemed', {
     surface: 'purchase',
@@ -40,6 +42,8 @@ test('valid first-memory attribution contains only coarse dimensions', () => {
     media_count_bucket: '1',
     has_voice: false,
     has_text_note: true,
+    happened_at_changed: false,
+    child_age_band: '6_12m',
   }, {
     family_id: 'family-1',
     angle: 'unfinished-baby-book',
@@ -55,23 +59,28 @@ test('valid first-memory attribution contains only coarse dimensions', () => {
 });
 
 test('lifecycle outcome events keep only coarse product state', () => {
-  const first = buildAnalyticsEvent('first_created', {
+  const first = buildAnalyticsEvent('first_saved', {
     surface: 'firsts',
-    creation_source: 'manual',
-    has_note: true,
+    goal_key: 'first_steps',
+    first_source: 'manual',
     has_media: true,
+    child_age_band: '6_12m',
   }, { family_id: 'family-1', actor_role: 'creator' });
-  const letter = buildAnalyticsEvent('letter_created', {
+  const letter = buildAnalyticsEvent('letter_saved', {
     surface: 'letters',
-    has_title: false,
+    letter_source: 'manual',
+    open_state: 'open',
+    has_source_moment: false,
+    has_source_first: false,
   }, { family_id: 'family-1', actor_role: 'partner' });
-  const invite = buildAnalyticsEvent('caregiver_invite_created', {
-    surface: 'invite',
+  const invite = buildAnalyticsEvent('invite_sent', {
+    surface: 'settings',
     invite_role: 'partner',
+    send_method: 'share_sheet',
   }, { family_id: 'family-1', actor_role: 'creator' });
 
-  assert.equal(first.has_note, true);
-  assert.equal(letter.has_title, false);
+  assert.equal(first.first_source, 'manual');
+  assert.equal(letter.open_state, 'open');
   assert.equal(invite.invite_role, 'partner');
   assert.equal(JSON.stringify({ first, letter, invite }).includes('title_text'), false);
   assert.equal(JSON.stringify({ first, letter, invite }).includes('invite_code'), false);
