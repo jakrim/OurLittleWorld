@@ -1593,3 +1593,17 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   EAS CLI `21.4.0`; the repository schema and build profiles were not weakened
   or edited. No production database, Edge Function, Worker, website, public
   store release, purchase, notification, or family data was changed.
+- A post-build `expo-doctor` health pass completed 19 of 20 checks. It found the
+  Expo 57 package set one patch behind the currently recommended patch versions
+  (17 packages, including Expo `57.0.8` versus `57.0.9` and React Native
+  `0.86.0` versus `0.86.2`). The proven QA binary was not silently replaced with
+  an untested native dependency update; align and re-run the full native matrix
+  in a dedicated maintenance slice.
+- `pnpm audit --prod` reported 36 transitive advisories: 26 affect the web
+  package's Next.js line, while mobile paths run through Expo CLI/config,
+  Metro/PostCSS, React DevTools, and icon config tooling rather than
+  application-owned camera-roll or family-data runtime code. Patch the web
+  framework before the next production web deployment and reconcile the mobile
+  toolchain during the Expo patch-alignment slice. These findings do not change
+  the successful native build/upload receipts, but they remain open maintenance
+  work rather than a claimed clean dependency audit.
