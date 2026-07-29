@@ -203,6 +203,11 @@ export function removeCachedMedia({ familyId, assetOwnerUserId, assetId }) {
 export function clearFamilyCache(familyId) {
   if (!familyId) return;
   const database = getDb();
+  database.runSync(
+    `delete from media_variant_cache
+     where media_id in (select media_id from media_items where family_id = ?)`,
+    [familyId],
+  );
   database.runSync('delete from media_items where family_id = ?', [familyId]);
   database.runSync('delete from media_sync_cursors where family_id = ?', [familyId]);
   database.runSync('delete from upload_jobs where family_id = ?', [familyId]);
@@ -211,6 +216,23 @@ export function clearFamilyCache(familyId) {
   database.runSync('delete from candidate_cluster_members where family_id = ?', [familyId]);
   database.runSync('delete from candidate_clusters where family_id = ?', [familyId]);
   database.runSync('delete from discovery_candidates where family_id = ?', [familyId]);
+  database.runSync('delete from family_saved_day_facts where family_id = ?', [familyId]);
+}
+
+/** Removes every account-scoped local cache before a deleted user leaves the device. */
+export function clearAllAccountCaches() {
+  const database = getDb();
+  database.withTransactionSync(() => {
+    database.runSync('delete from media_variant_cache');
+    database.runSync('delete from media_items');
+    database.runSync('delete from media_sync_cursors');
+    database.runSync('delete from upload_jobs');
+    database.runSync('delete from local_asset_mappings');
+    database.runSync('delete from nightly_review_sessions');
+    database.runSync('delete from candidate_clusters');
+    database.runSync('delete from discovery_candidates');
+    database.runSync('delete from family_saved_day_facts');
+  });
 }
 
 // ─── Private local-to-shared media identity ─────────────────────────────────

@@ -5,6 +5,7 @@
     "agent:inventory": "bash scripts/agent/repo-inventory.sh",
     "agent:validate": "bash scripts/agent/validate-context.sh",
     "smoke:mobile": "bash scripts/agent/smoke-mobile.sh",
+    "qa:account-deletion:local": "node scripts/qa-account-deletion-local.mjs",
     "dev": "turbo dev",
     "dev:web": "pnpm --filter @ourlittleworld/web dev",
     "dev:mobile": "pnpm --filter @ourlittleworld/mobile dev",

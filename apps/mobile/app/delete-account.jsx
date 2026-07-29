@@ -1,9 +1,9 @@
 import React from 'react';
 
+import DeleteAccountScreen from '../src/DeleteAccountScreen';
 import { ProtectedRoute } from '../src/navigation/RouteGuards';
-import SettingsMenuSheetScreen from '../src/SettingsMenuSheetScreen';
 
-export default function SettingsMenuRoute() {
+export default function DeleteAccountRoute() {
   return (
     <ProtectedRoute
       allowMissingFamily
@@ -13,7 +13,7 @@ export default function SettingsMenuRoute() {
       allowMissingSubscription
       allowReadOnlyArchive
     >
-      <SettingsMenuSheetScreen />
+      <DeleteAccountScreen />
     </ProtectedRoute>
   );
 }

@@ -102,7 +102,7 @@ export default function SettingsMenuSheetScreen() {
   const theme = useTheme();
   const { family, refresh: refreshFamily } = useFamily();
   const { entitlement, refresh: refreshBilling, redeemCode } = useBilling();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [ritualSettings, setRitualSettings] = useState(() => normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS));
   const [notificationPreferences, setNotificationPreferences] = useState(defaultNotificationPreferences);
   const [settingsCounts, setSettingsCounts] = useState(DEFAULT_SETTINGS_COUNTS);
@@ -356,6 +356,23 @@ export default function SettingsMenuSheetScreen() {
 
   const contactSupport = () => {
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert(
+      'Sign out?',
+      'You can sign back in any time. Your saved family archive stays in Our Little World; private drafts and on-device discovery are cleared from this device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => signOut().catch((error) => {
+            Alert.alert('Could not sign out', error?.message || 'Try again.');
+          }),
+        },
+      ],
+    );
   };
 
   return (
@@ -665,6 +682,25 @@ export default function SettingsMenuSheetScreen() {
               onReview={() => go({ pathname: '/library', params: { segment: 'search' } })}
             />
           ) : null}
+        </View>
+
+        <View>
+          <Eyebrow>account</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="log-out-outline"
+              label="Sign out"
+              detail={user?.email || 'Keep this account and sign out on this device'}
+              onPress={confirmSignOut}
+            />
+            <MenuItem
+              icon="trash-outline"
+              label="Delete account"
+              detail="Export, review the impact, then permanently delete"
+              tint={theme.colors.danger}
+              onPress={() => router.push('/delete-account')}
+            />
+          </View>
         </View>
       </ScrollView>
     </Screen>

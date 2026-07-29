@@ -54,10 +54,24 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   suggestion `Not this`, photo-stack choices, caption draft use, and book-readiness
   actions stay separate; First suggestion feedback is device-local per family/user and
   does not become a child-identity or face-match negative example.
-- **Account deletion:** destructive deletion is not implemented yet. The required
-  Settings flow, backend role handling, auth deletion, storage/media deletion,
-  billing/gift retention, and legal-retention policy are tracked in
-  `docs/account-deletion-policy.md`.
+- **Account deletion:** `/delete-account` is reachable from account settings across
+  normal, incomplete-setup, no-family, lapsed/read-only, and purchase-gated states.
+  The screen offers export first, loads a service-derived role preview, requires a
+  fresh email OTP plus exact `DELETE`, and emits no analytics. The `delete-account`
+  Edge Function coordinates a service-only, idempotent lifecycle: legal-hold check;
+  per-family lock; role/provider inventory; verified Supabase Storage, Cloudflare
+  Stream, R2, and Stripe cleanup; role-aware database finalization; and hard Auth
+  deletion. Sole-writer families are removed, while additional-writer and Circle
+  families remain and shared authorship is nulled rather than reassigned. The media
+  Worker exposes a secret-authenticated internal R2-prefix deletion route. It writes
+  a non-content deletion marker first and checks that marker before original-media
+  cache reads, invalidating existing short-lived media sessions without storing
+  memory content or private discovery evidence. In addition,
+  `create-stream-upload` records the provider UID before returning a direct-upload
+  URL so an interrupted upload remains discoverable. Local cleanup erases all
+  account-scoped SQLite/AsyncStorage/draft/notification state while preserving the
+  device camera roll and explicit exports. See `docs/account-deletion-policy.md` and
+  `docs/account-deletion-operations.md`.
 - **Export and lapsed subscriptions:** `docs/export-lapsed-subscription-policy.md`
   is the source for the trust copy: memories are never deleted for non-payment;
   lapsed subscriptions become a read-only vault with saved memories viewable and

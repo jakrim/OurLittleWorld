@@ -1,9 +1,11 @@
 # Account Deletion Policy
 
-Status: policy and implementation task. The destructive flow is not implemented in
-this PRD pass.
+Status: implemented as a release-candidate change on
+`codex/olw-account-deletion`; production migration, Edge/Worker deployment, and a
+dependent signed client remain separate authorization and release gates.
 
-Tracked implementation task: **K7/J3 Delete account flow**.
+Tracked implementation task: **K7/J3 Delete account flow**. Operational order and
+recovery are defined in `docs/account-deletion-operations.md`.
 
 ## Required Product Flow
 
@@ -62,8 +64,11 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 
 ## Billing, Gifts, And Legal Retention
 
-- Stripe, Apple, and other payment-provider records are not directly deleted by the
-  app flow. Keep only the minimum local billing identifiers needed for receipts,
+- The server cancels active Stripe subscriptions owned by the deleting account
+  before database finalization. Apple App Store and Google Play subscriptions cannot
+  be canceled by the app; the parent is shown the store-management action before
+  deletion and the final flow does not claim otherwise. Keep only the minimum local
+  billing identifiers needed for receipts,
   refunds, disputes, taxes, fraud prevention, entitlement reconciliation, and legal
   obligations.
 - Redeemed gift access is tied to the family. If the family is deleted by its sole
@@ -97,3 +102,38 @@ deleted. Only Our Little World account, family, and stored media data are in sco
 - The flow clears push tokens and notification rows.
 - The flow preserves required billing/legal records while deleting memory content.
 - Product copy states that camera-roll originals are not deleted.
+
+## Implemented Release-Candidate Contract
+
+- Settings, incomplete setup, no-family onboarding, read-only/lapsed access, and
+  the purchase gate can all reach account controls.
+- The first screen loads a server-derived role preview and fails closed if that
+  preview is unavailable. It offers archive export and provider-specific
+  subscription guidance before a fresh email code is sent.
+- Final deletion requires a six-digit email OTP for the current Supabase user and
+  the exact text `DELETE`. The client never receives admin credentials.
+- `account_deletion_family_locks` closes writer and membership mutations between
+  inventory and finalization. Legal holds stop the flow before provider inventory.
+- Sole-writer provider cleanup recursively verifies the target family prefix in
+  Supabase Storage, inventories/deletes Cloudflare Stream by known UID and family
+  metadata, and asks the media Worker to enumerate and verify the complete R2
+  family prefix. The Worker writes a non-content family deletion marker before
+  erasure and checks it before original-media cache reads, so an existing
+  short-lived media session cannot expose a stale cached original. Provider failure
+  leaves the database and auth account retryable.
+- Database finalization deletes sole-writer families, removes additional-writer and
+  Circle memberships without deleting their family archives, clears user/device
+  server state, minimizes retained billing rows, and then hard-deletes Supabase
+  Auth. Shared authored records survive with nullable attribution.
+- Device cleanup removes every OLW account-scoped AsyncStorage key except the theme,
+  every local SQLite archive/candidate/upload/queue row, temporary voice drafts,
+  scheduled OLW notifications, and the local auth session. It does not touch the
+  device photo library or a parent-created archive export.
+- The initiating device clears immediately. Another device cannot be remotely
+  erased while it is offline, but the deleted Auth identity cannot read or write
+  server data; on launch or the next revoked-session check, that installation
+  clears its OLW private caches, drafts, notifications, and local session.
+- Audit evidence is service-only and aggregate-only: request/family-role
+  identifiers, lifecycle timestamps/status, legal-hold state, attempt/error code,
+  and provider deletion counts. It contains no media paths, authored content,
+  candidate evidence, drafts, or OTP.

@@ -57,23 +57,31 @@ create index if not exists collection_memberships_collection_visible_idx
 alter table public.collections enable row level security;
 alter table public.collection_memberships enable row level security;
 
+drop policy if exists collections_select_writers on public.collections;
 create policy collections_select_writers on public.collections for select
   using (public.is_family_writer(family_id));
+drop policy if exists collections_insert_active on public.collections;
 create policy collections_insert_active on public.collections for insert
   with check (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
+drop policy if exists collections_update_active on public.collections;
 create policy collections_update_active on public.collections for update
   using (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id))
   with check (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
+drop policy if exists collections_delete_active on public.collections;
 create policy collections_delete_active on public.collections for delete
   using (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
 
+drop policy if exists collection_memberships_select_writers on public.collection_memberships;
 create policy collection_memberships_select_writers on public.collection_memberships for select
   using (public.is_family_writer(family_id));
+drop policy if exists collection_memberships_insert_active on public.collection_memberships;
 create policy collection_memberships_insert_active on public.collection_memberships for insert
   with check (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
+drop policy if exists collection_memberships_update_active on public.collection_memberships;
 create policy collection_memberships_update_active on public.collection_memberships for update
   using (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id))
   with check (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
+drop policy if exists collection_memberships_delete_active on public.collection_memberships;
 create policy collection_memberships_delete_active on public.collection_memberships for delete
   using (public.is_family_writer(family_id) and public.family_has_active_entitlement(family_id));
 

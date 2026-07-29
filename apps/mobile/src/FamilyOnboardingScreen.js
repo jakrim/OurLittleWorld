@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
 
 import {
   Card,
@@ -28,6 +29,7 @@ import RelationshipRolePicker from './RelationshipRolePicker';
  *      ourlittleworld://invite/CODE
  */
 export default function FamilyOnboardingScreen({ route }) {
+  const router = useRouter();
   const { refresh } = useFamily();
   const theme = useTheme();
   const [mode, setMode] = useState('chooser');
@@ -140,6 +142,10 @@ export default function FamilyOnboardingScreen({ route }) {
               onSubmit={onJoin}
             />
           ) : null}
+
+          <Button variant="quiet" onPress={() => router.push('/settings-menu')}>
+            Account settings
+          </Button>
         </V>
       </Screen>
     </View>
