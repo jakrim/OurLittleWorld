@@ -26,6 +26,16 @@ export function previewFromMatch(match, now = new Date()) {
   };
 }
 
+export function previewFromReference(reference, now = new Date()) {
+  if (!reference?.parentConfirmed) return null;
+  return previewFromMatch({
+    assetId: reference.assetId,
+    localUri: reference.uri,
+    mediaType: 'image',
+    creationTime: reference.capturedAt,
+  }, now);
+}
+
 export function approveFirstValuePreview(preview, now = new Date()) {
   if (!isFirstValuePreview(preview)) return null;
   return {

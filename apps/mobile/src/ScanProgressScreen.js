@@ -8,7 +8,10 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { startLibraryScan } from './libraryScanLauncher';
-import { startFirstValuePreviewScan } from './firstValuePreviewScan';
+import {
+  prepareReferenceFirstValuePreview,
+  startFirstValuePreviewScan,
+} from './firstValuePreviewScan';
 import { trackAnalyticsEvent } from './analytics';
 import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 import { firstValueProgressCopy } from './scanPacingModel';
@@ -40,6 +43,8 @@ export default function ScanProgressScreen() {
   const [startError, setStartError] = useState('');
   const [scanAttempt, setScanAttempt] = useState(0);
   const [firstValueReady, setFirstValueReady] = useState(false);
+  const [preparingReference, setPreparingReference] = useState(false);
+  const [referenceFallbackError, setReferenceFallbackError] = useState('');
 
   const pulse1 = useRef(new Animated.Value(0)).current;
   const pulse2 = useRef(new Animated.Value(0)).current;
@@ -151,6 +156,24 @@ export default function ScanProgressScreen() {
     setScanAttempt((value) => value + 1);
   };
 
+  const continueWithReference = async () => {
+    if (!family || !user || preparingReference) return;
+    setPreparingReference(true);
+    setReferenceFallbackError('');
+    try {
+      const preview = await prepareReferenceFirstValuePreview({ family, user });
+      if (!preview) {
+        setReferenceFallbackError('That starting photo is no longer available. Choose another photo to continue.');
+        return;
+      }
+      router.replace('/first-value-preview');
+    } catch {
+      setReferenceFallbackError('We could not prepare that photo yet. Nothing was uploaded. Please try again.');
+    } finally {
+      setPreparingReference(false);
+    }
+  };
+
   const firstValueProgress = firstValueProgressCopy({
     checked: scan.checked,
     total: scan.total,
@@ -220,13 +243,27 @@ export default function ScanProgressScreen() {
             </>
           ) : (
             <>
-              <Button onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}>
-                Choose a different reference
+              <Button onPress={continueWithReference} loading={preparingReference} disabled={preparingReference}>
+                Continue with your photo
+              </Button>
+              <Spacer h={space.sm} />
+              <Button
+                variant="ghost"
+                onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}
+                disabled={preparingReference}
+              >
+                Choose a different photo
               </Button>
               <Spacer h={space.sm} />
               <Button variant="quiet" onPress={retryFirstValueScan}>
                 Try another short search
               </Button>
+              {referenceFallbackError ? (
+                <>
+                  <Spacer h={space.sm} />
+                  <Caption align="center">{referenceFallbackError}</Caption>
+                </>
+              ) : null}
             </>
           )}
         </View>

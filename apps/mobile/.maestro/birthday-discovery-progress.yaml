@@ -1,14 +1,15 @@
-# Birthday-first discovery must visibly report work and always offer a manual path.
+# Birthday-first discovery must visibly report private work without forcing a
+# second decision while the bounded automatic pass is still running.
 appId: com.jessekrim.ourlittleworld
 ---
 - openLink: "ourlittleworld://timeline"
 - openLink: "ourlittleworld://reference?progressPreview=1"
-- assertVisible: "Setting up photo discovery."
+- assertVisible: "Finding Test Child."
 - assertVisible:
     id: "birthday-discovery-progress"
 - scrollUntilVisible:
     element:
-      text: "Choose one photo instead"
+      text: "Back"
     direction: DOWN
     timeout: 30000
-- assertVisible: "Choose one photo instead"
+- assertVisible: "Back"

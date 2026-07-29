@@ -26,12 +26,12 @@ export default function AppHeader({ title, subtitle, onBack, onSettings, onActiv
           </View>
         )}
         <View style={styles.titleWrap}>
-          <Brand style={styles.brand}>our little world</Brand>
-          <Hero numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
+          <Brand numberOfLines={1} maxFontSizeMultiplier={1.2} style={styles.brand}>our little world</Brand>
+          <Hero numberOfLines={1} maxFontSizeMultiplier={1.4} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
             {title}
           </Hero>
           {subtitle ? (
-            <Caption numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+            <Caption numberOfLines={1} maxFontSizeMultiplier={1.4} adjustsFontSizeToFit minimumFontScale={0.75}>
               {subtitle}
             </Caption>
           ) : null}

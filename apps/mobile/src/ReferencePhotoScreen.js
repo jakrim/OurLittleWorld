@@ -597,6 +597,7 @@ export default function ReferencePhotoScreen() {
             accessibilityLabel={autoConfirming ? 'Pick a different reference photo' : 'Pick reference photo'}
             style={[
               styles.frame,
+              picked && !autoSeeding && styles.selectedFrame,
               {
                 backgroundColor: theme.semantic.cardAlt,
                 borderColor: theme.semantic.border,
@@ -642,7 +643,7 @@ export default function ReferencePhotoScreen() {
           </Pressable>
         )}
 
-        {automaticFallback ? (
+        {automaticFallback && !hasUsableReference ? (
           <Caption align="center" style={{ color: theme.semantic.textMuted }}>
             We could not choose confidently. Nothing was used as {family?.babyName || 'your baby'}'s starting photo.
           </Caption>
@@ -786,6 +787,9 @@ const styles = StyleSheet.create({
   },
   progressFrame: {
     aspectRatio: 1.45,
+  },
+  selectedFrame: {
+    aspectRatio: 1.3,
   },
   suggestionPanel: {
     width: '100%',

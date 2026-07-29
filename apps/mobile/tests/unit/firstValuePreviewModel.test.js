@@ -10,6 +10,7 @@ import {
   keepFirstValuePreview,
   previewAnalyticsProperties,
   previewFromMatch,
+  previewFromReference,
 } from '../../src/firstValuePreviewModel.js';
 
 test('builds a device-local preview without family content or remote media', () => {
@@ -65,4 +66,22 @@ test('First Look does not present the supplied reference as a discovery', () => 
   assert.equal(isFirstValueReferenceEcho({ rawScore: 1 }), true);
   assert.equal(isFirstValueReferenceEcho({ rawScore: 0.9997 }), true);
   assert.equal(isFirstValueReferenceEcho({ rawScore: 0.97 }), false);
+});
+
+test('a failed short search can fall back to an authentic parent-confirmed reference', () => {
+  const preview = previewFromReference({
+    assetId: 'reference-photo',
+    uri: 'ph://reference-photo',
+    capturedAt: 1234,
+    parentConfirmed: true,
+  }, new Date('2026-07-29T12:00:00.000Z'));
+
+  assert.equal(preview.assetId, 'reference-photo');
+  assert.equal(preview.localUri, 'ph://reference-photo');
+  assert.equal(preview.status, 'found');
+  assert.equal(previewFromReference({
+    assetId: 'unconfirmed-photo',
+    uri: 'ph://unconfirmed-photo',
+    parentConfirmed: false,
+  }), null);
 });

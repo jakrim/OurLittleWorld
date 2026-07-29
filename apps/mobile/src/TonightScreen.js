@@ -746,11 +746,11 @@ export default function TonightScreen() {
           </Button>
         ) : null}
         {lookback ? <Spacer h={space.sm} /> : null}
-        {catchup?.hasMore ? (
-          <Button onPress={keepGoing} loading={busy} testID="tonight-keep-going">Keep going</Button>
-        ) : null}
-        {catchup?.hasMore ? <Spacer h={space.sm} /> : null}
         <Button onPress={() => router.replace('/timeline')} testID="tonight-complete">Back to Today</Button>
+        {catchup?.hasMore ? <Spacer h={space.sm} /> : null}
+        {catchup?.hasMore ? (
+          <Button variant="ghost" onPress={keepGoing} loading={busy} testID="tonight-keep-going">Keep going</Button>
+        ) : null}
       </Screen>
     );
   }

@@ -51,4 +51,7 @@ test('first-value Back uses a stable setup route instead of router history', asy
   assert.match(previewScan, /FIRST_VALUE_SCAN_WATCHDOG_MS/);
   assert.match(previewScan, /Scan\.abort\(\)/);
   assert.match(scanScreen, /\['done', 'failed', 'aborted'\]/);
+  assert.match(scanScreen, /Continue with your photo/);
+  assert.match(scanScreen, /prepareReferenceFirstValuePreview/);
+  assert.match(previewScan, /previewFromReference/);
 });

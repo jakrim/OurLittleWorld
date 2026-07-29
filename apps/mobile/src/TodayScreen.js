@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
@@ -535,15 +535,21 @@ export default function TodayScreen() {
 
 function SearchPill({ onPress }) {
   const theme = useTheme();
+  const { fontScale } = useWindowDimensions();
+  const iconOnly = fontScale >= 1.5;
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="Search archive"
-      style={[styles.searchPill, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+      style={[
+        styles.searchPill,
+        iconOnly && styles.searchPillIconOnly,
+        { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border },
+      ]}
     >
       <Ionicons name="search" size={14} color={theme.semantic.textSoft} />
-      <Caption style={styles.searchPillText}>Search</Caption>
+      {iconOnly ? null : <Caption maxFontSizeMultiplier={1.3} style={styles.searchPillText}>Search</Caption>}
     </Pressable>
   );
 }
@@ -706,6 +712,11 @@ const styles = StyleSheet.create({
   searchPillText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  searchPillIconOnly: {
+    width: 44,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
   },
   worldPayoffCard: {
     minHeight: 116,

@@ -4,6 +4,7 @@ import {
   firstValueReferenceExclusionIds,
   isFirstValueReferenceEcho,
   previewFromMatch,
+  previewFromReference,
 } from './firstValuePreviewModel';
 import { writeFirstValuePreview } from './firstValuePreviewStore';
 import { ensureLibraryPermission } from './photos';
@@ -75,4 +76,20 @@ export async function startFirstValuePreviewScan({ family, user, onPreviewReady 
     .catch(() => {})
     .finally(() => clearTimeout(watchdog));
   return { started: true, scanKey };
+}
+
+export async function prepareReferenceFirstValuePreview({ family, user } = {}) {
+  if (!family?.id || !user?.id) return null;
+  if (!['creator', 'partner'].includes(family?.me?.role)) return null;
+
+  const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
+  const preview = previewFromReference(representativeReference(profile));
+  if (!preview) return null;
+
+  await writeFirstValuePreview({
+    familyId: family.id,
+    userId: user.id,
+    preview,
+  });
+  return preview;
 }

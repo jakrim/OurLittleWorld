@@ -3,8 +3,15 @@
 # links.
 appId: com.jessekrim.ourlittleworld
 ---
-- launchApp
-- tapOn: "Open settings"
+- openLink: "ourlittleworld://today"
+- extendedWaitUntil:
+    visible: "Open settings"
+    timeout: 15000
+- tapOn:
+    point: "89%,11%"
+- extendedWaitUntil:
+    visible: "Test Child profile.*"
+    timeout: 15000
 - scrollUntilVisible:
     element:
       text: "BILLING"
@@ -12,6 +19,6 @@ appId: com.jessekrim.ourlittleworld
     visibilityPercentage: 50
     centerElement: true
 - tapOn:
-    point: 36%,43%
+    text: "Subscription.*"
 - assertVisible: "Family access"
 - assertVisible: "Gift, website, or partner code"

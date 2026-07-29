@@ -71,6 +71,21 @@ test('Keep going uses the completed session day and never creates a second notif
   assert.doesNotMatch(continuation, /Notification|maybeScheduleTonightNotification/);
 });
 
+test('Tonight completion and Today header keep a calm hierarchy at accessibility text sizes', () => {
+  const tonight = source('TonightScreen.js');
+  const today = source('TodayScreen.js');
+  const appHeader = source('ui/AppHeader.js');
+  const backIndex = tonight.indexOf('testID="tonight-complete"');
+  const continueIndex = tonight.indexOf('testID="tonight-keep-going"');
+
+  assert.ok(backIndex > 0 && backIndex < continueIndex, 'finishing is the first completion action');
+  assert.match(tonight, /variant="ghost"[\s\S]*testID="tonight-keep-going"/);
+  assert.match(today, /fontScale >= 1\.5/);
+  assert.match(today, /iconOnly && styles\.searchPillIconOnly/);
+  assert.match(appHeader, /maxFontSizeMultiplier=\{1\.2\}[\s\S]*our little world/);
+  assert.match(appHeader, /maxFontSizeMultiplier=\{1\.4\}[\s\S]*adjustsFontSizeToFit/);
+});
+
 test('burst alternate finalization supersedes the original and reconciles effective availability', () => {
   const ledger = source('candidateLedgerStore.js');
   assert.match(ledger, /decidedAssetId !== item\.asset_id[\s\S]*lifecycle_state = 'superseded'/);

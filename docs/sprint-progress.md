@@ -1515,3 +1515,58 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   documented `OLW_SMOKE_DEV_CODE` gate, so signed-device Maestro verification
   remains separate from deterministic release proof. No production database,
   Edge Function, Worker, notification, or website deployment was performed.
+
+### Pre-QA simulator audit and First Look escape path (2026-07-29)
+
+- Found a release-blocking onboarding trap in the current release source. When
+  a parent had already confirmed a real local starting photo but the bounded
+  First Look search could not find a second reliable candidate, the only paths
+  restarted discovery or asked for another photo. The route guard still
+  required an approved First Look, so the creator could not reach the family
+  app. The no-match state now offers `Continue with your photo`: it prepares a
+  local First Look from that exact parent-confirmed reference and still asks
+  `Does this belong in your family world?` before approval. It does not upload,
+  remotely analyze, generate, or automatically approve an image.
+- Kept the selected starting photo and its primary action together on compact
+  screens, and removed contradictory automatic-failure copy when a usable
+  reference is already present. Updated the discovery, paywall, billing, and
+  Our World Maestro contracts to the current digital-family-record language and
+  navigation.
+- The simulator accessibility review found Today's one-row header collapsing at
+  iOS Accessibility Large text. Header chrome now caps only the decorative
+  wordmark/compact metadata, preserves 44-point controls, and changes Search to
+  an icon-only accessible control when space is constrained. Dark mode and
+  Accessibility Large text were rechecked after a cold relaunch. Tonight's
+  completion now makes `Back to Today` the primary action and keeps optional
+  `Keep going` secondary.
+- Runtime proof used only the disposable `OLW Marketing Capture 16 Pro`
+  simulator, local synthetic media, the existing signed-in development family,
+  and the billing-disabled development bundle. Passed journeys covered:
+  First Look automatic/fallback/approval; live StoreKit offer rendering without
+  purchase; Today/Our World/Add navigation; photo-only dry-run save and
+  post-save nudge; moment detail and First handoff; partner-note, voice-note,
+  First, and letter compose/cancel; Tonight text/favorite/reaction draft,
+  microphone denial and recovery, record/stop/play/delete, forced
+  termination/relaunch, native picker cancel, best-of-burst alternate,
+  Skip/completion, and empty-queue Today; empty and 500-item archive fixtures;
+  export and places; billing settings; light/dark themes; Accessibility Large
+  text; and the native calibrated auto-save dry run. No simulator error or fault
+  was emitted by the app process.
+- Focused First Look/curated-memory contracts passed 28 tests. Mobile TypeScript
+  and all 479 unit tests passed. Repository tests passed 31 shared Node tests,
+  479 mobile tests, and 16 web tests. Repository lint, repository typecheck,
+  repository build, and CI Expo lint passed. A complete local database reset
+  replayed every migration through
+  `20260724120000_account_deletion_lifecycle.sql`; database lint reported no
+  schema errors. `pnpm smoke:mobile` passed all 25 deterministic privacy and
+  persistence checks, then stopped at the documented `OLW_SMOKE_DEV_CODE`
+  profile gate; the recorded simulator journeys above are the equivalent UI
+  proof for this checkout. Synthetic simulator screenshots are ignored under
+  `tmp/maestro-release-qa-2026-07-29/`.
+- This source fix is not present in TestFlight build `1.1.0 (1.1.12)` or Android
+  version code `3`; replacement internal-build targets are iOS `1.1.13` and
+  Android `4`. Physical iCloud-library behavior, APNs delivery, Google Play
+  install/entitlement behavior, and provider-side video upload remain
+  store/device integration checks for the replacement binaries; no production
+  data, provider configuration, store submission, or notification was changed
+  during this audit.
