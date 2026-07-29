@@ -1570,3 +1570,26 @@ Post-review health: 126 unit tests pass, `tsc --noEmit` clean, `expo lint` clean
   store/device integration checks for the replacement binaries; no production
   data, provider configuration, store submission, or notification was changed
   during this audit.
+
+### Pre-QA replacement build receipts (2026-07-29)
+
+- Scoped source commit `f74384c0b75ae7c7952bfd3b8123cba6505b7e6b`
+  was pushed to `polish-sprints`. The clean release worktree was detached at that
+  exact commit before upload; neither unrelated untracked work nor later receipt
+  documentation entered the native archives.
+- EAS iOS build `20fff59f-9ad5-4708-8ef3-d966c8f8fa71` finished for app
+  `1.1.0`, build `1.1.13`. EAS submission
+  `fe5adfe4-6f80-45cf-a0ec-8d57944b8a82` finished with no error, proving the
+  App Store Connect/TestFlight upload was accepted. Apple processing and
+  tester-visible availability remain separate provider checks.
+- EAS Android build `2bd66a6e-5390-40ec-bd62-f22e1b48838e` finished for app
+  `1.1.0`, version code `4`, and produced a store AAB. The configured internal
+  Google Play submission stopped before scheduling because no Google service
+  account key is configured in EAS and non-interactive release work may not
+  create one. The AAB is valid build evidence, not Google Play track or install
+  evidence.
+- The first release command used the repository-installed EAS CLI, which was too
+  old to recognize profile-level `environment`. Release execution switched to
+  EAS CLI `21.4.0`; the repository schema and build profiles were not weakened
+  or edited. No production database, Edge Function, Worker, website, public
+  store release, purchase, notification, or family data was changed.
