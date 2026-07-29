@@ -229,7 +229,7 @@ button {
 }
 
 main {
-  overflow: hidden;
+  overflow-x: clip;
 }
 
 .skip-link {
@@ -406,8 +406,7 @@ main {
   min-height: auto;
   display: flex;
   align-items: stretch;
-  padding: 92px 0 92px;
-  overflow: hidden;
+  padding: clamp(56px, 9vh, 92px) 0;
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
@@ -431,7 +430,7 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1.02fr) minmax(320px, 0.78fr);
   gap: 54px;
-  align-items: start;
+  align-items: center;
 }
 
 .eyebrow {
@@ -823,7 +822,13 @@ h3,
 }
 
 .hero-device .iphone-frame {
-  width: min(360px, 31vw);
+  width: min(310px, 29vw);
+}
+
+.hero-device {
+  width: 100%;
+  min-height: 0;
+  align-self: center;
 }
 
 .iphone-frame-sm {
@@ -1573,17 +1578,17 @@ h3,
   }
 
   .hero-grid {
-    grid-template-columns: 1fr;
-    gap: 44px;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.58fr);
+    gap: clamp(28px, 4vw, 44px);
     position: relative;
   }
 
   .hero-device {
-    min-height: 520px;
+    min-height: 0;
   }
 
   .hero-device .iphone-frame {
-    width: min(310px, 74vw);
+    width: min(280px, 29vw);
   }
 
   .closer-row,
@@ -1655,25 +1660,6 @@ h3,
 
   .hero-copy {
     max-width: 100%;
-  }
-
-  .hero-device {
-    position: absolute;
-    right: -154px;
-    bottom: -300px;
-    z-index: 0;
-    min-height: auto;
-    opacity: 0.1;
-    pointer-events: none;
-  }
-
-  .hero-device .device-aura {
-    display: none;
-  }
-
-  .hero-device .iphone-frame {
-    width: 230px;
-    box-shadow: none;
   }
 
   .promise-row {
@@ -1782,6 +1768,32 @@ h3,
   }
 }
 
+@media (max-width: 680px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .hero-device {
+    width: 100%;
+    margin-inline: auto;
+  }
+
+  .hero-device .iphone-frame {
+    width: clamp(180px, 48vw, 230px);
+  }
+}
+
+@media (min-width: 681px) and (max-height: 820px) {
+  .hero-home {
+    padding-block: 44px;
+  }
+
+  .hero-device .iphone-frame {
+    width: clamp(210px, 25vw, 260px);
+  }
+}
+
 @media (max-width: 520px) {
   .analytics-consent {
     right: 12px;
@@ -1823,7 +1835,7 @@ h3,
   }
 
   .hero-device .iphone-frame {
-    width: 200px;
+    width: clamp(180px, 52vw, 210px);
   }
 
   .iphone-frame {
@@ -1888,5 +1900,95 @@ h3,
   .memory-note:nth-child(2),
   .memory-note:nth-child(3) {
     transform: none;
+  }
+}
+
+.availability-section {
+  scroll-margin-top: 88px;
+}
+
+.availability-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.82fr);
+  align-items: start;
+  gap: clamp(32px, 6vw, 82px);
+}
+
+.availability-grid .section-title {
+  max-width: 720px;
+}
+
+.availability-grid .lead {
+  max-width: 680px;
+}
+
+.launch-form {
+  display: grid;
+  gap: 18px;
+}
+
+.consent-check {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.consent-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.honeypot {
+  position: absolute !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+}
+
+.store-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.test-mode-banner {
+  margin: 20px auto;
+  border: 1px solid #9b641f;
+  border-radius: var(--radius-md);
+  background: #fff6df;
+  padding: 12px 16px;
+  color: #66400f;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.availability-compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-top: 28px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding-top: 20px;
+  font-size: 14px;
+}
+
+.availability-compact a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .availability-grid {
+    grid-template-columns: 1fr;
   }
 }

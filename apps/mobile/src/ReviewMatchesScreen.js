@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList } from 'react-native';
+import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@react-native-vector-icons/ionicons';

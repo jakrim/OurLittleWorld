@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import AnalyticsConsentControls from "./AnalyticsConsentControls";
+import CommercialAvailability from "./CommercialAvailability";
 import SiteEnhancer from "./SiteEnhancer";
 import AnalyticsConsent from "./AnalyticsConsent";
 
@@ -9,12 +11,14 @@ const navItems = [
   { href: "/story/", label: "Story" },
   { href: "/pricing/", label: "Pricing" },
   { href: "/gift/", label: "Gift" },
-  { href: "/partners/", label: "Partners" },
+  { href: "/#launch-list", label: "App status" },
   { href: "/privacy/", label: "Privacy" },
   { href: "/terms/", label: "Terms" },
 ];
 
 export default function SiteChrome({ children }: { children: ReactNode }) {
+  const primaryAction = primaryCommercialAction(publicCommercialConfig);
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -34,8 +38,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="nav-actions">
-            <Link className="button button-dark" href="/pricing/#chapter-one">
-              Start your baby book
+            <Link
+              className="button button-dark"
+              data-marketing-action={publicCommercialConfig.storeAvailability === "available" && !publicCommercialConfig.checkoutEnabled
+                ? "store-interest"
+                : publicCommercialConfig.checkoutEnabled ? "primary" : "launch-interest"}
+              href={primaryAction.href}
+            >
+              {primaryAction.label}
             </Link>
             <button
               className="nav-toggle"
@@ -68,12 +78,12 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
                 <Link href="/story/">Story</Link>
                 <Link href="/pricing/">Pricing</Link>
                 <Link href="/gift/">Gift</Link>
+                <Link href="/for/unfinished-baby-book/">Unfinished baby book</Link>
                 <Link href="/terms/">Terms</Link>
                 <Link href="/refunds/">Refunds</Link>
               </div>
               <div>
                 <p className="footer-h">Company</p>
-                <Link href="/partners/">Partners</Link>
                 <Link href="/privacy/">Privacy</Link>
                 <button
                   className="footer-link-button"
@@ -96,6 +106,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             <span>Copyright 2026 Get Mentors, Inc.</span>
             <span>For two, for now, for later.</span>
           </div>
+          <CommercialAvailability compact surface="footer" />
         </div>
       </footer>
 

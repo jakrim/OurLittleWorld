@@ -9,5 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default function GiftPage() {
-  return <StaticPage contentKey="gift" />;
+  return (
+    <>
+      <BreadcrumbStructuredData route="gift" />
+      <StaticPage contentKey="gift" />
+    </>
+  );
 }

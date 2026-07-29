@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-13T22:30:39-04:00",
+  "product_id": "our-little-world",
+  "purpose": "Before-state and rollback record for the first server-owned behavior lifecycle deployment.",
+  "production": {
+    "supabase_project_ref": "baxgullapuksjbzkogii",
+    "last_remote_migration": "20260713232000_isolate_website_launch_audience",
+    "sync_function": {
+      "slug": "sync-marketing-contacts",
+      "version": 6,
+      "status": "ACTIVE",
+      "sha256": "428a038550c8427a2f8189275596ab7632e2509163cfae792e64d6e865ee4619"
+    },
+    "mailchimp": {
+      "audience_id": "333fbdbba0",
+      "audience_name": "Our Little World",
+      "journey_id": 7274,
+      "journey_status": "active",
+      "entry": "audience signup",
+      "behavior_branches": 0,
+      "conversion_exits": 0,
+      "contacts_total": 3,
+      "subscribed_internal_qa": 1,
+      "unsubscribed_suppression_tests": 2,
+      "started": 3,
+      "in_progress": 3,
+      "completed": 0,
+      "first_email_sent": 3
+    }
+  },
+  "protected_invariants": [
+    "Marketing consent is explicit and independent of account creation, billing, gifting, or redemption.",
+    "Unsubscribed and suppressed contacts are never resubscribed by product synchronization.",
+    "Only the Our Little World audience may receive Our Little World lifecycle state.",
+    "No child, family, photo, video, caption, letter, date, location, gift note, or redemption data enters Mailchimp.",
+    "Transactional gift delivery remains outside the marketing provider path."
+  ],
+  "rollback": {
+    "application": "Redeploy sync-marketing-contacts from git commit 116aa9b or restore the recorded version-6 bundle.",
+    "database": "Disable lifecycle claims by redeploying version 6 first. The new ledger and triggers are additive; queued rows can be canceled without deleting product or consent records. Do not drop the ledger until provider writes are stopped and evidence is exported.",
+    "mailchimp": "Remove or deactivate only tags prefixed olw-state-, olw-lifecycle-, olw-activated-, olw-value-, olw-conversion-, olw-converted-, olw-gift-, or olw-entitlement-. Do not alter subscription status or the internal-qa tag.",
+    "journey": "Keep journey 7274 unchanged until product event synchronization passes controlled readback. Restore the current linear journey from the existing Mailchimp campaign/template snapshots if a later branch edit fails."
+  },
+  "secrets_recorded": false,
+  "private_customer_content_recorded": false
+}

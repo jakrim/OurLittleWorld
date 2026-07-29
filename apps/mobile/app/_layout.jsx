@@ -22,6 +22,7 @@ import { AuthProvider } from '../src/AuthContext';
 import { BillingProvider } from '../src/BillingContext';
 import { FamilyProvider } from '../src/FamilyContext';
 import LaunchScreen from '../src/LaunchScreen';
+import { initializePosthogAnalytics } from '../src/posthogAnalyticsTransport';
 import {
   nativeAddSheetOptions,
   nativeComposeSheetOptions,

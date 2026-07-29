@@ -11,5 +11,10 @@ export const metadata: Metadata = {
 };
 
 export default function PricingPage() {
-  return <StaticPage contentKey="pricing" />;
+  return (
+    <>
+      <BreadcrumbStructuredData route="pricing" />
+      <StaticPage contentKey="pricing" />
+    </>
+  );
 }

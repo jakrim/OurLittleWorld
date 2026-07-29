@@ -14,7 +14,7 @@
     "build:web": "pnpm --filter @ourlittleworld/web build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
-    "test": "turbo test",
+    "test": "node --experimental-strip-types --test supabase/functions/_shared/*.node.test.ts && turbo test",
     "ios": "pnpm --filter @ourlittleworld/mobile ios",
     "android": "pnpm --filter @ourlittleworld/mobile android",
     "mobile:web": "pnpm --filter @ourlittleworld/mobile web",

@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import CheckoutCompletion from "@/components/CheckoutCompletion";
 
-export const metadata: Metadata = {
-  title: "Checkout Complete",
-  description: "Connect your Our Little World website subscription to your family space.",
-};
+import CheckoutCompletionStatus from "@/components/CheckoutCompletionStatus";
+import CommercialAvailability from "@/components/CommercialAvailability";
+import { metadataFor } from "@/lib/siteSeo";
+
+export const metadata: Metadata = metadataFor("checkoutSuccess");
 
 type CheckoutSuccessProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -46,6 +47,7 @@ export default async function CheckoutSuccessPage({ searchParams }: CheckoutSucc
           </article>
         </div>
       </section>
+      <CommercialAvailability surface="success" />
     </main>
   );
 }

@@ -1,6 +1,6 @@
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, stripe-signature, x-olw-admin-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, stripe-signature, x-olw-admin-secret, x-olw-worker-secret',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
@@ -25,7 +25,9 @@ export function json(body: Record<string, unknown>, status = 200) {
 
 export function errorResponse(error: unknown) {
   const status = error instanceof HttpError ? error.status : 500;
-  const message = error instanceof Error ? error.message : 'Unexpected error.';
+  const message = status >= 500
+    ? 'The service is temporarily unavailable.'
+    : error instanceof Error ? error.message : 'Unexpected error.';
   return json({ error: message }, status);
 }
 
@@ -158,7 +160,7 @@ export async function recordBillingEvent({
     event_type: eventType,
     family_id: familyId || null,
     user_id: userId || null,
-    processed_at: new Date().toISOString(),
+    processed_at: null,
     payload: payload || {},
   }, { onConflict: 'provider,event_id', merge: true });
 }
@@ -184,9 +186,10 @@ export const SUBSCRIPTION_PLANS: Record<string, { planKey: string; priceEnv: str
 export function planFromInput(plan: string | undefined) {
   const normalized = String(plan || '').trim().toLowerCase();
   if (['monthly', 'family_monthly', 'month'].includes(normalized)) return SUBSCRIPTION_PLANS.family_monthly;
+  if (['annual', 'yearly', 'family_yearly', 'year'].includes(normalized)) return SUBSCRIPTION_PLANS.family_yearly;
   if (normalized === 'vault_monthly') return SUBSCRIPTION_PLANS.vault_monthly;
   if (['vault_yearly', 'vault_annual'].includes(normalized)) return SUBSCRIPTION_PLANS.vault_yearly;
-  return SUBSCRIPTION_PLANS.family_yearly;
+  throw new HttpError(400, 'Choose a valid subscription plan.');
 }
 
 export function giftPlanFromInput(plan: string | undefined) {
@@ -194,7 +197,10 @@ export function giftPlanFromInput(plan: string | undefined) {
   if (['gift_vault_year', 'vault'].includes(normalized)) {
     return { planKey: 'gift_vault_year', priceEnv: 'STRIPE_PRICE_GIFT_VAULT_YEAR', kind: 'gift_vault_year', label: 'Vault gift year' };
   }
-  return { planKey: 'gift_year', priceEnv: 'STRIPE_PRICE_GIFT_YEAR', kind: 'gift_year', label: 'Family gift year' };
+  if (['gift_year', 'family', 'family_year'].includes(normalized)) {
+    return { planKey: 'gift_year', priceEnv: 'STRIPE_PRICE_GIFT_YEAR', kind: 'gift_year', label: 'Family gift year' };
+  }
+  throw new HttpError(400, 'Choose a valid gift plan.');
 }
 
 export function normalizePlanKey(value: unknown, fallback = 'family_yearly') {
@@ -243,10 +249,45 @@ export function generateCode(prefix = 'OLW') {
   return `${prefix}-${chars.slice(0, 4)}-${chars.slice(4, 8)}-${chars.slice(8, 12)}`;
 }
 
+export async function checkoutCode(prefix: 'OLW' | 'GIFT', kind: 'self' | 'gift', attemptId: string) {
+  const normalizedAttempt = checkoutAttemptId(attemptId);
+  const secret = requiredEnv('OLW_CODE_ENCRYPTION_KEY');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const digest = new Uint8Array(await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`checkout-code:${kind}:${normalizedAttempt}`),
+  ));
+  const alphabet = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const chars = Array.from(digest.slice(0, 12), (byte) => alphabet[byte % alphabet.length]).join('');
+  return `${prefix}-${chars.slice(0, 4)}-${chars.slice(4, 8)}-${chars.slice(8, 12)}`;
+}
+
 export function originFromRequest(req: Request) {
-  const origin = req.headers.get('origin');
-  if (origin) return origin;
-  return env('OLW_WEB_ORIGIN', 'https://ourlittleworld.me');
+  const fallback = normalizedOrigin(env('OLW_WEB_ORIGIN', 'https://ourlittleworld.me'))
+    || 'https://ourlittleworld.me';
+  const allowlist = env('OLW_ALLOWED_ORIGINS', fallback)
+    .split(',')
+    .map(normalizedOrigin)
+    .filter(Boolean);
+  const requested = normalizedOrigin(req.headers.get('origin') || '');
+  return requested && allowlist.includes(requested) ? requested : fallback;
+}
+
+function normalizedOrigin(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
 }
 
 export function supportEmail() {
@@ -303,18 +344,21 @@ function boundedMetadataValue(value: unknown, maxLength: number) {
 
 export async function stripeFormRequest(path: string, params: URLSearchParams, method = 'POST') {
   const secretKey = requiredEnv('STRIPE_SECRET_KEY');
+  const headers = new Headers({
+    authorization: `Basic ${btoa(`${secretKey}:`)}`,
+    'content-type': 'application/x-www-form-urlencoded',
+  });
+  if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
   const response = await fetch(`https://api.stripe.com${path}`, {
     method,
-    headers: {
-      authorization: `Basic ${btoa(`${secretKey}:`)}`,
-      'content-type': 'application/x-www-form-urlencoded',
-    },
+    headers,
     body: method === 'GET' ? undefined : params,
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new HttpError(response.status, payload?.error?.message || 'Stripe request failed.');
   }
+  assertStripeMode(payload);
   return payload;
 }
 
@@ -329,16 +373,21 @@ export async function stripeGet(path: string) {
   if (!response.ok) {
     throw new HttpError(response.status, payload?.error?.message || 'Stripe request failed.');
   }
+  assertStripeMode(payload);
   return payload;
 }
 
-export async function verifyStripeWebhook(req: Request) {
+export async function verifyStripeWebhook(req: Request, nowSeconds = Math.floor(Date.now() / 1000)) {
   const webhookSecret = requiredEnv('STRIPE_WEBHOOK_SECRET');
   const signature = req.headers.get('stripe-signature') || '';
   const payload = await req.text();
   const timestamp = signature.split(',').find((part) => part.startsWith('t='))?.slice(2);
   const signatures = signature.split(',').filter((part) => part.startsWith('v1=')).map((part) => part.slice(3));
   if (!timestamp || signatures.length === 0) throw new HttpError(400, 'Missing Stripe signature.');
+  const signedAt = Number(timestamp);
+  if (!Number.isFinite(signedAt) || Math.abs(nowSeconds - signedAt) > 300) {
+    throw new HttpError(400, 'Expired Stripe signature.');
+  }
 
   const signedPayload = `${timestamp}.${payload}`;
   const key = await crypto.subtle.importKey(
@@ -354,7 +403,145 @@ export async function verifyStripeWebhook(req: Request) {
     throw new HttpError(400, 'Invalid Stripe signature.');
   }
 
-  return JSON.parse(payload);
+  const event = JSON.parse(payload);
+  assertStripeMode(event);
+  return event;
+}
+
+export function assertStripeMode(payload: Record<string, any>) {
+  if (typeof payload?.livemode !== 'boolean') return;
+  const mode = requiredEnv('STRIPE_MODE').trim().toLowerCase();
+  if (!['test', 'live'].includes(mode)) throw new HttpError(500, 'Stripe mode is invalid.');
+  if (payload.livemode !== (mode === 'live')) {
+    throw new HttpError(409, 'Stripe environment does not match this deployment.');
+  }
+}
+
+export function checkoutIdempotencyKey(kind: 'self' | 'gift', value: unknown) {
+  return `olw:${kind}:${checkoutAttemptId(value)}`;
+}
+
+export function checkoutAttemptId(value: unknown) {
+  const attemptId = String(value || '').trim().toLowerCase();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(attemptId)) {
+    return attemptId;
+  }
+  return crypto.randomUUID();
+}
+
+export async function encryptCode(code: string, nonceContext = '') {
+  const displayCode = String(code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9-]{8,64}$/.test(displayCode)) throw new HttpError(400, 'Purchase code is invalid.');
+  const key = await codeEncryptionKey(['encrypt']);
+  const iv = nonceContext
+    ? (await deterministicCodeIv(nonceContext)).slice(0, 12)
+    : crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(displayCode),
+  );
+  return `v1.${base64Url(iv)}.${base64Url(new Uint8Array(ciphertext))}`;
+}
+
+export async function decryptCode(value: string) {
+  const parts = String(value || '').split('.');
+  if (parts.length !== 3 || parts[0] !== 'v1') throw new HttpError(400, 'Purchase code is unavailable.');
+  const key = await codeEncryptionKey(['decrypt']);
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromBase64Url(parts[1]) },
+      key,
+      fromBase64Url(parts[2]),
+    );
+    return new TextDecoder().decode(plaintext);
+  } catch {
+    throw new HttpError(400, 'Purchase code is unavailable.');
+  }
+}
+
+async function codeEncryptionKey(usages: KeyUsage[]) {
+  const secret = requiredEnv('OLW_CODE_ENCRYPTION_KEY');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, usages);
+}
+
+async function deterministicCodeIv(context: string) {
+  const secret = requiredEnv('OLW_CODE_ENCRYPTION_KEY');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return new Uint8Array(await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`checkout-code-iv:${context}`),
+  ));
+}
+
+function base64Url(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(value: string) {
+  const padded = value.replaceAll('-', '+').replaceAll('_', '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export function stripeEventSummary(event: Record<string, any>) {
+  const object = event?.data?.object || {};
+  return compactRecord({
+    event_id: stringOrNull(event.id),
+    event_type: stringOrNull(event.type),
+    livemode: typeof event.livemode === 'boolean' ? event.livemode : null,
+    created: typeof event.created === 'number' ? event.created : null,
+    object_id: stringOrNull(object.id),
+    object_type: stringOrNull(object.object),
+    object_status: stringOrNull(object.status),
+    payment_status: stringOrNull(object.payment_status),
+  });
+}
+
+export function stripeReceiptSummary(object: Record<string, any> | null) {
+  return compactRecord({
+    id: stringOrNull(object?.id),
+    object: stringOrNull(object?.object),
+    livemode: typeof object?.livemode === 'boolean' ? object.livemode : null,
+    status: stringOrNull(object?.status),
+    payment_status: stringOrNull(object?.payment_status),
+    customer_id: providerObjectId(object?.customer),
+    subscription_id: providerObjectId(object?.subscription),
+    payment_intent_id: providerObjectId(object?.payment_intent),
+    current_period_start: periodNumber(object, 'current_period_start'),
+    current_period_end: periodNumber(object, 'current_period_end'),
+    cancel_at_period_end: typeof object?.cancel_at_period_end === 'boolean' ? object.cancel_at_period_end : null,
+  });
+}
+
+function providerObjectId(value: unknown) {
+  if (typeof value === 'string') return value;
+  return value && typeof value === 'object' && 'id' in value
+    ? String((value as { id: unknown }).id)
+    : null;
+}
+
+function compactRecord(record: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== null && value !== undefined && value !== ''));
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === 'string' && value ? value : null;
+}
+
+function periodNumber(object: Record<string, any> | null, field: string) {
+  const value = object?.[field] ?? object?.items?.data?.[0]?.[field];
+  return typeof value === 'number' ? value : null;
 }
 
 function timingSafeEqual(a: string, b: string) {

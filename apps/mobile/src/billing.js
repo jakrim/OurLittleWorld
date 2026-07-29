@@ -164,6 +164,17 @@ export async function getFamilyEntitlement(familyId) {
   return normalizeEntitlement(Array.isArray(data) ? data[0] : data);
 }
 
+export async function getFamilyAcquisitionContext(familyId) {
+  if (!familyId) return {};
+  const { data, error } = await supabase.rpc('get_my_family_acquisition_attribution', {
+    target_family_id: familyId,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return {};
+  return sanitizeAcquisitionContext(row);
+}
+
 export async function redeemPurchaseCode({ familyId, code }) {
   const { data, error } = await supabase.functions.invoke('redeem-purchase-code', {
     body: { familyId, code },

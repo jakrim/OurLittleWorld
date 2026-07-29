@@ -46,6 +46,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
           </article>
         </div>
       </section>
+      <CommercialAvailability surface="success" />
     </main>
   );
 }

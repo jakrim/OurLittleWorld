@@ -32,13 +32,15 @@ pnpm dev
 - `/story/`
 - `/pricing/`
 - `/gift/`
-- `/partners/`
 - `/privacy/`
 - `/terms/`
 - `/refunds/`
+- `/for/unfinished-baby-book/`
 
-`Begin Chapter One` points to `/pricing/#chapter-one`.
-`Gift the first year` points to `/gift/`.
+`/partners/` is retained in source behind `NEXT_PUBLIC_OLW_PARTNERS_ENABLED`, but
+returns a noindex 404 and is excluded from navigation and the sitemap while the
+program does not exist. `robots.txt` does not hide the URL so crawlers can observe
+the 404 and remove any stale listing.
 
 ## Vercel Deployment
 
@@ -49,9 +51,9 @@ Create a Vercel project with:
 - Build command: `pnpm build`
 - Output: Next.js default
 
-## Production Checkout Configuration
+## Commercial and store availability
 
-Purchases and gifts are honest fallbacks until production checkout is wired. Configure these public env vars in Vercel:
+The public site defaults closed. Configure the explicit state variables in Vercel:
 
 ```sh
 NEXT_PUBLIC_OLW_CONTACT_EMAIL=support@ourlittleworld.me
