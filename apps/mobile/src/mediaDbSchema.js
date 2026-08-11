@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 6;
+export const MEDIA_DB_SCHEMA_VERSION = 7;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -238,6 +238,12 @@ export const TONIGHT_CONTINUATION_MIGRATION_SQL = `
     where seed like '%:more:%' or seed like '%:revalidated';
 `;
 
+export const CANONICAL_KEEP_RESUME_MIGRATION_SQL = `
+  alter table nightly_review_enrichment add column parent_interacted integer not null default 0
+    check (parent_interacted in (0, 1));
+  alter table local_asset_mappings add column provider_upload_json text;
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -261,6 +267,7 @@ export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
   'canonical_moment_id',
   'media_commit_state',
   'voice_commit_state',
+  'parent_interacted',
 ]);
 
 export const MEDIA_DB_REQUIRED_COLLECTION_DRAFT_COLUMNS = Object.freeze([
@@ -290,6 +297,7 @@ export const MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS = Object.freeze([
   'media_id',
   'remote_asset_key',
   'moment_id',
+  'provider_upload_json',
   'updated_at',
 ]);
 
@@ -358,6 +366,16 @@ export function applyMediaDbMigrations(database) {
       });
     } catch (error) {
       throw new Error(`Local Tonight continuation migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
+  if (currentVersion < 7) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(CANONICAL_KEEP_RESUME_MIGRATION_SQL);
+        database.execSync('pragma user_version = 7;');
+      });
+    } catch (error) {
+      throw new Error(`Local canonical Keep recovery migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
   assertCandidateLedgerSchema(database);

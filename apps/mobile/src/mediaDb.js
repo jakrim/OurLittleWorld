@@ -262,7 +262,7 @@ export function getOrCreateRemoteAssetIdentity({
   if (!familyId || !ownerUserId || !localAssetId) throw new Error('Missing private media identity scope');
   const database = getDb();
   const existing = database.getFirstSync(
-    `select remote_asset_key, moment_id, media_id from local_asset_mappings
+    `select remote_asset_key, moment_id, media_id, provider_upload_json from local_asset_mappings
      where family_id = ? and owner_user_id = ? and asset_id = ?`,
     [familyId, ownerUserId, localAssetId],
   );
@@ -271,8 +271,9 @@ export function getOrCreateRemoteAssetIdentity({
   const stamp = nowIso();
   database.runSync(
     `insert into local_asset_mappings (
-       family_id, owner_user_id, asset_id, remote_asset_key, moment_id, media_id, updated_at
-     ) values (?, ?, ?, ?, ?, ?, ?)
+       family_id, owner_user_id, asset_id, remote_asset_key, moment_id, media_id,
+       provider_upload_json, updated_at
+     ) values (?, ?, ?, ?, ?, ?, null, ?)
      on conflict(family_id, owner_user_id, asset_id) do update set
        remote_asset_key = coalesce(local_asset_mappings.remote_asset_key, excluded.remote_asset_key),
        moment_id = coalesce(local_asset_mappings.moment_id, excluded.moment_id),
@@ -289,7 +290,7 @@ export function getOrCreateRemoteAssetIdentity({
     ],
   );
   const row = database.getFirstSync(
-    `select remote_asset_key, moment_id, media_id from local_asset_mappings
+    `select remote_asset_key, moment_id, media_id, provider_upload_json from local_asset_mappings
      where family_id = ? and owner_user_id = ? and asset_id = ?`,
     [familyId, ownerUserId, localAssetId],
   ) || existing || {};
@@ -297,6 +298,7 @@ export function getOrCreateRemoteAssetIdentity({
     remoteAssetKey: row.remote_asset_key || proposedRemoteKey,
     momentId: row.moment_id || proposedMomentId,
     mediaId: row.media_id || proposedMediaId,
+    providerUpload: parseProviderUpload(row.provider_upload_json),
   };
 }
 
@@ -339,14 +341,24 @@ export function recordRemoteAssetTarget({ familyId, ownerUserId, localAssetId, r
   if (!familyId || !ownerUserId || !localAssetId || !remoteAssetKey) return;
   getDb().runSync(
     `insert into local_asset_mappings (
-       family_id, owner_user_id, asset_id, remote_asset_key, moment_id, media_id, updated_at
-     ) values (?, ?, ?, ?, ?, ?, ?)
+       family_id, owner_user_id, asset_id, remote_asset_key, moment_id, media_id,
+       provider_upload_json, updated_at
+     ) values (?, ?, ?, ?, ?, ?, null, ?)
      on conflict(family_id, owner_user_id, asset_id) do update set
        remote_asset_key = coalesce(local_asset_mappings.remote_asset_key, excluded.remote_asset_key),
        moment_id = coalesce(excluded.moment_id, local_asset_mappings.moment_id),
        media_id = coalesce(excluded.media_id, local_asset_mappings.media_id),
        updated_at = excluded.updated_at`,
     [familyId, ownerUserId, localAssetId, remoteAssetKey, momentId || null, mediaId || null, nowIso()],
+  );
+}
+
+export function recordRemoteProviderUpload({ familyId, ownerUserId, localAssetId, providerUpload }) {
+  if (!familyId || !ownerUserId || !localAssetId) throw new Error('Missing private provider upload scope');
+  getDb().runSync(
+    `update local_asset_mappings set provider_upload_json = ?, updated_at = ?
+     where family_id = ? and owner_user_id = ? and asset_id = ?`,
+    [providerUpload ? JSON.stringify(providerUpload) : null, nowIso(), familyId, ownerUserId, localAssetId],
   );
 }
 
@@ -363,6 +375,16 @@ export function removeRemoteAssetMapping({ familyId, ownerUserId, localAssetId =
     'delete from local_asset_mappings where family_id = ? and owner_user_id = ? and remote_asset_key = ?',
     [familyId, ownerUserId, remoteAssetKey],
   );
+}
+
+function parseProviderUpload(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── Sync cursors ────────────────────────────────────────────────────────────

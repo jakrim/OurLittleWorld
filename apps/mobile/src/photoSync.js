@@ -4,6 +4,12 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 
 import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
 import * as mediaDb from './mediaDb';
+import {
+  assertCanonicalMediaIdentity,
+  canonicalMediaProviderIdentity,
+  ensureCanonicalMoment,
+  resumeCanonicalProviderUpload,
+} from './canonicalMediaKeepModel.js';
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
@@ -113,7 +119,7 @@ function posterTimeForVideo(info, match) {
 }
 
 async function createVideoPoster({ info, match }) {
-  const sourceFrame = match?.localUri || match?.uri;
+  const sourceFrame = match?.previewUri || match?.uri;
   if (sourceFrame && !String(sourceFrame).startsWith('ph://')) {
     const poster = await resize(sourceFrame, VIDEO_POSTER_MAX_DIM, VIDEO_POSTER_QUALITY);
     return {
@@ -137,6 +143,66 @@ async function createVideoPoster({ info, match }) {
     height: poster.height || frame.height || info?.height || null,
     timeMs: frameTimeMs,
     source: 'generated-frame',
+  };
+}
+
+async function prepareCanonicalKeep({ familyId, userId, remoteIdentity, capturedAt, location }) {
+  const { data: existingTag, error: existingTagError } = await supabase
+    .from('photo_tags')
+    .select('moment_id, moment_media_id, storage_object, thumb_object, upload_status')
+    .eq('family_id', familyId)
+    .eq('asset_owner_user_id', userId)
+    .eq('asset_id', remoteIdentity.remoteAssetKey)
+    .maybeSingle();
+  if (existingTagError) throw existingTagError;
+
+  const momentId = existingTag?.moment_id || remoteIdentity.momentId;
+  const mediaId = existingTag?.moment_media_id || remoteIdentity.mediaId;
+  const expectedMoment = {
+    id: momentId,
+    family_id: familyId,
+    author_user_id: userId,
+    captured_at: capturedAt,
+    latitude: location?.latitude ?? null,
+    longitude: location?.longitude ?? null,
+    shared_with: [],
+  };
+  await ensureCanonicalMoment({
+    expected: expectedMoment,
+    read: async (id) => {
+      const { data, error } = await supabase
+        .from('moments')
+        .select('id, family_id, author_user_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
+    insert: async (moment) => {
+      const { error } = await supabase.from('moments').insert(moment);
+      if (error) throw error;
+    },
+  });
+
+  const { data: existingMedia, error: existingMediaError } = await supabase
+    .from('moment_media')
+    .select('id, moment_id, family_id, owner_user_id, local_identifier, full_object, thumb_object, poster_object, stream_uid, upload_status, metadata')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (existingMediaError) throw existingMediaError;
+  assertCanonicalMediaIdentity(existingMedia, {
+    id: mediaId,
+    moment_id: momentId,
+    family_id: familyId,
+    owner_user_id: userId,
+    local_identifier: remoteIdentity.remoteAssetKey,
+  });
+  return {
+    existingTag,
+    existingMedia,
+    momentId,
+    mediaId,
+    providerIdentity: canonicalMediaProviderIdentity({ mediaId, existingMedia, existingTag }),
   };
 }
 
@@ -220,34 +286,18 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', remoteAssetKey)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || mappedMomentId;
-  const mediaId = existingTag?.moment_media_id || mappedMediaId;
-  const fullId = uuid();
-  const thumbId = uuid();
+  const canonical = await prepareCanonicalKeep({
+    familyId,
+    userId,
+    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+    capturedAt: creationTime || nowIso,
+    location,
+  });
+  const { momentId, mediaId } = canonical;
+  const fullId = canonical.providerIdentity.fullObjectId;
+  const thumbId = canonical.providerIdentity.thumbObjectId;
   const fullPath = `${familyId}/full/${fullId}.jpg`;
   const thumbPath = `${familyId}/thumb/${thumbId}.jpg`;
-
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
-    });
-    if (momentErr) throw momentErr;
-  }
 
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {
@@ -397,19 +447,16 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', remoteAssetKey)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || mappedMomentId;
-  const mediaId = existingTag?.moment_media_id || mappedMediaId;
-  const fullId = uuid();
-  const posterId = uuid();
+  const canonical = await prepareCanonicalKeep({
+    familyId,
+    userId,
+    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+    capturedAt: creationTime || nowIso,
+    location,
+  });
+  const { momentId, mediaId, existingMedia } = canonical;
+  const fullId = canonical.providerIdentity.fullObjectId;
+  const posterId = canonical.providerIdentity.posterObjectId;
   const ext = extensionForVideo(info);
   const mimeType = mimeTypeForVideo(ext);
   // New playable videos go to Cloudflare Stream; sources past the simple
@@ -425,19 +472,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     originalFileName: info.fileName || match?.fileName || null,
   }, match);
 
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
-    });
-    if (momentErr) throw momentErr;
-  }
-
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {
       id: mediaId,
@@ -449,7 +483,7 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
       file_name: info.fileName || match?.fileName || null,
       mime_type: mimeType,
       full_object: useStream ? null : fullId,
-      poster_object: null,
+      poster_object: posterId,
       width: info.width || null,
       height: info.height || null,
       duration_sec: info.duration ? Number(info.duration) / 1000 : null,
@@ -493,18 +527,29 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   });
 
   let reservationId = null;
-  let streamUid = null;
+  let streamUid = existingMedia?.stream_uid || remoteIdentity.providerUpload?.uid || null;
+  let providerContext = remoteIdentity.providerUpload
+    || (existingMedia?.stream_uid ? { uid: existingMedia.stream_uid, state: 'uploaded' } : null);
   try {
     if (useStream) {
-      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
-      reservationId = upload.reservationId;
-      streamUid = upload.uid;
-      await uploadToStream({
-        uploadURL: upload.uploadURL,
-        uri: info.localUri || info.uri,
-        fileName: info.fileName || match?.fileName,
-        mimeType,
+      providerContext = await resumeCanonicalProviderUpload({
+        context: providerContext,
+        prepare: () => createStreamUpload({ familyId, durationSec, sourceBytes }),
+        persist: async (next) => mediaDb.recordRemoteProviderUpload({
+          familyId,
+          ownerUserId: userId,
+          localAssetId: assetId,
+          providerUpload: next,
+        }),
+        upload: (prepared) => uploadToStream({
+          uploadURL: prepared.uploadURL,
+          uri: info.localUri || info.uri,
+          fileName: info.fileName || match?.fileName,
+          mimeType,
+        }),
       });
+      reservationId = providerContext.reservationId;
+      streamUid = providerContext.uid;
     } else {
       reservationId = await reserveMediaUpload({
         familyId,
@@ -570,6 +615,15 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     if (mediaDone.error) throw mediaDone.error;
 
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
+    if (useStream) {
+      providerContext = { ...providerContext, uploadURL: null, state: 'finalized' };
+      mediaDb.recordRemoteProviderUpload({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: assetId,
+        providerUpload: providerContext,
+      });
+    }
     await registerReadySavedFileFingerprint({
       familyId,
       momentId,
@@ -578,7 +632,7 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     }).catch(() => null);
     return { fullId: useStream ? null : fullId, streamUid, posterId: posterObject, momentId, mediaId };
   } catch (err) {
-    await releaseMediaUpload(reservationId);
+    if (!useStream) await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
@@ -606,32 +660,16 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', remoteAssetKey)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || mappedMomentId;
-  const mediaId = existingTag?.moment_media_id || mappedMediaId;
-  const posterId = uuid();
+  const canonical = await prepareCanonicalKeep({
+    familyId,
+    userId,
+    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+    capturedAt: creationTime || nowIso,
+    location,
+  });
+  const { momentId, mediaId } = canonical;
+  const posterId = canonical.providerIdentity.posterObjectId;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
-    });
-    if (momentErr) throw momentErr;
-  }
 
   const poster = await createVideoPoster({ info, match });
   await uploadBuffer(posterPath, poster.uri, 'image/jpeg');

@@ -317,6 +317,7 @@ export default function TonightScreen() {
       userId: user.id,
       position: activeItem.position,
       collectionKeys: collectionSuggestions.map((entry) => entry.key),
+      parentInitiated: false,
     });
     setSession(next);
   }, [activeItem, collectionSuggestions, family?.id, manualQaFixture, session?.sessionId, user?.id]);
@@ -1180,6 +1181,8 @@ function matchFromItem(item) {
     assetId: item.assetId,
     mediaType: item.mediaType,
     localUri: item.localUri,
+    previewUri: item.previewUri,
+    videoUri: item.mediaType === 'video' ? item.localUri : null,
     uri: item.previewUri || item.localUri,
     creationTime: item.captureTimeMs,
     duration: item.durationSec,

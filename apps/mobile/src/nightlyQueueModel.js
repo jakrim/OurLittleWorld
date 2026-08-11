@@ -104,6 +104,15 @@ export function meetsNightlyQueueQuality(candidate) {
   return Number(candidate.captureQuality ?? candidate.qualityScore ?? 0) >= NIGHTLY_QUEUE_QUALITY_FLOOR;
 }
 
+export function shouldWithdrawStaleNightlyItem(item) {
+  if (item?.reasonCode === 'parent_pick') return false;
+  if (item?.commitState && item.commitState !== 'idle') return false;
+  if (String(item?.draftText || '').trim()) return false;
+  if (item?.parentInteracted === true) return false;
+  if ((item?.enrichmentStates || []).some((state) => ['saving', 'saved', 'failed'].includes(state))) return false;
+  return !meetsNightlyQueueQuality(item);
+}
+
 function qualifyingVideo(candidate) {
   const duration = Number(candidate.durationSec || 0);
   const presence = Number(candidate.videoPresenceRatio || 0);

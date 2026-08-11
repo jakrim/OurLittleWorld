@@ -45,6 +45,25 @@ test('uncertain and unavailable media do not enter the eligible lane', () => {
   assert.equal(unavailable.availability, 'icloud_pending');
 });
 
+test('video normalization keeps playback separate from its sampled preview', () => {
+  const candidate = normalizeDiscoveryCandidate({
+    assetId: 'fixture-video',
+    mediaType: 'video',
+    localUri: 'file:///private/frame.jpg',
+    previewUri: 'file:///private/frame.jpg',
+    videoUri: 'file:///private/source.mov',
+    creationTime: Date.now(),
+    duration: 12000,
+    score: 0.95,
+    captureQuality: 0.8,
+    videoPresenceRatio: 1,
+  });
+
+  assert.equal(candidate.localUri, 'file:///private/source.mov');
+  assert.equal(candidate.previewUri, 'file:///private/frame.jpg');
+  assert.equal(candidate.mediaType, 'video');
+});
+
 test('candidate capture day is derived once from an explicit timezone basis', () => {
   const capture = '2026-07-20T03:30:00Z';
   const newYork = normalizeDiscoveryCandidate({

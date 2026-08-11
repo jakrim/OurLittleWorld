@@ -32,3 +32,33 @@ test('Our World does not promote text-only utilities as its visual opening', () 
     visualCount: 0,
   });
 });
+
+test('video openings use a poster and never send playback URLs to Image', () => {
+  const opening = selectWorldOpening([
+    {
+      key: 'video-with-poster',
+      moment: { media: [{
+        media_type: 'video',
+        fullUrl: 'https://playback.test/video.m3u8',
+        posterUrl: 'https://images.test/video.jpg',
+      }] },
+    },
+  ]);
+  assert.equal(opening.primary.mediaUri, 'https://images.test/video.jpg');
+  assert.equal(opening.primary.mediaType, 'video');
+});
+
+test('a posterless playback-only video yields to the next truthful visual', () => {
+  const opening = selectWorldOpening([
+    {
+      key: 'playback-only',
+      moment: { media: [{ media_type: 'video', fullUrl: 'https://playback.test/video.m3u8' }] },
+    },
+    {
+      key: 'photo',
+      moment: { media: [{ media_type: 'image', fullUrl: 'https://images.test/photo.jpg' }] },
+    },
+  ]);
+  assert.equal(opening.primary.record.key, 'photo');
+  assert.equal(opening.primary.mediaUri, 'https://images.test/photo.jpg');
+});

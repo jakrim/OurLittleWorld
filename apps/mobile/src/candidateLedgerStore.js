@@ -7,10 +7,10 @@ import {
 } from './candidateLedgerModel';
 import {
   buildNightlyQueue,
-  meetsNightlyQueueQuality,
   NIGHTLY_QUEUE_GENERATION_VERSION,
   NIGHTLY_QUEUE_IDENTITY_FLOOR,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
+  shouldWithdrawStaleNightlyItem,
 } from './nightlyQueueModel';
 import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
 import { isNightlySessionContinuation } from './nightlySessionModel.js';
@@ -249,11 +249,12 @@ export function restoreCandidateMedia({ familyId, userId, assetId, localUri, pre
   const stamp = new Date().toISOString();
   database.withTransactionSync(() => {
     database.runSync(
-      `update discovery_candidates set availability = 'available', local_uri = ?, preview_uri = ?,
+      `update discovery_candidates set availability = 'available', local_uri = ?,
+         preview_uri = coalesce(?, preview_uri, ?),
          lifecycle_state = case when lifecycle_state = 'unavailable' then 'shown' else lifecycle_state end,
          unavailable_reason = null, unavailable_code = null, last_analyzed_at = ?
        where family_id = ? and user_id = ? and asset_id = ?`,
-      [localUri, previewUri || localUri, stamp, familyId, userId, assetId],
+      [localUri, previewUri, localUri, stamp, familyId, userId, assetId],
     );
     database.runSync(
       `update nightly_review_items set item_state = 'shown', last_error_code = null, updated_at = ?
@@ -522,12 +523,21 @@ export function saveTonightDraft({ sessionId, familyId, userId, position, text }
   assertScope(familyId, userId);
   const safeText = String(text || '').slice(0, NIGHTLY_DRAFT_MAX_LENGTH);
   const database = getMediaDatabase();
-  assertMutableItem(database, { sessionId, familyId, userId, position });
-  database.runSync(
-    `update nightly_review_items set draft_text = ?, updated_at = ?
-     where session_id = ? and family_id = ? and user_id = ? and position = ?`,
-    [safeText, new Date().toISOString(), sessionId, familyId, userId, position],
-  );
+  const stamp = new Date().toISOString();
+  database.withTransactionSync(() => {
+    assertMutableItem(database, { sessionId, familyId, userId, position });
+    ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
+    database.runSync(
+      `update nightly_review_items set draft_text = ?, updated_at = ?
+       where session_id = ? and family_id = ? and user_id = ? and position = ?`,
+      [safeText, stamp, sessionId, familyId, userId, position],
+    );
+    database.runSync(
+      `update nightly_review_enrichment set parent_interacted = 1, updated_at = ?
+       where session_id = ? and position = ? and family_id = ? and user_id = ?`,
+      [stamp, sessionId, position, familyId, userId],
+    );
+  });
   return safeText;
 }
 
@@ -549,7 +559,7 @@ export function saveTonightVoiceDraft({
          draft_voice_uri = ?, draft_voice_duration_sec = ?, draft_voice_mime_type = ?,
          draft_voice_waveform_json = ?, voice_commit_state = 'idle',
          canonical_voice_note_id = null, canonical_voice_object_id = null,
-         retry_id = null, updated_at = ?
+         retry_id = null, parent_interacted = 1, updated_at = ?
        where session_id = ? and position = ? and family_id = ? and user_id = ?`,
       [voice?.uri || null, voice?.durationSec || null, voice?.mimeType || null,
         voice?.waveform ? JSON.stringify(voice.waveform) : null, stamp,
@@ -579,7 +589,7 @@ export function saveTonightReactionDraft({
     ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
     database.runSync(
       `update nightly_review_enrichment set draft_favorite = ?, draft_reaction_code = ?,
-         reaction_commit_state = 'idle', retry_id = null, updated_at = ?
+         reaction_commit_state = 'idle', retry_id = null, parent_interacted = 1, updated_at = ?
        where session_id = ? and position = ? and family_id = ? and user_id = ?`,
       [favorite ? 1 : 0, normalizedReaction, stamp, sessionId, position, familyId, userId],
     );
@@ -593,6 +603,7 @@ export function saveTonightCollectionDraft({
   userId,
   position,
   collectionKeys = [],
+  parentInitiated = true,
 }) {
   assertScope(familyId, userId);
   const normalized = [...new Set((collectionKeys || [])
@@ -606,9 +617,10 @@ export function saveTonightCollectionDraft({
     ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
     database.runSync(
       `update nightly_review_enrichment set draft_collection_keys_json = ?,
-         collection_commit_state = 'idle', retry_id = null, updated_at = ?
+         collection_commit_state = 'idle', retry_id = null,
+         parent_interacted = case when ? then 1 else parent_interacted end, updated_at = ?
        where session_id = ? and position = ? and family_id = ? and user_id = ?`,
-      [JSON.stringify(normalized), stamp, sessionId, position, familyId, userId],
+      [JSON.stringify(normalized), parentInitiated ? 1 : 0, stamp, sessionId, position, familyId, userId],
     );
   });
   return readTonightSession({ familyId, userId });
@@ -694,7 +706,8 @@ export function selectTonightBurstAlternate({ sessionId, familyId, userId, posit
       `update nightly_review_enrichment set selected_asset_id = ?, retry_id = null,
          media_commit_state = 'idle', text_commit_state = 'idle', voice_commit_state = 'idle',
          reaction_commit_state = 'idle', canonical_moment_id = null,
-         canonical_voice_note_id = null, canonical_voice_object_id = null, updated_at = ?
+         canonical_voice_note_id = null, canonical_voice_object_id = null,
+         parent_interacted = 1, updated_at = ?
        where session_id = ? and position = ? and family_id = ? and user_id = ?`,
       [assetId, stamp, sessionId, position, familyId, userId],
     );
@@ -718,6 +731,7 @@ export function beginTonightKeep({ sessionId, familyId, userId, position }) {
          canonical_voice_note_id = case when ? then coalesce(canonical_voice_note_id, ?) else null end,
          canonical_voice_object_id = case when ? then coalesce(canonical_voice_object_id, ?) else null end,
          temp_cleanup_state = case when ? then 'pending' else temp_cleanup_state end,
+         parent_interacted = 1,
          updated_at = ?
        where session_id = ? and position = ? and family_id = ? and user_id = ?`,
       [uuid(), hasVoice ? 1 : 0, uuid(), hasVoice ? 1 : 0, uuid(), hasVoice ? 1 : 0,
@@ -1038,7 +1052,7 @@ function hydrateSession(database, session) {
        e.retry_id, e.canonical_moment_id, e.canonical_voice_note_id,
        e.canonical_voice_object_id, e.media_commit_state, e.text_commit_state,
        e.voice_commit_state, e.reaction_commit_state, e.draft_collection_keys_json,
-       e.collection_commit_state, e.temp_cleanup_state
+       e.collection_commit_state, e.temp_cleanup_state, e.parent_interacted
      from nightly_review_items i
      join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id and c.asset_id = i.asset_id
      left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
@@ -1128,6 +1142,7 @@ function mapSessionItem(row) {
     favorite: Number(row.draft_favorite || 0) === 1,
     reactionCode: row.draft_reaction_code || null,
     collectionKeys: row.draft_collection_keys_json == null ? null : parseJsonArray(row.draft_collection_keys_json),
+    parentInteracted: Number(row.parent_interacted || 0) === 1,
     retryId: row.retry_id || null,
     canonicalMomentId: row.canonical_moment_id || null,
     canonicalVoiceNoteId: row.canonical_voice_note_id || null,
@@ -1142,7 +1157,7 @@ function mapSessionItem(row) {
     tempCleanupState: row.temp_cleanup_state || 'idle',
     lastErrorCode: row.last_error_code || null,
     mediaType: row.media_type || 'image',
-    localUri: row.local_uri || row.preview_uri || null,
+    localUri: row.media_type === 'video' ? row.local_uri || null : row.local_uri || row.preview_uri || null,
     previewUri: row.preview_uri || row.local_uri || null,
     availability: row.availability || 'available',
     captureTimeMs: Number(row.capture_time_ms || 0) || null,
@@ -1160,30 +1175,34 @@ function revalidateActiveNightlySession(database, session, now = new Date()) {
     `select i.position, i.asset_id, i.reason_code, i.item_state, i.commit_state, i.draft_text,
        c.media_type, c.availability, c.identity_score, c.capture_quality,
        c.duration_sec, c.video_presence_ratio,
-       exists (
-         select 1 from nightly_review_enrichment e
-         where e.session_id = i.session_id and e.position = i.position
-       ) as has_enrichment
+       e.parent_interacted, e.media_commit_state, e.text_commit_state,
+       e.voice_commit_state, e.reaction_commit_state, e.collection_commit_state
      from nightly_review_items i
      join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id
        and c.asset_id = i.asset_id
+     left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
      where i.session_id = ? and i.item_state in ('queued', 'shown')`,
     [session.session_id],
   );
-  const withdrawn = rows.filter((row) => (
-    row.reason_code !== 'parent_pick'
-    && row.commit_state === 'idle'
-    && !String(row.draft_text || '').trim()
-    && Number(row.has_enrichment || 0) === 0
-    && !meetsNightlyQueueQuality({
-      availability: row.availability,
-      identityScore: row.identity_score,
-      captureQuality: row.capture_quality,
-      mediaType: row.media_type,
-      durationSec: row.duration_sec,
-      videoPresenceRatio: row.video_presence_ratio,
-    })
-  ));
+  const withdrawn = rows.filter((row) => shouldWithdrawStaleNightlyItem({
+    reasonCode: row.reason_code,
+    commitState: row.commit_state,
+    draftText: row.draft_text,
+    parentInteracted: Number(row.parent_interacted || 0) === 1,
+    enrichmentStates: [
+      row.media_commit_state,
+      row.text_commit_state,
+      row.voice_commit_state,
+      row.reaction_commit_state,
+      row.collection_commit_state,
+    ],
+    availability: row.availability,
+    identityScore: row.identity_score,
+    captureQuality: row.capture_quality,
+    mediaType: row.media_type,
+    durationSec: row.duration_sec,
+    videoPresenceRatio: row.video_presence_ratio,
+  }));
   if (!withdrawn.length) return 0;
 
   const stamp = now.toISOString();

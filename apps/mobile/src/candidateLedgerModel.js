@@ -42,6 +42,12 @@ export function normalizeDiscoveryCandidate(match, {
   const captureTimeMs = candidateTime(match?.creationTime ?? match?.creation_time);
   const identityScore = finiteOrNull(match?.score);
   const mediaType = match?.mediaType === 'video' ? 'video' : 'image';
+  const localUri = mediaType === 'video'
+    ? match?.videoUri || match?.localUri || match?.uri || null
+    : match?.localUri || match?.uri || null;
+  const previewUri = mediaType === 'video'
+    ? match?.previewUri || (match?.videoUri ? match?.uri : null) || null
+    : match?.previewUri || match?.uri || match?.localUri || null;
   const availability = match?.availability === 'icloud_pending' || match?.availability === 'unavailable'
     ? match.availability
     : 'available';
@@ -55,8 +61,8 @@ export function normalizeDiscoveryCandidate(match, {
   return {
     assetId,
     mediaType,
-    localUri: match?.localUri || match?.uri || null,
-    previewUri: match?.uri || match?.previewUri || match?.localUri || null,
+    localUri,
+    previewUri,
     availability,
     captureTimeMs: captureTimeMs || null,
     localDay: captureTimeMs ? localDayInTimeZone(captureTimeMs, captureTimezone) : null,

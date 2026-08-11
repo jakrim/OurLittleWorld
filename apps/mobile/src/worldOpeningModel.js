@@ -11,8 +11,8 @@ export function selectWorldOpening(records = [], membersById = {}) {
 
 function worldVisualRecord(record, membersById) {
   const media = record?.moment?.media || [];
-  const first = media.find((item) => item?.thumbUrl || item?.posterUrl || item?.fullUrl) || null;
-  const mediaUri = first?.fullUrl || first?.thumbUrl || first?.posterUrl || record?.thumbUrl || null;
+  const first = media.find((item) => worldImageUri(item, record?.thumbUrl)) || null;
+  const mediaUri = worldImageUri(first, record?.thumbUrl);
   if (!record || !mediaUri) return null;
   const authorId = record.moment?.author_user_id
     || record.photo?.asset_owner_user_id
@@ -25,6 +25,12 @@ function worldVisualRecord(record, membersById) {
     capturedAt: safeDate(record.capturedAt),
     author: authorId ? membersById[authorId] || null : null,
   };
+}
+
+function worldImageUri(media, recordThumbUrl) {
+  if (!media) return recordThumbUrl || null;
+  if (media.media_type === 'video') return media.posterUrl || media.thumbUrl || recordThumbUrl || null;
+  return media.thumbUrl || media.fullUrl || media.posterUrl || recordThumbUrl || null;
 }
 
 function safeDate(value) {

@@ -31,7 +31,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
   queue and owns the private discovery-candidate ledger plus nightly review sessions.
   `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations (current
-  schema version 5);
+  schema version 7);
   `candidateLedgerStore.js` scopes every row by family and parent and never imports a
   remote or analytics transport. Server state is Supabase via `rituals.js`,
   `moments.js`, `photoSync.js`.
@@ -160,7 +160,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   ranked against family-union saved-day coverage in the family ritual timezone;
   completed primary sessions pace from three to five to seven cards, and an optional
   continuation is capped at three without counting as another evening or notification.
-  SQLite schema version 6 persists capture timezone, scan last-seen/availability
+  SQLite schema version 7 persists capture timezone, scan last-seen/availability
   provenance, unavailable reason, and a family-scoped saved-day fact cache in addition
   to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
@@ -216,7 +216,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   summary/page views inherit writer-only RLS; active entitlement is required for
   correction RPCs, while Circle cannot enumerate the archive. The mobile reader pages
   at 60 memories and scans at most 5,000 lightweight IDs; canonical moments are then
-  hydrated in ordered bounded batches. SQLite schema version 6 keeps Tonight's
+  hydrated in ordered bounded batches. SQLite schema version 7 keeps Tonight's
   selected-by-default factual choices and collection commit state private until Keep,
   after which the existing idempotent moment transaction applies them. Scene/activity
   classification remains gated because the existing heuristic is not a validated

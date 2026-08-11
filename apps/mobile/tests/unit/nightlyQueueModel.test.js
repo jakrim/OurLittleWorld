@@ -9,6 +9,7 @@ import {
   NIGHTLY_QUEUE_MAX,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
   parentReasonLabel,
+  shouldWithdrawStaleNightlyItem,
 } from '../../src/nightlyQueueModel.js';
 
 const NOW = new Date(2026, 6, 18, 20).getTime();
@@ -118,6 +119,22 @@ test('uncertain identity never enters the default lane merely because the photo 
   });
   assert.equal(meetsNightlyQueueQuality(uncertain), false);
   assert.deepEqual(buildNightlyQueue([uncertain], { nowMs: NOW }), []);
+});
+
+test('stale default enrichment cannot preserve a candidate below the current quality floor', () => {
+  const stale = {
+    ...candidate('adult-only-false-positive', NOW, 0.99, {
+      identityScore: NIGHTLY_QUEUE_IDENTITY_FLOOR - 0.01,
+    }),
+    reasonCode: 'best_day',
+    commitState: 'idle',
+    draftText: '',
+    parentInteracted: false,
+    enrichmentStates: ['idle', 'idle', 'idle', 'idle', 'idle'],
+  };
+  assert.equal(shouldWithdrawStaleNightlyItem(stale), true);
+  assert.equal(shouldWithdrawStaleNightlyItem({ ...stale, parentInteracted: true }), false);
+  assert.equal(shouldWithdrawStaleNightlyItem({ ...stale, commitState: 'failed' }), false);
 });
 
 test('final, shown, unavailable and superseded candidates never reappear', () => {

@@ -9,6 +9,7 @@ import test from 'node:test';
 import { CANDIDATE_BATCH_SIZE } from '../../src/candidateLedgerModel.js';
 
 import {
+  CANONICAL_KEEP_RESUME_MIGRATION_SQL,
   CANDIDATE_LEDGER_MIGRATION_SQL,
   FIRST_YEAR_CATCHUP_MIGRATION_SQL,
   PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL,
@@ -59,7 +60,9 @@ test('version 2 upgrades a Release 0 queue without changing its order or decisio
     assert.equal(query(dbPath, "select position || '|' || item_state || '|' || draft_text from nightly_review_items;"), '0|shown|Blue blanket');
     const columns = query(dbPath, 'pragma table_info(nightly_review_enrichment);')
       .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
-    for (const required of MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS) assert.ok(columns.includes(required));
+    for (const required of MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS.filter((name) => name !== 'parent_interacted')) {
+      assert.ok(columns.includes(required));
+    }
   });
 });
 
@@ -124,7 +127,9 @@ test('version 3 upgrades to a private local-to-shared media identity map without
       from local_asset_mappings;`), 'PH-PRIVATE/L0/001|11111111-1111-4111-8111-111111111111|moment-1');
     const columns = query(dbPath, 'pragma table_info(local_asset_mappings);')
       .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
-    for (const required of MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS) assert.ok(columns.includes(required));
+    for (const required of MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS.filter((name) => name !== 'provider_upload_json')) {
+      assert.ok(columns.includes(required));
+    }
   });
 });
 
@@ -174,6 +179,42 @@ test('version 5 upgrades legacy continuation seeds to an explicit durable flag',
     const columns = query(dbPath, 'pragma table_info(nightly_review_sessions);')
       .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
     for (const required of MEDIA_DB_REQUIRED_SESSION_COLUMNS) assert.ok(columns.includes(required));
+  });
+});
+
+test('version 6 distinguishes parent interaction and persists provider retry identity', () => {
+  withDatabase((dbPath) => {
+    migrateV6(dbPath);
+    run(dbPath, candidateInsert({ familyId: 'family-a', userId: 'parent-a', assetId: 'asset-defaults', state: 'shown' }));
+    run(dbPath, `
+      insert into local_asset_mappings (
+        family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,updated_at
+      ) values (
+        'family-a','parent-a','private-asset','media-1','2026-08-11',
+        '11111111-1111-4111-8111-111111111111','moment-1','2026-08-11'
+      );
+      insert into nightly_review_sessions values (
+        'session-defaults','family-a','parent-a','2026-08-11','America/New_York','seed','active',
+        'nightly-queue-v2','curated-ledger-v1',0,1,'2026-08-11','2026-08-11',null,0
+      );
+      insert into nightly_review_items (
+        session_id,position,family_id,user_id,asset_id,reason_code,item_state,commit_state,updated_at
+      ) values (
+        'session-defaults',0,'family-a','parent-a','asset-defaults','best_day','shown','idle','2026-08-11'
+      );
+      insert into nightly_review_enrichment (
+        session_id,position,family_id,user_id,draft_collection_keys_json,updated_at
+      ) values ('session-defaults',0,'family-a','parent-a','["media:photos"]','2026-08-11');
+    `);
+    run(dbPath, `begin immediate; ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} pragma user_version = 7; commit;`);
+    run(dbPath, `update local_asset_mappings set provider_upload_json='{"uid":"stream-1","state":"uploaded"}'
+      where asset_id='private-asset';`);
+
+    assert.equal(query(dbPath, 'pragma user_version;'), '7');
+    assert.equal(query(dbPath, `select parent_interacted from nightly_review_enrichment
+      where session_id='session-defaults';`), '0');
+    assert.equal(query(dbPath, `select provider_upload_json from local_asset_mappings
+      where asset_id='private-asset';`), '{"uid":"stream-1","state":"uploaded"}');
   });
 });
 
@@ -419,7 +460,7 @@ test('5,000 kept-media identity mappings remain bounded and use the remote looku
 function migrate(dbPath) {
   if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
@@ -451,6 +492,11 @@ function migrateV4(dbPath) {
 function migrateV5(dbPath) {
   migrateV4(dbPath);
   run(dbPath, `begin immediate; ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} pragma user_version = 5; commit;`);
+}
+
+function migrateV6(dbPath) {
+  migrateV5(dbPath);
+  run(dbPath, `begin immediate; ${TONIGHT_CONTINUATION_MIGRATION_SQL} pragma user_version = 6; commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {
