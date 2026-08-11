@@ -45,10 +45,10 @@ test('365-day browsing uses a lightweight bounded archive instead of hydrating 5
   const detailEnd = moments.indexOf('export async function getMomentDetail', detailStart);
   const detailPath = moments.slice(detailStart, detailEnd);
   assert.match(indexPath, /MOMENT_DAY_INDEX_MAX_MOMENTS/);
-  assert.match(indexPath, /\.select\('id, captured_at, moment_media \(id, media_type, metadata, sort_order\)'\)/);
+  assert.match(indexPath, /\.select\('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey \(id, media_type, metadata, sort_order\)'\)/);
   assert.doesNotMatch(indexPath, /voice_notes|moment_tags|moment_reactions|local_identifier/);
   assert.match(detailPath, /utcRangeForLocalDay/);
-  assert.match(detailPath, /\.select\('id, captured_at, moment_media \(id, media_type, metadata, sort_order\)'\)/);
+  assert.match(detailPath, /\.select\('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey \(id, media_type, metadata, sort_order\)'\)/);
   assert.doesNotMatch(detailPath, /voice_notes|moment_tags|moment_reactions|local_identifier/);
   assert.match(daily, /listMomentDayArchive/);
   assert.match(daily, /\/daily-album\/\[day\]/);
@@ -73,17 +73,19 @@ test('Keep going uses the completed session day and never creates a second notif
   assert.doesNotMatch(continuation, /Notification|maybeScheduleTonightNotification/);
 });
 
-test('Tonight completion and Today header keep a calm hierarchy at accessibility text sizes', () => {
+test('Tonight completion and Today hero keep a calm hierarchy at accessibility text sizes', () => {
   const tonight = source('TonightScreen.js');
   const today = source('TodayScreen.js');
+  const todayModel = source('photoFirstHomeModel.js');
   const appHeader = source('ui/AppHeader.js');
   const backIndex = tonight.indexOf('testID="tonight-complete"');
   const continueIndex = tonight.indexOf('testID="tonight-keep-going"');
 
   assert.ok(backIndex > 0 && backIndex < continueIndex, 'finishing is the first completion action');
   assert.match(tonight, /variant="ghost"[\s\S]*testID="tonight-keep-going"/);
-  assert.match(today, /fontScale >= 1\.5/);
-  assert.match(today, /iconOnly && styles\.searchPillIconOnly/);
+  assert.match(today, /testID="today-photo-hero"/);
+  assert.match(today, /maxFontSizeMultiplier=\{1\.45\}/);
+  assert.match(todayModel, /height \* 0\.56/);
   assert.match(appHeader, /maxFontSizeMultiplier=\{1\.2\}[\s\S]*our little world/);
   assert.match(appHeader, /maxFontSizeMultiplier=\{1\.4\}[\s\S]*adjustsFontSizeToFit/);
 });
@@ -154,6 +156,8 @@ test('navigation has one Today owner and keeps archive browsing in Our World', (
   assert.match(guards, /return <RouteRedirect href=\{gate\.href \|\| '\/timeline'\} \/>/);
   assert.doesNotMatch(guards, /return <TodayScreen/);
   assert.doesNotMatch(today, /<SegmentedControl|<MonthTimeline|<PhotoRail|<PlacesPreview/);
+  assert.doesNotMatch(today, /Daily prompt|This week's digest|MilestoneTeaser|Metric/);
+  assert.match(today, /selectPhotoFirstHome/);
   assert.match(today, /Open Our World to browse saved memories/);
   assert.match(library, /<DailyAlbumPanel/);
   assert.match(library, /<AutomaticCollectionsPreview/);

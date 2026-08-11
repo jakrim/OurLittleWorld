@@ -90,6 +90,7 @@ test('large no-firsts fixture prioritizes photo navigation without repair noise'
   assert.equal(home.stats.moments, 500);
   assert.equal(home.stats.photos, 500);
   assert.equal(home.bookReadyStats.moments, 500);
+  assert.match(home.latestSavedMoment.thumbUrl, /^data:image\/svg\+xml/);
   assert.equal(home.firstsSummary.count, 0);
   assert.equal(home.lettersSummary.count, 0);
   assert.equal(home.printExportReadiness.state, 'print_ready');

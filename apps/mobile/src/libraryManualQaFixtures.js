@@ -132,6 +132,7 @@ function buildLargeNoFirstsRows({ userId, now }) {
       : { label: 'At home', latitude: 40.7128, longitude: -74.0060 };
     const momentId = `qa-moment-${index + 1}`;
     const assetId = `qa-asset-${index + 1}`;
+    const mediaUri = syntheticMemoryUri(index);
 
     moments.push({
       id: momentId,
@@ -144,6 +145,8 @@ function buildLargeNoFirstsRows({ userId, now }) {
         {
           id: `qa-media-${index + 1}`,
           media_type: 'image',
+          thumbUrl: mediaUri,
+          fullUrl: mediaUri,
           metadata: { source: 'add-sheet', captureQuality: 0.9 },
         },
       ],
@@ -160,6 +163,8 @@ function buildLargeNoFirstsRows({ userId, now }) {
       latitude: place.latitude,
       longitude: place.longitude,
       location_label: place.label,
+      thumbUrl: mediaUri,
+      fullUrl: mediaUri,
       child_id: null,
     });
   }
@@ -176,6 +181,8 @@ function buildConnectedFirstLetterRows({ userId, now }) {
   const secondAssetId = 'qa-asset-first-steps';
   const firstId = 'qa-first-smile';
   const letterId = 'qa-letter-birthday-eve';
+  const smileUri = syntheticMemoryUri(1);
+  const standingUri = syntheticMemoryUri(2);
   const moments = [
     {
       id: firstMomentId,
@@ -188,6 +195,8 @@ function buildConnectedFirstLetterRows({ userId, now }) {
         {
           id: 'qa-media-first-smile',
           media_type: 'image',
+          thumbUrl: smileUri,
+          fullUrl: smileUri,
           metadata: { source: 'add-sheet', captureQuality: 0.93 },
         },
       ],
@@ -205,6 +214,8 @@ function buildConnectedFirstLetterRows({ userId, now }) {
         {
           id: 'qa-media-first-steps',
           media_type: 'image',
+          thumbUrl: standingUri,
+          fullUrl: standingUri,
           metadata: { source: 'add-sheet', captureQuality: 0.89 },
         },
       ],
@@ -222,6 +233,8 @@ function buildConnectedFirstLetterRows({ userId, now }) {
       latitude: 40.7128,
       longitude: -74.0060,
       location_label: 'At home',
+      thumbUrl: smileUri,
+      fullUrl: smileUri,
       child_id: null,
     },
     {
@@ -233,6 +246,8 @@ function buildConnectedFirstLetterRows({ userId, now }) {
       latitude: 40.7128,
       longitude: -74.0060,
       location_label: 'At home',
+      thumbUrl: standingUri,
+      fullUrl: standingUri,
       child_id: null,
     },
   ];
@@ -293,4 +308,29 @@ function hoursBefore(date, hours) {
 function validDateOrFallback(value, fallback) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+export function syntheticMemoryUri(index = 0) {
+  const palettes = [
+    ['#d98272', '#f7d8c5', '#6f4139'],
+    ['#7f9d93', '#dce9df', '#405a53'],
+    ['#a68bb5', '#eee1f1', '#594662'],
+    ['#c89a58', '#f4e3bd', '#6e522d'],
+  ];
+  const [background, blanket, ink] = palettes[Math.abs(Number(index || 0)) % palettes.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1125" viewBox="0 0 900 1125">
+    <rect width="900" height="1125" fill="${background}"/>
+    <circle cx="720" cy="170" r="220" fill="${blanket}" opacity=".45"/>
+    <path d="M0 820 Q230 690 450 810 T900 790 V1125 H0Z" fill="${blanket}"/>
+    <ellipse cx="450" cy="465" rx="228" ry="245" fill="#f4c9a9"/>
+    <path d="M244 420 Q275 188 463 196 Q650 205 671 426 Q580 335 450 346 Q330 350 244 420Z" fill="${ink}"/>
+    <circle cx="368" cy="470" r="20" fill="${ink}"/>
+    <circle cx="535" cy="470" r="20" fill="${ink}"/>
+    <path d="M375 570 Q450 635 533 566" fill="none" stroke="${ink}" stroke-width="20" stroke-linecap="round"/>
+    <circle cx="286" cy="548" r="31" fill="#e9978a" opacity=".55"/>
+    <circle cx="614" cy="548" r="31" fill="#e9978a" opacity=".55"/>
+    <path d="M250 805 Q450 670 650 805 L730 1125 H170Z" fill="#fff" opacity=".86"/>
+    <text x="56" y="70" font-family="system-ui, sans-serif" font-size="18" fill="${ink}" opacity=".52">SYNTHETIC QA MEMORY</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

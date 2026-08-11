@@ -49,6 +49,20 @@ test('shared Tonight lookbacks query only already-kept moments and never the pri
   assert.match(tonight, /Revisit a saved memory/);
 });
 
+test('archive media embeds name the family-scoped foreign keys', () => {
+  const moments = source('../../src/moments.js');
+  const photoSync = source('../../src/photoSync.js');
+
+  assert.match(moments, /moment_media:moment_media!moment_media_moment_family_fkey/);
+  assert.doesNotMatch(moments, /moment_media \(/);
+  assert.match(moments, /voice_notes:voice_notes!voice_notes_moment_family_fkey/);
+  assert.doesNotMatch(moments, /voice_notes \(/);
+  assert.match(moments, /moment_tags:moment_tags!moment_tags_moment_family_fkey/);
+  assert.match(moments, /moment_reactions:moment_reactions!moment_reactions_moment_family_fkey/);
+  assert.match(photoSync, /moment_media:moment_media!photo_tags_media_family_fkey/);
+  assert.doesNotMatch(photoSync, /moment_media\((?:media_type|metadata)/);
+});
+
 test('shared structures are included in archive export without exporting exact-group fingerprints', () => {
   const exportService = source('../../src/archiveExport.js');
   const exportModel = source('../../src/archiveExportModel.js');

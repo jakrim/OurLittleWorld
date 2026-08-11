@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   Keyboard,
   KeyboardAvoidingView,
@@ -10,6 +11,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -91,6 +93,12 @@ import {
   tonightDecisionProperties,
   tonightOpenProperties,
 } from './curatedMemoryAnalyticsModel';
+import {
+  TONIGHT_MEDIA_COLLAPSE_DISTANCE,
+  tonightMediaHeights,
+} from './tonightReviewLayoutModel';
+import { buildTodayManualQaFixture } from './todayManualQaFixtures';
+import { isManualQaRuntime } from './manualQaRuntime';
 
 const SAVE_STEP_LABELS = {
   media: 'Saving this memory…',
@@ -104,6 +112,7 @@ export default function TonightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const theme = useTheme();
+  const { height: viewportHeight } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
   const { entitlement, loading: billingLoading } = useBilling();
@@ -126,9 +135,23 @@ export default function TonightScreen() {
   const [lookback, setLookback] = useState(null);
   const [lookbackOpen, setLookbackOpen] = useState(false);
   const [lookbackMembers, setLookbackMembers] = useState({});
+  const manualQaFixture = useMemo(
+    () => (isManualQaRuntime() ? buildTodayManualQaFixture(params.qa) : null),
+    [params.qa],
+  );
   const detailsScrollRef = useRef(null);
+  const detailsScrollY = useRef(new Animated.Value(0)).current;
   const trackedOpenRef = useRef(null);
   const trackedCompletionRef = useRef(null);
+  const mediaHeights = useMemo(
+    () => tonightMediaHeights(viewportHeight),
+    [viewportHeight],
+  );
+  const mediaHeight = detailsScrollY.interpolate({
+    inputRange: [0, TONIGHT_MEDIA_COLLAPSE_DISTANCE],
+    outputRange: [mediaHeights.expanded, mediaHeights.collapsed],
+    extrapolate: 'clamp',
+  });
 
   const loadLookback = useCallback(async () => {
     if (!canCurate || !family?.id) return null;
@@ -157,6 +180,13 @@ export default function TonightScreen() {
 
   const load = useCallback(async () => {
     if (billingLoading) return;
+    if (manualQaFixture) {
+      setSession(manualQaFixture.session);
+      setCatchup(null);
+      setError('');
+      setLoading(false);
+      return;
+    }
     if (!canCurate || !family?.id || !user?.id) {
       setLoading(false);
       return;
@@ -190,7 +220,7 @@ export default function TonightScreen() {
     } finally {
       setLoading(false);
     }
-  }, [billingLoading, canCurate, family?.babyBirthday, family?.id, loadLookback, user?.id]);
+  }, [billingLoading, canCurate, family?.babyBirthday, family?.id, loadLookback, manualQaFixture, user?.id]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -243,15 +273,16 @@ export default function TonightScreen() {
   useEffect(() => {
     setBurstOpen(false);
     Keyboard.dismiss();
+    detailsScrollY.setValue(0);
     detailsScrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, [activeItem?.assetId, activeItem?.position]);
+  }, [activeItem?.assetId, activeItem?.position, detailsScrollY]);
   const recording = Boolean(recorderState.isRecording);
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
     : Math.round(activeItem?.draftVoice?.durationSec || 0);
 
   const burstAlternates = useMemo(() => {
-    if (activeItem?.reasonCode !== 'best_burst' || !session?.sessionId || !family?.id || !user?.id) return [];
+    if (manualQaFixture || activeItem?.reasonCode !== 'best_burst' || !session?.sessionId || !family?.id || !user?.id) return [];
     try {
       return listTonightBurstAlternates({
         sessionId: session.sessionId,
@@ -262,23 +293,23 @@ export default function TonightScreen() {
     } catch {
       return [];
     }
-  }, [activeItem, family?.id, session?.sessionId, user?.id]);
+  }, [activeItem, family?.id, manualQaFixture, session?.sessionId, user?.id]);
 
   useEffect(() => {
     setDraft(activeDraftText);
     setBurstOpen(false);
     setAudioNotice('');
-    if (activePosition == null || !session?.sessionId || !family?.id || !user?.id) return;
+    if (manualQaFixture || activePosition == null || !session?.sessionId || !family?.id || !user?.id) return;
     markTonightItemShown({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
       position: activePosition,
     });
-  }, [activeDraftText, activePosition, family?.id, session?.sessionId, user?.id]);
+  }, [activeDraftText, activePosition, family?.id, manualQaFixture, session?.sessionId, user?.id]);
 
   useEffect(() => {
-    if (!activeItem || activeItem.collectionKeys != null || !collectionSuggestions.length) return;
+    if (manualQaFixture || !activeItem || activeItem.collectionKeys != null || !collectionSuggestions.length) return;
     const next = saveTonightCollectionDraft({
       sessionId: session.sessionId,
       familyId: family.id,
@@ -287,7 +318,7 @@ export default function TonightScreen() {
       collectionKeys: collectionSuggestions.map((entry) => entry.key),
     });
     setSession(next);
-  }, [activeItem, collectionSuggestions, family?.id, session?.sessionId, user?.id]);
+  }, [activeItem, collectionSuggestions, family?.id, manualQaFixture, session?.sessionId, user?.id]);
 
   const changeDraft = useCallback((text) => {
     if (keepNeedsRetry) return;
@@ -777,8 +808,7 @@ export default function TonightScreen() {
     ? formatAge(ageAt(family.babyBirthday, captureDate.getTime()))
     : '';
   const unavailable = activeItem.availability !== 'available' || !activeItem.localUri;
-  const remaining = session.items.filter((item) => ['queued', 'shown', 'unavailable'].includes(item.state)).length;
-  const statusCopy = saveStep ? (saveStep === 'retry' ? 'Retrying the same safe save…' : SAVE_STEP_LABELS[saveStep]) : '';
+  const statusCopy = saveStep ? (saveStep === 'retry' ? 'Retrying this save…' : SAVE_STEP_LABELS[saveStep]) : '';
 
   return (
     <Screen bare edges={{ top: true, bottom: true }}>
@@ -787,13 +817,14 @@ export default function TonightScreen() {
           <Pressable onPress={() => router.replace('/timeline')} accessibilityRole="button" accessibilityLabel="Close Tonight" style={styles.iconButton}>
             <Ionicons name="close" size={24} color={theme.semantic.text} />
           </Pressable>
-          <Caption maxFontSizeMultiplier={1.6}>{activeItem.position + 1} of {session.itemCount} · {remaining} left</Caption>
-          <Pressable onPress={() => router.push('/review')} accessibilityRole="button" accessibilityLabel="Open advanced photo review" style={styles.iconButton}>
-            <Ionicons name="grid-outline" size={21} color={theme.semantic.text} />
-          </Pressable>
+          <Caption maxFontSizeMultiplier={1.6}>{activeItem.position + 1} of {session.itemCount}</Caption>
+          <View style={styles.iconButton} />
         </View>
 
-        <View style={[styles.mediaFrame, { backgroundColor: theme.semantic.cardAlt }]} testID="tonight-media-card">
+        <Animated.View
+          style={[styles.mediaFrame, { height: mediaHeight, backgroundColor: theme.semantic.cardAlt }]}
+          testID="tonight-media-card"
+        >
           {unavailable ? (
             <UnavailableCard
               onRetry={retryAvailability}
@@ -804,11 +835,11 @@ export default function TonightScreen() {
           ) : activeItem.mediaType === 'video' ? (
             <TonightVideo uri={activeItem.localUri} posterUri={activeItem.previewUri} theme={theme} />
           ) : (
-            <Image source={{ uri: activeItem.localUri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" />
+            <Image source={{ uri: activeItem.localUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
           )}
-        </View>
+        </Animated.View>
 
-        <ScrollView
+        <Animated.ScrollView
           key={`${session.sessionId}:${activeItem.position}:${activeItem.assetId}`}
           ref={detailsScrollRef}
           style={styles.detailsScroll}
@@ -816,6 +847,11 @@ export default function TonightScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: detailsScrollY } } }],
+            { useNativeDriver: false },
+          )}
+          scrollEventThrottle={16}
         >
           <Eyebrow maxFontSizeMultiplier={1.6}>{parentReasonLabel(activeItem.reasonCode)}</Eyebrow>
           <Hero maxFontSizeMultiplier={1.8} style={styles.dateTitle}>{captureDate ? formatCaptureDate(captureDate) : 'A memory worth a look'}</Hero>
@@ -834,7 +870,7 @@ export default function TonightScreen() {
 
           <Spacer h={space.md} />
           <Field
-            label="Add one line (optional)"
+            label="Add a note (optional)"
             value={draft}
             onChangeText={changeDraft}
             placeholder="What do you want to remember?"
@@ -890,8 +926,8 @@ export default function TonightScreen() {
           {collectionSuggestions.length ? (
             <View style={styles.collectionDraft}>
               <View style={styles.collectionDraftHeader}>
-                <Caption style={styles.collectionDraftTitle}>Filed for you</Caption>
-                <Caption>Tap only if one does not belong.</Caption>
+                <Caption style={styles.collectionDraftTitle}>Collections</Caption>
+                <Caption>Selected collections are added when you Keep.</Caption>
               </View>
               <View style={styles.collectionChipRow}>
                 {collectionSuggestions.map((suggestion) => {
@@ -904,6 +940,9 @@ export default function TonightScreen() {
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: selected }}
                       accessibilityLabel={`${suggestion.title} collection`}
+                      accessibilityHint={selected
+                        ? 'Leaves this collection out when you Keep.'
+                        : 'Adds this collection when you Keep.'}
                       style={[
                         styles.collectionChip,
                         {
@@ -935,9 +974,12 @@ export default function TonightScreen() {
             theme={theme}
           />
 
+        </Animated.ScrollView>
+
+        <View style={[styles.decisionDock, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
           {statusCopy || error || keepNeedsRetry ? (
             <Caption style={[styles.error, { color: error ? theme.colors.danger : theme.semantic.muted }]}>
-              {statusCopy || error || 'Keep paused before completion. Retry the same Keep before moving on.'}
+              {statusCopy || error || 'This memory didn’t finish saving. Retry Keep before moving on.'}
             </Caption>
           ) : null}
           <View style={styles.actions}>
@@ -946,14 +988,18 @@ export default function TonightScreen() {
               {keepNeedsRetry ? 'Retry Keep' : 'Keep'}
             </Button>
           </View>
-          <Pressable onPress={chooseAnother} disabled={busy || keepNeedsRetry || recording} accessibilityRole="button" style={styles.secondaryAction} testID="tonight-picker">
-            <Ionicons name="images-outline" size={18} color={theme.semantic.primary} />
-            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>Choose another from Photos</Caption>
+          <Pressable
+            onPress={chooseAnother}
+            disabled={busy || keepNeedsRetry || recording}
+            accessibilityRole="button"
+            accessibilityLabel="Choose another memory from Photos"
+            style={styles.secondaryAction}
+            testID="tonight-picker"
+          >
+            <Ionicons name="images-outline" size={17} color={theme.semantic.primary} />
+            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>Another</Caption>
           </Pressable>
-          <Pressable onPress={() => router.push('/review')} accessibilityRole="button" style={styles.secondaryAction} testID="tonight-advanced-review">
-            <Caption>Advanced review grid</Caption>
-          </Pressable>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -1193,11 +1239,12 @@ const styles = StyleSheet.create({
   completionNote: { marginTop: space.md, maxWidth: 340 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, minHeight: 52 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  mediaFrame: { flex: 1, minHeight: 290, overflow: 'hidden' },
-  detailsScroll: { flexGrow: 0, maxHeight: '54%' },
-  details: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.lg },
+  mediaFrame: { width: '100%', overflow: 'hidden' },
+  detailsScroll: { flex: 1 },
+  details: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.xxl },
   dateTitle: { fontSize: 29, lineHeight: 34, marginTop: 3 },
-  actions: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
+  decisionDock: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.sm },
+  actions: { flexDirection: 'row', gap: space.sm },
   action: { flex: 1 },
   secondaryAction: { minHeight: 42, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: space.sm },
   error: { marginTop: space.sm, textAlign: 'center' },

@@ -816,7 +816,7 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
         longitude,
         shared_with,
         created_at,
-        moment_media (
+        moment_media:moment_media!moment_media_moment_family_fkey (
           id,
           media_type,
           local_identifier,
@@ -834,7 +834,7 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
           stream_uid,
           sort_order
         ),
-        voice_notes (
+        voice_notes:voice_notes!voice_notes_moment_family_fkey (
           id,
           author_user_id,
           duration_sec,
@@ -843,8 +843,8 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
           mime_type,
           upload_status
         ),
-        moment_tags (tag),
-        moment_reactions (emoji, author_user_id)
+        moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
+        moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
       `)
       .eq('family_id', familyId)
       .order('captured_at', { ascending: false })
@@ -880,7 +880,7 @@ export async function listMomentArchiveByIds(familyId, momentIds = []) {
       longitude,
       shared_with,
       created_at,
-      moment_media (
+      moment_media:moment_media!moment_media_moment_family_fkey (
         id,
         media_type,
         local_identifier,
@@ -898,7 +898,7 @@ export async function listMomentArchiveByIds(familyId, momentIds = []) {
         stream_uid,
         sort_order
       ),
-      voice_notes (
+      voice_notes:voice_notes!voice_notes_moment_family_fkey (
         id,
         author_user_id,
         duration_sec,
@@ -907,8 +907,8 @@ export async function listMomentArchiveByIds(familyId, momentIds = []) {
         mime_type,
         upload_status
       ),
-      moment_tags (tag),
-      moment_reactions (emoji, author_user_id)
+      moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
+      moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
     `)
     .eq('family_id', familyId)
     .in('id', ids);
@@ -932,7 +932,7 @@ export async function listMomentDayArchive(familyId, {
     const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
     const { data, error } = await supabase
       .from('moments')
-      .select('id, captured_at, moment_media (id, media_type, metadata, sort_order)')
+      .select('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)')
       .eq('family_id', familyId)
       .order('captured_at', { ascending: false })
       .order('id', { ascending: false })
@@ -995,7 +995,7 @@ export async function listMomentDayDetails(familyId, {
     const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
     const { data, error } = await supabase
       .from('moments')
-      .select('id, captured_at, moment_media (id, media_type, metadata, sort_order)')
+      .select('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)')
       .eq('family_id', familyId)
       .gte('captured_at', range.start)
       .lt('captured_at', range.end)
@@ -1041,7 +1041,7 @@ export async function getMomentDetail({ familyId, momentId }) {
       longitude,
       shared_with,
       created_at,
-      moment_media (
+      moment_media:moment_media!moment_media_moment_family_fkey (
         id,
         media_type,
         local_identifier,
@@ -1059,7 +1059,7 @@ export async function getMomentDetail({ familyId, momentId }) {
         stream_uid,
         sort_order
       ),
-      voice_notes (
+      voice_notes:voice_notes!voice_notes_moment_family_fkey (
         id,
         author_user_id,
         duration_sec,
@@ -1068,8 +1068,8 @@ export async function getMomentDetail({ familyId, momentId }) {
         mime_type,
         upload_status
       ),
-      moment_tags (tag),
-      moment_reactions (emoji, author_user_id)
+      moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
+      moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
     `)
     .eq('family_id', familyId)
     .eq('id', momentId)

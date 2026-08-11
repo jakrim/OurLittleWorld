@@ -51,6 +51,7 @@ import {
   listMomentContextFacts,
   listSavedEventCompanions,
 } from './sharedEnrichment';
+import { isManualQaRuntime } from './manualQaRuntime';
 
 const REACTIONS = [
   { key: 'heart', emoji: '🫶' },
@@ -118,7 +119,7 @@ export default function MomentDetailScreen() {
     if (!family?.id || !momentId) return;
     setLoading(true);
     try {
-      const manualQaMoment = __DEV__
+      const manualQaMoment = isManualQaRuntime()
         ? buildLibraryManualQaMomentDetail(params.qa, momentId, { userId: user?.id })
         : null;
       if (manualQaMoment) {

@@ -725,7 +725,7 @@ export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
   // Look up the tag to find storage objects
   const { data: row, error: selErr } = await supabase
     .from('photo_tags')
-    .select('storage_object, thumb_object, moment_id, moment_media_id, moment_media(metadata)')
+    .select('storage_object, thumb_object, moment_id, moment_media_id, moment_media:moment_media!photo_tags_media_family_fkey(metadata)')
     .eq('family_id', familyId)
     .eq('asset_owner_user_id', assetOwnerUserId)
     .eq('asset_id', remoteAssetKey)
@@ -843,7 +843,7 @@ async function deleteEmptyMoment({ familyId, momentId }) {
   if (error) console.warn('deleteEmptyMoment', error.message);
 }
 
-const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, stream_uid, metadata)';
+const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media:moment_media!photo_tags_media_family_fkey(media_type, duration_sec, quota_class, stream_uid, metadata)';
 
 function quoteFilterValue(value) {
   return `"${String(value).replace(/"/g, '')}"`;

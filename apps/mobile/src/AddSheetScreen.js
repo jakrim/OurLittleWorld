@@ -40,12 +40,7 @@ import { analyticsEnvironment, analyticsPlatform, mediaKindForAssets } from './a
 import { notifyPartnerNoteSaved } from './notificationEvents';
 import { loadBestPhotoCandidates } from './bestPhotoCandidates';
 import { candidateId } from './bestPhotoCandidateModel.js';
-
-const MORE_ACTIONS = [
-  { icon: 'chatbubble-ellipses-outline', title: "Answer today's prompt", route: '/prompt' },
-  { icon: 'flag-outline', title: 'Add a first', route: '/first-compose' },
-  { icon: 'checkmark-done-outline', title: 'Review found photos', route: '/review' },
-];
+import { isManualQaRuntime } from './manualQaRuntime';
 
 export default function AddSheetScreen() {
   const router = useRouter();
@@ -72,7 +67,7 @@ export default function AddSheetScreen() {
   const [bestPhotos, setBestPhotos] = useState({ photos: [], suppressedCount: 0 });
   const [bestPhotosLoading, setBestPhotosLoading] = useState(false);
   const manualQaFixture = useMemo(
-    () => (__DEV__ ? buildAddManualQaFixture(params.qa) : null),
+    () => (isManualQaRuntime() ? buildAddManualQaFixture(params.qa) : null),
     [params.qa],
   );
   const intentPresentation = useMemo(
@@ -368,7 +363,6 @@ export default function AddSheetScreen() {
           if (option.route) openAction(option);
           else setIntent(option.key);
         }}
-        onOpenAction={openAction}
         theme={theme}
       />
     );
@@ -583,7 +577,7 @@ export default function AddSheetScreen() {
   );
 }
 
-function AddIntentChooser({ onClose, onSelect, onOpenAction, theme }) {
+function AddIntentChooser({ onClose, onSelect, theme }) {
   return (
     <Screen bare scroll edges={{ top: false, bottom: true }}>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
@@ -629,35 +623,15 @@ function AddIntentChooser({ onClose, onSelect, onOpenAction, theme }) {
               <View style={[styles.intentIcon, { backgroundColor: theme.colors.primarySoft }]}>
                 <Ionicons name={option.icon} size={21} color={theme.semantic.primary} />
               </View>
-              <Body style={styles.intentTitle}>{option.title}</Body>
-              <Caption>{option.body}</Caption>
+              <View style={styles.intentCopy}>
+                <Body style={styles.intentTitle}>{option.title}</Body>
+                <Caption>{option.body}</Caption>
+              </View>
               <Ionicons name="arrow-forward" size={17} color={theme.semantic.textMuted} />
             </Pressable>
           ))}
         </View>
 
-        <View style={styles.moreSection}>
-          <Caption style={styles.moreLabel}>More ways to add</Caption>
-          {MORE_ACTIONS.map((action) => (
-            <Pressable
-              key={action.title}
-              onPress={() => onOpenAction(action)}
-              accessibilityRole="button"
-              accessibilityLabel={action.title}
-              style={({ pressed }) => [
-                styles.moreAction,
-                {
-                  borderColor: theme.semantic.border,
-                  opacity: pressed ? 0.72 : 1,
-                },
-              ]}
-            >
-              <Ionicons name={action.icon} size={17} color={theme.semantic.primary} />
-              <Body style={styles.moreActionTitle}>{action.title}</Body>
-              <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
-            </Pressable>
-          ))}
-        </View>
       </View>
     </Screen>
   );
@@ -885,22 +859,29 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   intentGrid: {
-    gap: space.md,
+    gap: space.sm,
   },
   intentCard: {
-    minHeight: 104,
-    borderRadius: radius.lg,
+    minHeight: 76,
+    borderRadius: radius.md,
     borderWidth: 1,
-    padding: space.lg,
-    gap: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
   },
   intentIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: space.xs,
+    flexShrink: 0,
+  },
+  intentCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   intentTitle: {
     fontWeight: '800',
