@@ -48,6 +48,14 @@
         "buildType": "apk"
       }
     },
+    "production-internal-no-push": {
+      "extends": "production-internal",
+      "autoIncrement": false,
+      "env": {
+        "OLW_DISABLE_NOTIFICATIONS_PLUGIN": "true",
+        "EXPO_PUBLIC_OUR_LITTLE_WORLD_ANALYTICS_DEFAULT_CONSENT": "false"
+      }
+    },
     "production": {
       "extends": "base",
       "autoIncrement": true

@@ -115,31 +115,37 @@ export default function TodayScreen() {
           timezone: session?.timezone,
         }));
         if (session?.status === 'active' && !session.completed) {
-          const scheduled = await maybeScheduleTonightNotification({
-            familyId: family.id,
-            userId: user.id,
-            session,
-            preferences,
-            role: family.me.role,
-            entitlementActive: entitlement.isActive,
-            timezone: session.timezone || ritualSettings.timezone,
-            targetTime: ritualSettings.dailyPromptTime,
-          });
-          if (scheduled?.scheduled) {
-            const timezone = session.timezone || ritualSettings.timezone;
-            trackAnalyticsEvent('tonight_notification_scheduled', {
-              surface: 'notification',
-              queue_count_bucket: bucketCount(session.items?.length || 0),
-              schedule_day: localDayInTimeZone(scheduled.triggerDate, timezone) === session.localDay
-                ? 'same_local_day'
-                : 'next_local_day',
-            }, {
-              family_id: family.id,
-              actor_role: family.me.role,
-              plan_state: 'active',
-              platform: analyticsPlatform('ios'),
-              environment: analyticsEnvironment(),
+          try {
+            const scheduled = await maybeScheduleTonightNotification({
+              familyId: family.id,
+              userId: user.id,
+              session,
+              preferences,
+              role: family.me.role,
+              entitlementActive: entitlement.isActive,
+              timezone: session.timezone || ritualSettings.timezone,
+              targetTime: ritualSettings.dailyPromptTime,
             });
+            if (scheduled?.scheduled) {
+              const timezone = session.timezone || ritualSettings.timezone;
+              trackAnalyticsEvent('tonight_notification_scheduled', {
+                surface: 'notification',
+                queue_count_bucket: bucketCount(session.items?.length || 0),
+                schedule_day: localDayInTimeZone(scheduled.triggerDate, timezone) === session.localDay
+                  ? 'same_local_day'
+                  : 'next_local_day',
+              }, {
+                family_id: family.id,
+                actor_role: family.me.role,
+                plan_state: 'active',
+                platform: analyticsPlatform('ios'),
+                environment: analyticsEnvironment(),
+              });
+            }
+          } catch {
+            // Tonight is local product value. Optional notification delivery
+            // must never erase or replace a ready memory on Today.
+            console.warn('tonight notification unavailable');
           }
         }
       } catch {

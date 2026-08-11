@@ -112,6 +112,16 @@ test('scan and review progress use independent stores', () => {
   assert.match(ledger, /item_state = 'unavailable'/);
 });
 
+test('upgraded active Tonight queues revalidate unfinished candidates against current quality', () => {
+  const ledger = source('candidateLedgerStore.js');
+  assert.match(ledger, /revalidateActiveNightlySession/);
+  assert.match(ledger, /quality_revalidated/);
+  assert.match(ledger, /meetsNightlyQueueQuality/);
+  assert.match(ledger, /lifecycle_state = 'rejected'/);
+  assert.match(ledger, /sessionHasQualityWithdrawals/);
+  assert.match(ledger, /seed: seed \|\| \(completedToday \? `\$\{day\}:revalidated` : day\)/);
+});
+
 test('private photo access fails closed for Circle and lapsed states before Photos is touched', () => {
   const launcher = source('libraryScanLauncher.js');
   const background = source('backgroundAutoIngestTask.js');

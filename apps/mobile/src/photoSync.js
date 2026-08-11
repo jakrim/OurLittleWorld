@@ -24,6 +24,7 @@ import {
   uploadToStream,
 } from './mediaSession';
 import { uuid } from './moments';
+import { isMissingPostgrestRelationship } from './postgrestCompatibility';
 import { supabase } from './supabase';
 
 // SQLite cache calls must never break the network path.
@@ -844,6 +845,7 @@ async function deleteEmptyMoment({ familyId, momentId }) {
 }
 
 const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media:moment_media!photo_tags_media_family_fkey(media_type, duration_sec, quota_class, stream_uid, metadata)';
+const TAGGED_BASE_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id';
 
 function quoteFilterValue(value) {
   return `"${String(value).replace(/"/g, '')}"`;
@@ -874,9 +876,62 @@ export async function listSharedTaggedPage(familyId, {
   if (!familyId) return { rows: [], nextCursor: null };
   const dateFiltered = !!(capturedOnOrAfter || capturedBefore);
 
+  let { data, error } = await buildTaggedPageQuery({
+    familyId,
+    select: TAGGED_SELECT,
+    cursor,
+    limit,
+    capturedOnOrAfter,
+    capturedBefore,
+  });
+  if (error && isMissingPostgrestRelationship(error)) {
+    ({ data, error } = await buildTaggedPageQuery({
+      familyId,
+      select: TAGGED_BASE_SELECT,
+      cursor,
+      limit,
+      capturedOnOrAfter,
+      capturedBefore,
+    }));
+    if (!error) {
+      try {
+        data = await attachTaggedMediaWithoutEmbed(familyId, data || []);
+      } catch (attachError) {
+        error = attachError;
+      }
+    }
+  }
+  if (error) {
+    console.warn('listSharedTaggedPage', error.message);
+    return { rows: [], nextCursor: null };
+  }
+
+  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
+  const last = rows[rows.length - 1];
+  let nextCursor = null;
+  if (rows.length === limit && last) {
+    nextCursor = cursor?.nullRegion || !last.creation_time
+      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
+      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
+  } else if (!cursor?.nullRegion && !dateFiltered) {
+    // Non-null region ran dry — the null-creation_time stragglers come next.
+    // Date-filtered reads skip the null region: a null creation_time can't match.
+    nextCursor = { nullRegion: true, o: '', a: '' };
+  }
+  return { rows, nextCursor };
+}
+
+function buildTaggedPageQuery({
+  familyId,
+  select,
+  cursor,
+  limit,
+  capturedOnOrAfter,
+  capturedBefore,
+}) {
   let query = supabase
     .from('photo_tags')
-    .select(TAGGED_SELECT)
+    .select(select)
     .eq('family_id', familyId)
     .eq('upload_status', 'ready')
     .order('creation_time', { ascending: false, nullsFirst: false })
@@ -905,25 +960,23 @@ export async function listSharedTaggedPage(familyId, {
     }
   }
 
-  const { data, error } = await query;
-  if (error) {
-    console.warn('listSharedTaggedPage', error.message);
-    return { rows: [], nextCursor: null };
-  }
+  return query;
+}
 
-  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
-  const last = rows[rows.length - 1];
-  let nextCursor = null;
-  if (rows.length === limit && last) {
-    nextCursor = cursor?.nullRegion || !last.creation_time
-      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
-      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
-  } else if (!cursor?.nullRegion && !dateFiltered) {
-    // Non-null region ran dry — the null-creation_time stragglers come next.
-    // Date-filtered reads skip the null region: a null creation_time can't match.
-    nextCursor = { nullRegion: true, o: '', a: '' };
-  }
-  return { rows, nextCursor };
+async function attachTaggedMediaWithoutEmbed(familyId, rows) {
+  const ids = [...new Set((rows || []).map((row) => row.moment_media_id).filter(Boolean))];
+  if (!ids.length) return rows;
+  const { data, error } = await supabase
+    .from('moment_media')
+    .select('id, media_type, duration_sec, quota_class, stream_uid, metadata')
+    .eq('family_id', familyId)
+    .in('id', ids);
+  if (error) throw error;
+  const byId = new Map((data || []).map((media) => [media.id, media]));
+  return (rows || []).map((row) => ({
+    ...row,
+    moment_media: byId.get(row.moment_media_id) || null,
+  }));
 }
 
 /**

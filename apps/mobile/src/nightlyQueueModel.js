@@ -10,9 +10,12 @@ export const NIGHTLY_QUEUE_MAX = 7;
 export const NIGHTLY_QUEUE_RECENT_TARGET = 3;
 export const NIGHTLY_QUEUE_HISTORICAL_TARGET = 3;
 export const NIGHTLY_QUEUE_RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
-export const NIGHTLY_QUEUE_QUALITY_FLOOR = 0.25;
+// Physical-device review showed that the former permissive floor allowed a
+// polished adult-only false positive into an upgraded user's stale queue. The
+// default lane should be smaller before it is noisier.
+export const NIGHTLY_QUEUE_QUALITY_FLOOR = 0.5;
 export const NIGHTLY_QUEUE_STANDOUT_FLOOR = 0.55;
-export const NIGHTLY_QUEUE_IDENTITY_FLOOR = 0.75;
+export const NIGHTLY_QUEUE_IDENTITY_FLOOR = 0.82;
 export const NIGHTLY_QUEUE_GENERATION_VERSION = 'nightly-queue-v2';
 
 export function buildNightlyQueue(candidates = [], {
@@ -22,7 +25,7 @@ export function buildNightlyQueue(candidates = [], {
 } = {}) {
   const queueLimit = Math.max(0, Math.min(NIGHTLY_QUEUE_MAX, Number(maxItems || 0)));
   if (!queueLimit) return [];
-  const unique = uniqueEligible(candidates).filter((candidate) => meetsQualityFloor(candidate));
+  const unique = uniqueEligible(candidates).filter((candidate) => meetsNightlyQueueQuality(candidate));
   const ranked = unique.sort((a, b) => compareQueueCandidate(a, b, seed));
   const dailyAnchors = strongestPerLocalDay(ranked).sort((a, b) => compareQueueCandidate(a, b, seed));
   const anchorAssetIds = new Set(dailyAnchors.map((candidate) => candidate.assetId));
@@ -95,7 +98,7 @@ function strongestPerLocalDay(candidates) {
   return [...byDay.values()];
 }
 
-function meetsQualityFloor(candidate) {
+export function meetsNightlyQueueQuality(candidate) {
   if (Number(candidate.identityScore || 0) < NIGHTLY_QUEUE_IDENTITY_FLOOR) return false;
   if (candidate.mediaType === 'video') return qualifyingVideo(candidate);
   return Number(candidate.captureQuality ?? candidate.qualityScore ?? 0) >= NIGHTLY_QUEUE_QUALITY_FLOOR;

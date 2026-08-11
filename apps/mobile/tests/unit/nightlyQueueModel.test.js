@@ -4,6 +4,8 @@ import test from 'node:test';
 
 import {
   buildNightlyQueue,
+  meetsNightlyQueueQuality,
+  NIGHTLY_QUEUE_IDENTITY_FLOOR,
   NIGHTLY_QUEUE_MAX,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
   parentReasonLabel,
@@ -108,6 +110,14 @@ test('weak media never pads a nightly queue', () => {
 
   const twoStrong = [candidate('strong-1', NOW, 0.9), candidate('strong-2', NOW - 86400000, 0.8, { eventClusterKey: 'other' })];
   assert.equal(buildNightlyQueue(twoStrong, { nowMs: NOW }).length, 2);
+});
+
+test('uncertain identity never enters the default lane merely because the photo is polished', () => {
+  const uncertain = candidate('adult-only-false-positive', NOW, 0.99, {
+    identityScore: NIGHTLY_QUEUE_IDENTITY_FLOOR - 0.01,
+  });
+  assert.equal(meetsNightlyQueueQuality(uncertain), false);
+  assert.deepEqual(buildNightlyQueue([uncertain], { nowMs: NOW }), []);
 });
 
 test('final, shown, unavailable and superseded candidates never reappear', () => {

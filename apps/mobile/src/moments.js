@@ -23,6 +23,7 @@ import { archivePageRanges } from './archivePaginationModel';
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
 import * as mediaDb from './mediaDb';
+import { isMissingPostgrestRelationship } from './postgrestCompatibility';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -851,6 +852,9 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
       .order('id', { ascending: false })
       .range(pageRange.from, pageRange.to);
     if (error) {
+      if (isMissingPostgrestRelationship(error)) {
+        return listMomentArchiveWithoutEmbeddedRelationships(familyId, safeLimit);
+      }
       console.warn('listMomentArchive', error.message);
       if (!rows.length) return [];
       break;
@@ -861,6 +865,85 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   }
 
   return hydrateMomentRows(familyId, rows);
+}
+
+async function listMomentArchiveWithoutEmbeddedRelationships(familyId, safeLimit) {
+  const rows = [];
+  for (const pageRange of archivePageRanges(safeLimit)) {
+    const { data, error } = await supabase
+      .from('moments')
+      .select('id, family_id, author_user_id, title, caption_note, captured_at, place_name, latitude, longitude, shared_with, created_at')
+      .eq('family_id', familyId)
+      .order('captured_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(pageRange.from, pageRange.to);
+    if (error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageRange.take) break;
+  }
+  if (!rows.length) return [];
+  const related = await attachMomentRelationsWithoutEmbeds(familyId, rows);
+  return hydrateMomentRows(familyId, related);
+}
+
+async function attachMomentRelationsWithoutEmbeds(familyId, moments) {
+  const ids = moments.map((moment) => moment.id).filter(Boolean);
+  const media = [];
+  const voices = [];
+  const tags = [];
+  const reactions = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const pageIds = ids.slice(offset, offset + 100);
+    const [mediaResult, voiceResult, tagResult, reactionResult] = await Promise.all([
+      supabase
+        .from('moment_media')
+        .select('id, moment_id, media_type, local_identifier, owner_user_id, file_name, mime_type, width, height, duration_sec, metadata, upload_status, quota_class, storage_provider, playback_provider, stream_uid, sort_order')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('voice_notes')
+        .select('id, moment_id, author_user_id, duration_sec, waveform, audio_object, mime_type, upload_status')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('moment_tags')
+        .select('moment_id, tag')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('moment_reactions')
+        .select('moment_id, emoji, author_user_id')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+    ]);
+    if (mediaResult.error) throw mediaResult.error;
+    media.push(...(mediaResult.data || []));
+    if (!voiceResult.error) voices.push(...(voiceResult.data || []));
+    if (!tagResult.error) tags.push(...(tagResult.data || []));
+    if (!reactionResult.error) reactions.push(...(reactionResult.data || []));
+  }
+  const grouped = (rows, key) => {
+    const map = new Map();
+    for (const row of rows) {
+      const value = row[key];
+      if (!value) continue;
+      if (!map.has(value)) map.set(value, []);
+      map.get(value).push(row);
+    }
+    return map;
+  };
+  const mediaByMoment = grouped(media, 'moment_id');
+  const voicesByMoment = grouped(voices, 'moment_id');
+  const tagsByMoment = grouped(tags, 'moment_id');
+  const reactionsByMoment = grouped(reactions, 'moment_id');
+  return moments.map((moment) => ({
+    ...moment,
+    moment_media: (mediaByMoment.get(moment.id) || []).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)),
+    voice_notes: voicesByMoment.get(moment.id) || [],
+    moment_tags: (tagsByMoment.get(moment.id) || []).map(({ tag }) => ({ tag })),
+    moment_reactions: (reactionsByMoment.get(moment.id) || []).map(({ emoji, author_user_id }) => ({ emoji, author_user_id })),
+  }));
 }
 
 export async function listMomentArchiveByIds(familyId, momentIds = []) {

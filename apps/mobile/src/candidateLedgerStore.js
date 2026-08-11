@@ -7,6 +7,7 @@ import {
 } from './candidateLedgerModel';
 import {
   buildNightlyQueue,
+  meetsNightlyQueueQuality,
   NIGHTLY_QUEUE_GENERATION_VERSION,
   NIGHTLY_QUEUE_IDENTITY_FLOOR,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
@@ -291,10 +292,16 @@ export function ensureNightlySession({
   assertScope(familyId, userId);
   const database = getMediaDatabase();
   const existing = readActiveSession(database, familyId, userId);
-  if (existing) return hydrateSession(database, existing);
+  if (existing) {
+    revalidateActiveNightlySession(database, existing);
+    const revalidated = readActiveSession(database, familyId, userId);
+    if (revalidated) return hydrateSession(database, revalidated);
+  }
   const day = localDayInTimeZone(now, timezone);
   const completedToday = readCompletedSessionForDay(database, familyId, userId, day);
-  if (completedToday) return hydrateSession(database, completedToday);
+  if (completedToday && !sessionHasQualityWithdrawals(database, completedToday.session_id)) {
+    return hydrateSession(database, completedToday);
+  }
 
   return createNightlySession(database, {
     familyId,
@@ -302,8 +309,8 @@ export function ensureNightlySession({
     now,
     timezone,
     day,
-    seed: seed || day,
-    continuation: false,
+    seed: seed || (completedToday ? `${day}:revalidated` : day),
+    continuation: !!completedToday,
   });
 }
 
@@ -417,6 +424,8 @@ export function getTonightSummary({
 } = {}) {
   if (!familyId || !userId) return null;
   const database = getMediaDatabase();
+  const existing = readActiveSession(database, familyId, userId);
+  if (existing) revalidateActiveNightlySession(database, existing);
   const active = readActiveSession(database, familyId, userId);
   if (active) {
     const remaining = database.getFirstSync(
@@ -481,6 +490,8 @@ export function replaceFamilySavedDayFacts({ familyId, dayCounts = new Map(), re
 export function readTonightSession({ familyId, userId }) {
   assertScope(familyId, userId);
   const database = getMediaDatabase();
+  const existing = readActiveSession(database, familyId, userId);
+  if (existing) revalidateActiveNightlySession(database, existing);
   const active = readActiveSession(database, familyId, userId);
   return active ? hydrateSession(database, active) : null;
 }
@@ -1095,13 +1106,15 @@ function readTonightItem({ sessionId, familyId, userId, position }) {
 }
 
 function mapSessionItem(row) {
+  const withdrawnByQuality = row.item_state === 'skipped'
+    && row.last_error_code === 'quality_revalidated';
   return {
     sessionId: row.session_id,
     position: Number(row.position || 0),
     assetId: row.effective_asset_id || row.selected_asset_id || row.asset_id,
     queueAssetId: row.queue_asset_id || row.asset_id,
     reasonCode: row.reason_code,
-    state: row.item_state,
+    state: withdrawnByQuality ? 'withdrawn' : row.item_state,
     commitState: row.commit_state,
     draftText: row.draft_text || '',
     draftVoice: row.draft_voice_uri ? {
@@ -1137,6 +1150,80 @@ function mapSessionItem(row) {
     height: Number(row.height || 0) || null,
     unavailableReason: row.unavailable_reason || null,
   };
+}
+
+function revalidateActiveNightlySession(database, session, now = new Date()) {
+  if (!session?.session_id || session.status !== 'active') return 0;
+  const rows = database.getAllSync(
+    `select i.position, i.asset_id, i.reason_code, i.item_state, i.commit_state, i.draft_text,
+       c.media_type, c.availability, c.identity_score, c.capture_quality,
+       c.duration_sec, c.video_presence_ratio,
+       exists (
+         select 1 from nightly_review_enrichment e
+         where e.session_id = i.session_id and e.position = i.position
+       ) as has_enrichment
+     from nightly_review_items i
+     join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id
+       and c.asset_id = i.asset_id
+     where i.session_id = ? and i.item_state in ('queued', 'shown')`,
+    [session.session_id],
+  );
+  const withdrawn = rows.filter((row) => (
+    row.reason_code !== 'parent_pick'
+    && row.commit_state === 'idle'
+    && !String(row.draft_text || '').trim()
+    && Number(row.has_enrichment || 0) === 0
+    && !meetsNightlyQueueQuality({
+      availability: row.availability,
+      identityScore: row.identity_score,
+      captureQuality: row.capture_quality,
+      mediaType: row.media_type,
+      durationSec: row.duration_sec,
+      videoPresenceRatio: row.video_presence_ratio,
+    })
+  ));
+  if (!withdrawn.length) return 0;
+
+  const stamp = now.toISOString();
+  database.withTransactionSync(() => {
+    for (const row of withdrawn) {
+      database.runSync(
+        `update nightly_review_items set item_state = 'skipped', commit_state = 'done',
+           last_error_code = 'quality_revalidated', decided_at = ?, updated_at = ?
+         where session_id = ? and position = ? and item_state in ('queued', 'shown')`,
+        [stamp, stamp, session.session_id, row.position],
+      );
+      database.runSync(
+        `update discovery_candidates set lifecycle_state = 'rejected', decided_at = ?
+         where family_id = ? and user_id = ? and asset_id = ?
+           and lifecycle_state in ('eligible', 'queued', 'shown')`,
+        [stamp, session.family_id, session.user_id, row.asset_id],
+      );
+    }
+    const next = database.getFirstSync(
+      `select min(position) as position, count(*) as count
+       from nightly_review_items
+       where session_id = ? and item_state in ('queued', 'shown', 'unavailable')`,
+      [session.session_id],
+    );
+    const completed = Number(next?.count || 0) === 0;
+    database.runSync(
+      `update nightly_review_sessions set current_position = ?, status = ?, completed_at = ?, updated_at = ?
+       where session_id = ? and status = 'active'`,
+      [completed ? Number(session.item_count || 0) : Number(next?.position || 0),
+        completed ? 'completed' : 'active', completed ? stamp : null, stamp, session.session_id],
+    );
+  });
+  return withdrawn.length;
+}
+
+function sessionHasQualityWithdrawals(database, sessionId) {
+  if (!sessionId) return false;
+  return Number(database.getFirstSync(
+    `select count(*) as count from nightly_review_items
+     where session_id = ? and last_error_code = 'quality_revalidated'`,
+    [sessionId],
+  )?.count || 0) > 0;
 }
 
 function mapCandidateRow(row) {

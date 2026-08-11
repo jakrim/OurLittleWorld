@@ -614,7 +614,7 @@ export default function LibraryScreen() {
           childBirthday={family?.babyBirthday}
           model={bookHome}
           canWrite={canManageLibrary}
-          onAdd={canManageLibrary ? () => router.push('/add') : null}
+          onDiscover={canManageLibrary ? () => router.push('/timeline') : null}
           onOpen={openArchiveRecord}
           membersById={memberNamesById}
           theme={theme}
@@ -655,24 +655,20 @@ export default function LibraryScreen() {
               theme={theme}
             />
             <AutomaticCollectionsPreview collections={effectiveCollections} onOpen={openCollection} theme={theme} />
-            {!archiveRecords.length ? (
-              <ArchiveEmptyState
-                onAdd={canManageLibrary ? () => router.push('/add') : null}
+            {archiveRecords.length ? (
+              <BookToolsPanel
+                hasUtilityDetails={utilityVisibility.hasSecondaryDetails}
+                utilityDetailCount={utilityVisibility.secondaryDetailCount}
+                showUtilityDetails={showUtilityDetails}
+                localVisible={showLocalPhotos}
+                onOpenPlaces={() => openSegment('places')}
+                onOpenSearch={() => openSegment('search')}
+                onOpenExport={() => openSegment('export')}
+                onOpenCameraRoll={canManageLibrary ? openCameraRollTools : null}
+                onToggleUtilityDetails={() => setShowUtilityDetails((value) => !value)}
                 theme={theme}
               />
             ) : null}
-            <BookToolsPanel
-              hasUtilityDetails={utilityVisibility.hasSecondaryDetails}
-              utilityDetailCount={utilityVisibility.secondaryDetailCount}
-              showUtilityDetails={showUtilityDetails}
-              localVisible={showLocalPhotos}
-              onOpenPlaces={() => openSegment('places')}
-              onOpenSearch={() => openSegment('search')}
-              onOpenExport={() => openSegment('export')}
-              onOpenCameraRoll={canManageLibrary ? openCameraRollTools : null}
-              onToggleUtilityDetails={() => setShowUtilityDetails((value) => !value)}
-              theme={theme}
-            />
             {showUtilityDetails ? (
               <View style={styles.secondaryUtilityStack}>
                 {utilityVisibility.showCameraRollChangeDetails ? (
@@ -947,7 +943,7 @@ function libraryTileSizeForWidth(width) {
   return Math.max(68, Math.floor((boundedWidth - (space.xs * (columns - 1))) / columns));
 }
 
-function BookHome({ childName, childBirthday, model, canWrite, onAdd, onOpen, membersById, theme }) {
+function BookHome({ childName, childBirthday, model, canWrite, onDiscover, onOpen, membersById, theme }) {
   const opening = selectWorldOpening(model?.records || [], membersById);
   const primary = opening.primary;
   const age = primary?.capturedAt && childBirthday
@@ -963,10 +959,10 @@ function BookHome({ childName, childBirthday, model, canWrite, onAdd, onOpen, me
         <Eyebrow>Our World</Eyebrow>
         <Title style={styles.worldEmptyTitle}>Your first kept memory will open here.</Title>
         <Body align="center">
-          Tonight and private discovery can build the family world. Manual Add stays available when you need it.
+          Tonight and private discovery can build the family world. You decide what becomes part of it.
         </Body>
         {canWrite ? (
-          <Button size="md" variant="quiet" fullWidth={false} onPress={onAdd}>Add a moment</Button>
+          <Button size="md" variant="quiet" fullWidth={false} onPress={onDiscover}>See what’s ready</Button>
         ) : (
           <Caption>Saved letters remain available to read.</Caption>
         )}
@@ -1377,36 +1373,6 @@ function chapterContextKindLabel(kind) {
   if (kind === 'prompt') return 'Prompt';
   if (kind === 'voice') return 'Voice';
   return 'Note';
-}
-
-function ArchiveEmptyState({ onAdd, theme }) {
-  return (
-    <Card variant="muted">
-      <View style={styles.sectionHeader}>
-        <View style={styles.resultText}>
-          <Eyebrow>Your family record</Eyebrow>
-          <Title style={styles.cardTitle}>Nothing here yet.</Title>
-          <Body>
-            {onAdd
-              ? 'Add a photo, note, voice, First, or letter. Review likely photos whenever discovery finds something worth a look.'
-              : 'Your family archive is available in read-only mode.'}
-          </Body>
-        </View>
-        <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
-      </View>
-      {onAdd ? (
-        <Button
-          size="md"
-          fullWidth={false}
-          style={styles.cardButton}
-          onPress={onAdd}
-          icon={<Ionicons name="add" size={16} color={theme.colors.onPrimary} />}
-        >
-          Add first moment
-        </Button>
-      ) : null}
-    </Card>
-  );
 }
 
 function LocalCameraRollPanel({
