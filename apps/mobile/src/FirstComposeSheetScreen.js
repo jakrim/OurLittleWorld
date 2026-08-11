@@ -62,6 +62,8 @@ export default function FirstComposeSheetScreen() {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDate, setEditingDate] = useState(false);
+  const [choosingPhoto, setChoosingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [postSaveNudge, setPostSaveNudge] = useState(null);
   const seededFirst = Boolean(seedGoalKey && seedTitle && !existing);
@@ -73,6 +75,7 @@ export default function FirstComposeSheetScreen() {
     userId: user?.id,
   }), [seedAssetId, seedAssetOwnerUserId, seedAssetUri, seedDateParam, user?.id]);
   const sourceMomentId = existing?.moment_id || seedMomentId || null;
+  const assistedFirst = Boolean(seededFirst && seedPhoto);
 
   const close = useCallback(() => {
     if (router.canGoBack?.()) router.back();
@@ -94,6 +97,8 @@ export default function FirstComposeSheetScreen() {
             ? { asset_owner_user_id: match.asset_owner_user_id, asset_id: match.asset_id }
             : null);
           setEditingTitle(false);
+          setEditingDate(false);
+          setChoosingPhoto(false);
         });
       } else {
         setExisting(null);
@@ -105,6 +110,8 @@ export default function FirstComposeSheetScreen() {
         setNote(typeof seedNote === 'string' ? seedNote : '');
         setSelectedPhoto(seedPhoto);
         setEditingTitle(false);
+        setEditingDate(false);
+        setChoosingPhoto(false);
       }
       return () => {
         alive = false;
@@ -218,6 +225,8 @@ export default function FirstComposeSheetScreen() {
     setSelectedPhoto(photo);
     const photoDate = firstPhotoHappenedDate(photo);
     if (photoDate) setDate(photoDate);
+    setChoosingPhoto(false);
+    setEditingDate(false);
   }, []);
 
   const pickPhoto = useCallback(async () => {
@@ -347,12 +356,22 @@ export default function FirstComposeSheetScreen() {
   return (
     <Screen bare scroll keyboard edges={{ top: false, bottom: true }} contentStyle={styles.screenContent}>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
-        <Title>{existing ? 'edit this first' : 'add a first'}</Title>
+        <Title>{existing ? 'edit this first' : assistedFirst ? 'Could this be the moment?' : 'add a first'}</Title>
+        {assistedFirst ? (
+          <FirstCandidateHero
+            photo={selectedPhoto || seedPhoto}
+            title={title || seedTitle}
+            date={date}
+            ageLabel={happenedAgeLabel}
+            onChooseAnother={() => setChoosingPhoto(true)}
+            theme={theme}
+          />
+        ) : null}
         {seededFirst ? (
           <View style={[styles.templateCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
             <View style={styles.templateHeader}>
               <View style={styles.templateTitleWrap}>
-                <Caption>Suggested first</Caption>
+                <Caption>Possible First</Caption>
                 <Title style={styles.templateTitle}>{title || seedTitle}</Title>
               </View>
               <Pressable
@@ -370,7 +389,7 @@ export default function FirstComposeSheetScreen() {
               </Pressable>
             </View>
             <Body style={styles.templateBody}>
-              Add the date, a few words, and an optional saved photo when this one happens.
+              The photo and its date are known. Confirm the First, correct anything that is wrong, or add one optional detail.
             </Body>
           </View>
         ) : null}
@@ -384,7 +403,7 @@ export default function FirstComposeSheetScreen() {
             autoFocus={editingTitle}
           />
         )}
-        {dateLockedToMoment ? (
+        {(dateLockedToMoment || (assistedFirst && !editingDate)) ? (
           <View style={[styles.lockedDateCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
             <View style={styles.lockedDateHeader}>
               <View>
@@ -393,7 +412,12 @@ export default function FirstComposeSheetScreen() {
               </View>
               <Ionicons name="calendar-outline" size={20} color={theme.semantic.primary} />
             </View>
-            <Caption>{lockedDateCaption}</Caption>
+            <Caption>{dateLockedToMoment ? lockedDateCaption : 'From this photo’s capture date. Nothing is asserted until you confirm.'}</Caption>
+            {!dateLockedToMoment ? (
+              <Pressable onPress={() => setEditingDate(true)} accessibilityRole="button" accessibilityLabel="Correct the First date">
+                <Caption style={{ color: theme.semantic.primary, fontWeight: '800' }}>Correct date</Caption>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <BirthDatePicker
@@ -425,7 +449,7 @@ export default function FirstComposeSheetScreen() {
             <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{SUGGESTED_NOTE_USE_LABEL}</Caption>
           </Pressable>
         ) : null}
-        {sourceMomentId ? (
+        {assistedFirst && !choosingPhoto ? null : sourceMomentId ? (
           <MomentPhotoSummary photo={selectedPhoto} theme={theme} />
         ) : <View>
           <BestPhotoRail
@@ -437,7 +461,7 @@ export default function FirstComposeSheetScreen() {
               else selectPhoto(photo);
             }}
             onOpenPicker={pickPhoto}
-            title="Best photos for this First"
+            title={assistedFirst ? 'Choose another memory' : 'Best photos for this First'}
             caption={photoRailCaption}
             pickerLabel="Choose from full library"
           />
@@ -451,11 +475,38 @@ export default function FirstComposeSheetScreen() {
           {existing ? <Button variant="quiet" size="md" fullWidth={false} onPress={remove}>Delete</Button> : <View />}
           <View style={styles.composerActions}>
             <Button variant="ghost" size="md" fullWidth={false} onPress={close}>Cancel</Button>
-            <Button size="md" fullWidth={false} onPress={save} loading={saving} disabled={!effectiveTitle}>Save</Button>
+            <Button size="md" fullWidth={false} onPress={save} loading={saving} disabled={!effectiveTitle}>
+              {assistedFirst ? 'Confirm First' : 'Save'}
+            </Button>
           </View>
         </View>
       </View>
     </Screen>
+  );
+}
+
+function FirstCandidateHero({ photo, title, date, ageLabel, onChooseAnother, theme }) {
+  const uri = photo?.thumbUrl || photo?.fullUrl || photo?.uri || photo?.localUri;
+  return (
+    <View style={[styles.candidateHero, { backgroundColor: theme.semantic.cardAlt }]} testID="first-candidate-hero">
+      {uri ? (
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : (
+        <PhotoPlaceholder style={StyleSheet.absoluteFill} icon="flag-outline" />
+      )}
+      <View style={styles.candidateHeroScrim} />
+      <View style={styles.candidateHeroCopy}>
+        <Caption style={styles.candidateHeroLabel}>Possible First</Caption>
+        <Title maxFontSizeMultiplier={1.45} style={styles.candidateHeroTitle}>{title}</Title>
+        <Caption maxFontSizeMultiplier={1.5} style={styles.candidateHeroContext}>
+          {[date ? formatLongDate(date) : null, ageLabel].filter(Boolean).join(' · ')}
+        </Caption>
+        <Pressable onPress={onChooseAnother} accessibilityRole="button" accessibilityLabel="Choose another memory" style={styles.candidateHeroAction}>
+          <Ionicons name="images-outline" size={16} color="#fff" />
+          <Caption style={styles.candidateHeroActionText}>Choose another</Caption>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -589,6 +640,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  candidateHero: {
+    width: '100%',
+    aspectRatio: 0.9,
+    borderRadius: 24,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  candidateHeroScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(20, 14, 13, 0.2)',
+  },
+  candidateHeroCopy: {
+    padding: space.lg,
+    paddingTop: 96,
+  },
+  candidateHeroLabel: { color: 'rgba(255,255,255,0.9)', fontWeight: '800' },
+  candidateHeroTitle: { color: '#fff', fontSize: 29, lineHeight: 35, marginTop: space.xs },
+  candidateHeroContext: { color: 'rgba(255,255,255,0.9)', marginTop: space.xs },
+  candidateHeroAction: {
+    minHeight: 44,
+    marginTop: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.42)',
+    paddingTop: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+  },
+  candidateHeroActionText: { color: '#fff', fontWeight: '800' },
   lockedDateCard: {
     borderRadius: radius.md,
     borderWidth: 1,
