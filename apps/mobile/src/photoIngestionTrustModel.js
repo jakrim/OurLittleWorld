@@ -41,7 +41,7 @@ export function buildPhotoIngestionTrustModel({
     corrections: normalizedCorrections,
     negativeExamples: normalizedNegatives,
   });
-  const autoSaveEnabled = !!(calibration?.autoSaveEnabled || calibration?.auto_save_enabled);
+  const autoSaveEnabled = false;
   const hasReviewHistory = normalizedCorrections.length > 0
     || !!(calibration?.calibratedAt ?? calibration?.calibrated_at);
   const autoSaveThreshold = Number(calibration?.autoSaveThreshold ?? calibration?.auto_save_threshold ?? TRUST_AUTO_SAVE_THRESHOLD);
@@ -51,8 +51,6 @@ export function buildPhotoIngestionTrustModel({
     state = 'review_required';
   } else if (autoSaveErrors > 0 || removedAutoSaves >= TRUST_CORRECTION_REVIEW_MIN) {
     state = 'needs_correction_review';
-  } else if (autoSaveEnabled && autoSaveTrustEarned) {
-    state = 'auto_save_active';
   } else if (autoSaveTrustEarned) {
     state = 'auto_save_ready';
   } else if (hasReviewHistory) {
@@ -74,7 +72,7 @@ export function buildPhotoIngestionTrustModel({
     removedAutoSaveCount: removedAutoSaves,
     autoSaveTrustEarned,
     autoSaveEnabled: autoSaveEnabled && autoSaveTrustEarned,
-    autoSavePreference: autoSaveEnabled ? AUTO_SAVE_MODE_AUTO : AUTO_SAVE_MODE_REVIEW_FIRST,
+    autoSavePreference: AUTO_SAVE_MODE_REVIEW_FIRST,
     title: copy.title,
     body: copy.body,
     actionLabel: copy.actionLabel,
@@ -83,7 +81,7 @@ export function buildPhotoIngestionTrustModel({
       state,
       trustEarned: autoSaveTrustEarned,
       enabled: autoSaveEnabled && autoSaveTrustEarned,
-      configuredEnabled: autoSaveEnabled,
+      configuredEnabled: false,
       hasDeviceReference,
     }),
     tunables: {
@@ -142,9 +140,9 @@ function copyForState({ state, pending, recentCount, babyName, hasDeviceReferenc
   }
   if (state === 'auto_save_ready') {
     return {
-      title: 'Choose how clear matches are saved',
-      body: 'Review has built enough trust. Keep reviewing first, or turn on auto-save for clear matches.',
-      actionLabel: pending ? 'Review photos' : 'Choose setting',
+      title: pending ? `${pending} likely ${pending === 1 ? 'photo is' : 'photos are'} ready` : 'Likely photos are ready for review',
+      body: 'Each suggestion stays private on this device until a parent reviews it and taps Keep.',
+      actionLabel: pending ? 'Review photos' : 'Start scan',
     };
   }
   if (state === 'learning') {
@@ -188,11 +186,10 @@ export function buildAutoSaveSettingModel({
   configuredEnabled,
   hasDeviceReference = true,
 } = {}) {
-  const value = enabled ? AUTO_SAVE_MODE_AUTO : AUTO_SAVE_MODE_REVIEW_FIRST;
-  const available = !!trustEarned && ['auto_save_ready', 'auto_save_active'].includes(state);
+  const value = AUTO_SAVE_MODE_REVIEW_FIRST;
+  const available = false;
   const options = [
     { value: AUTO_SAVE_MODE_REVIEW_FIRST, label: 'Review first' },
-    { value: AUTO_SAVE_MODE_AUTO, label: 'Auto-save clear matches' },
   ];
 
   if (available) {
@@ -212,13 +209,13 @@ export function buildAutoSaveSettingModel({
   return {
     available: false,
     value: AUTO_SAVE_MODE_REVIEW_FIRST,
-    configuredValue: configuredEnabled ? AUTO_SAVE_MODE_AUTO : AUTO_SAVE_MODE_REVIEW_FIRST,
+    configuredValue: AUTO_SAVE_MODE_REVIEW_FIRST,
     options,
     title: 'Photo saving',
     body: hasDeviceReference
-      ? 'Auto-save becomes available after parent review shows clear matches are reliable. Until then, likely photos wait for review first.'
-      : 'This device needs a confirmed photo reference before auto-save can be set here.',
-    footnote: 'Turning auto-save off later will not delete saved memories or Photos originals.',
+      ? 'Likely photos wait on this device until a parent reviews each one and taps Keep.'
+      : 'This device needs a confirmed photo reference before it can suggest photos for review.',
+    footnote: 'Only an explicit parent Keep creates a shared memory. Photos originals are never deleted.',
   };
 }
 

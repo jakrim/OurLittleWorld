@@ -3,6 +3,8 @@ export const FIRST_VALUE_SCAN_PHOTO_PAGE_SIZE = 8;
 export const FIRST_VALUE_SCAN_MAX_PHOTOS = 48;
 export const FIRST_VALUE_SCAN_MAX_DURATION_MS = 24_000;
 export const FIRST_VALUE_SCAN_WATCHDOG_MS = 26_000;
+export const LIBRARY_SCAN_PASS_MAX_PHOTOS = 240;
+export const LIBRARY_SCAN_PASS_MAX_DURATION_MS = 90_000;
 
 export function resolveScanPhotoPageSize(value) {
   const parsed = Number(value);

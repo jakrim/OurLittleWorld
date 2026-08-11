@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  AUTO_SAVE_MODE_AUTO,
   AUTO_SAVE_MODE_REVIEW_FIRST,
   TRUST_AUTO_SAVE_THRESHOLD,
   TRUST_CAPTURE_QUALITY_FLOOR,
@@ -49,7 +48,7 @@ test('empty first scan state does not take over Today', () => {
   assertNoRawTunables(model);
 });
 
-test('clean review batch can make auto-save ready without exposing tunables', () => {
+test('clean review history still requires explicit Keep', () => {
   const model = buildPhotoIngestionTrustModel({
     calibration: {
       autoSaveEnabled: false,
@@ -60,11 +59,10 @@ test('clean review batch can make auto-save ready without exposing tunables', ()
   assert.equal(model.state, 'auto_save_ready');
   assert.equal(model.autoSaveTrustEarned, true);
   assert.equal(model.autoSaveEnabled, false);
-  assert.equal(model.autoSaveSetting.available, true);
+  assert.equal(model.autoSaveSetting.available, false);
   assert.equal(model.autoSaveSetting.value, AUTO_SAVE_MODE_REVIEW_FIRST);
-  assert.match(model.autoSaveSetting.body, /Review first is selected/);
-  assert.match(model.autoSaveSetting.body, /Saved memories stay in Our World/);
-  assert.match(model.autoSaveSetting.footnote, /never deletes saved memories or Photos originals/);
+  assert.match(model.autoSaveSetting.body, /reviews each one and taps Keep/);
+  assert.match(model.autoSaveSetting.footnote, /explicit parent Keep/);
   assert.equal(model.tunables.cleanBatchMin, TRUST_CLEAN_BATCH_MIN);
   assert.equal(model.tunables.highConfidenceScore, TRUST_HIGH_CONFIDENCE_SCORE);
   assert.equal(model.tunables.autoSaveThreshold, TRUST_AUTO_SAVE_THRESHOLD);
@@ -86,7 +84,7 @@ test('rejected high-confidence match keeps the model learning', () => {
   assertNoRawTunables(model);
 });
 
-test('small later clean batch does not turn off active auto-save', () => {
+test('legacy auto-save preference cannot reactivate automatic sharing', () => {
   const model = buildPhotoIngestionTrustModel({
     calibration: {
       autoSaveEnabled: true,
@@ -95,11 +93,13 @@ test('small later clean batch does not turn off active auto-save', () => {
     pendingReviewCount: 1,
   });
 
-  assert.equal(model.state, 'auto_save_active');
-  assert.equal(model.autoSaveSetting.value, AUTO_SAVE_MODE_AUTO);
+  assert.equal(model.state, 'auto_save_ready');
+  assert.equal(model.autoSaveEnabled, false);
+  assert.equal(model.autoSaveSetting.available, false);
+  assert.equal(model.autoSaveSetting.value, AUTO_SAVE_MODE_REVIEW_FIRST);
 });
 
-test('active auto-save reports recent assistant saves', () => {
+test('legacy recent auto-save rows do not restore an automatic-save surface', () => {
   const model = buildPhotoIngestionTrustModel({
     calibration: {
       autoSaveEnabled: true,
@@ -108,11 +108,10 @@ test('active auto-save reports recent assistant saves', () => {
     recentAutoSaves: [{ assetId: 'asset-1' }, { assetId: 'asset-2' }],
   });
 
-  assert.equal(model.state, 'auto_save_active');
-  assert.equal(model.todayNudge.route, '/library');
-  assert.match(model.title, /2 clear matches/);
-  assert.match(model.autoSaveSetting.body, /same review setting/);
-  assert.match(model.autoSaveSetting.body, /low-quality matches still wait for review/);
+  assert.equal(model.state, 'auto_save_ready');
+  assert.equal(model.autoSaveEnabled, false);
+  assert.equal(model.autoSaveSetting.available, false);
+  assert.match(model.autoSaveSetting.body, /reviews each one and taps Keep/);
 });
 
 test('auto-save enabled flag is ignored until trust is earned', () => {
@@ -127,7 +126,7 @@ test('auto-save enabled flag is ignored until trust is earned', () => {
   assert.equal(model.autoSaveTrustEarned, false);
   assert.equal(model.autoSaveEnabled, false);
   assert.equal(model.autoSaveSetting.available, false);
-  assert.match(model.autoSaveSetting.body, /Auto-save becomes available/);
+  assert.match(model.autoSaveSetting.body, /reviews each one and taps Keep/);
 });
 
 test('removed auto-save asks for correction review', () => {

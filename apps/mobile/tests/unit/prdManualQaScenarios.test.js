@@ -17,15 +17,10 @@ import {
 import { buildMomentConnectionChips } from '../../src/momentConnectionChips.js';
 import { selectPostSaveNudge } from '../../src/postSaveNudgeModel.js';
 import {
-  AUTO_SAVE_MODE_AUTO,
   AUTO_SAVE_MODE_REVIEW_FIRST,
   TRUST_CLEAN_BATCH_MIN,
   buildPhotoIngestionTrustModel,
 } from '../../src/photoIngestionTrustModel.js';
-import {
-  SCAN_AUTO_SAVE_SOURCE,
-  buildScanAutoSaveRuntimePlan,
-} from '../../src/scanAutoSaveModel.js';
 import { buildPlaceClusters } from '../../src/visionSceneLabeler.js';
 
 const now = new Date('2026-07-09T12:00:00');
@@ -229,7 +224,7 @@ test('section 15: assistant suggestion dismissal quiets only that suggestion lan
   assert.doesNotMatch(transparency.footer, /teach(?:es)? the model|learns from/i);
 });
 
-test('section 15: calibrated auto-save starts review-first and pauses after corrections', () => {
+test('section 15: discovery stays review-first even with legacy auto-save calibration', () => {
   const firstScan = buildPhotoIngestionTrustModel({
     pendingReviewCount: 12,
     babyName: 'River',
@@ -250,34 +245,18 @@ test('section 15: calibrated auto-save starts review-first and pauses after corr
     calibration: { autoSaveEnabled: true, corrections: cleanCorrections },
     negativeExamples: [{ assetId: 'asset-recent', score: 0.96, verdict: 'removed' }],
   });
-  const firstScanPlan = buildScanAutoSaveRuntimePlan({
-    calibration: null,
-    matches: [{ assetId: 'asset-first-clear', score: 0.97, captureQuality: 0.9 }],
-  });
-  const activePlan = buildScanAutoSaveRuntimePlan({
-    calibration: { autoSaveEnabled: true, corrections: cleanCorrections },
-    matches: [
-      { assetId: 'asset-clear', score: 0.96, captureQuality: 0.9 },
-      { assetId: 'asset-soft', score: 0.96, captureQuality: 0.1 },
-      { assetId: 'asset-review', score: 0.82, captureQuality: 0.9 },
-    ],
-  });
 
   assert.equal(firstScan.state, 'review_required');
   assert.equal(firstScan.route, '/review');
   assert.equal(ready.state, 'auto_save_ready');
   assert.equal(ready.autoSaveSetting.value, AUTO_SAVE_MODE_REVIEW_FIRST);
-  assert.equal(active.state, 'auto_save_active');
-  assert.equal(active.autoSaveSetting.value, AUTO_SAVE_MODE_AUTO);
+  assert.equal(active.state, 'auto_save_ready');
+  assert.equal(active.autoSaveSetting.value, AUTO_SAVE_MODE_REVIEW_FIRST);
+  assert.equal(active.autoSaveSetting.available, false);
   assert.equal(needsReview.state, 'needs_correction_review');
-  assert.equal(firstScanPlan.enabled, false);
-  assert.deepEqual(firstScanPlan.autoSaveMatches, []);
-  assert.equal(activePlan.source, SCAN_AUTO_SAVE_SOURCE);
-  assert.deepEqual(activePlan.autoSaveMatches.map((match) => match.assetId), ['asset-clear']);
-  assert.deepEqual(activePlan.reviewMatches.map((match) => match.assetId), ['asset-soft', 'asset-review']);
   assert.equal(autoSaveCorrectionNeedsReview(1), true);
-  assert.match(active.autoSaveSetting.footnote, /never deletes saved memories or Photos originals/);
-  assertNoFabrication({ firstScan, ready, active, needsReview, activePlan });
+  assert.match(active.autoSaveSetting.footnote, /explicit parent Keep/);
+  assertNoFabrication({ firstScan, ready, active, needsReview });
 });
 
 test('section 15: export preview includes parent-owned book material and current limits', () => {

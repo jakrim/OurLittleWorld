@@ -1,15 +1,19 @@
 import { isNative } from './faceMatcher';
 import { readPendingMediaLibraryChange, clearPendingMediaLibraryChange } from './mediaLibraryChanges';
 import { listSavedAssetIds, markLocalAssetsDeleted } from './photoSync';
-import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
+import {
+  readScanCheckpoint,
+  scanCheckpointForState,
+  scanResumeState,
+  sinceMsForScan,
+  writeScanCheckpoint,
+} from './scanCheckpoints';
 import * as Scan from './scanController';
 import { readReferenceProfile, representativeReference } from './recognitionReferences';
-import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
-import { Tags } from './storage';
+import { REVIEW_THRESHOLD } from './recognitionTrust';
 import { clearICloudWait, readICloudRetryQueue, recordICloudWait } from './iCloudRetryQueue';
 import { publishFamilyLibraryConnection } from './familyLibrarySync';
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
-import { isMediaPolicyError } from './mediaPolicy';
 import { deviceTimeZone, getFamilyRitualSettings } from './ritualSettings';
 import {
   markCandidatesUnavailable,
@@ -21,6 +25,10 @@ import {
   persistScanCandidates,
   restoreCandidatesAvailable,
 } from './candidateLedgerStore';
+import {
+  LIBRARY_SCAN_PASS_MAX_DURATION_MS,
+  LIBRARY_SCAN_PASS_MAX_PHOTOS,
+} from './scanPacingModel';
 
 export async function startLibraryScan({
   family,
@@ -53,6 +61,7 @@ export async function startLibraryScan({
   const change = pendingLibraryChange === undefined
     ? await readPendingMediaLibraryChange({ familyId: family.id, userId: user.id })
     : pendingLibraryChange;
+  const resume = change?.requiresFullLibraryScan ? null : scanResumeState(checkpoint);
   if (change?.deletedAssetIds?.length) {
     try {
       await markLocalAssetsDeleted({
@@ -118,43 +127,6 @@ export async function startLibraryScan({
     }
   }
 
-  const autoSaveConfig = await getAutoSaveConfig({
-    familyId: family.id,
-    userId: user.id,
-  });
-  const autoSave = autoSaveConfig
-    ? {
-      threshold: autoSaveConfig.threshold,
-      save: async (assetId, match) => {
-        try {
-          await Tags.setBaby({
-            familyId: family.id,
-            assetId,
-            isBaby: true,
-            match,
-            videoPosterOnly: false,
-            source: 'daily-curation-auto-save',
-          });
-        } catch (error) {
-          if (match?.mediaType !== 'video' || !isMediaPolicyError(error)) throw error;
-          await Tags.setBaby({
-            familyId: family.id,
-            assetId,
-            isBaby: true,
-            match,
-            videoPosterOnly: true,
-            source: 'daily-curation-auto-save',
-          });
-        }
-        await recordRecentAutoSave({
-          familyId: family.id,
-          userId: user.id,
-          match: match || { assetId },
-        });
-      },
-    }
-    : null;
-
   publishFamilyLibraryConnection({
     familyId: family.id,
     userId: user.id,
@@ -175,7 +147,9 @@ export async function startLibraryScan({
     birthdayISO: family.babyBirthday,
     since: sinceMs,
     threshold: isNative ? REVIEW_THRESHOLD : null,
-    autoSave,
+    // Product-recovery contract: discovery remains local until an explicit
+    // parent Keep. There is no automatic upload or shared-memory write.
+    autoSave: null,
     excludeIds: skip,
     extraAssetIds: targetedAssetIds,
     extraAssetCreatedAfterMs: birthdayMs,
@@ -195,7 +169,7 @@ export async function startLibraryScan({
       clearICloudWait({ familyId: family.id, userId: user.id, assetIds }),
       Promise.resolve(restoreCandidatesAvailable({ familyId: family.id, userId: user.id, assetIds })),
     ]),
-    onCandidates: ({ matches, scanKey }) => persistScanCandidates({
+    onAnalysis: ({ matches, scanKey }) => persistScanCandidates({
       familyId: family.id,
       userId: user.id,
       scanKey,
@@ -203,6 +177,12 @@ export async function startLibraryScan({
       birthdayISO: family.babyBirthday,
       captureTimezone,
     }),
+    maxPhotoAssets: LIBRARY_SCAN_PASS_MAX_PHOTOS,
+    maxScanDurationMs: LIBRARY_SCAN_PASS_MAX_DURATION_MS,
+    startAfterPhotoCursor: resume?.photoCursor || undefined,
+    startAfterVideoCursor: resume?.videoCursor || undefined,
+    startPhotosComplete: resume?.photosComplete === true,
+    startVideosComplete: resume?.videosComplete === true,
     onAssetsSeen: ({ assetIds, scanKey }) => markCandidatesSeen({
       familyId: family.id,
       userId: user.id,
@@ -210,8 +190,9 @@ export async function startLibraryScan({
       scanKey,
     }),
     onComplete: async (finalState) => {
-      if (finalState?.phase !== 'done') return;
-      if (change?.requiresFullLibraryScan) {
+      if (!['done', 'aborted'].includes(finalState?.phase)) return;
+      const historicalComplete = finalState?.photosComplete === true && finalState?.videosComplete === true;
+      if (historicalComplete && change?.requiresFullLibraryScan) {
         reconcileCompletedFullScan({
           familyId: family.id,
           userId: user.id,
@@ -220,21 +201,17 @@ export async function startLibraryScan({
           limited: permission.accessPrivileges === 'limited',
         });
       }
+      const nextCheckpoint = scanCheckpointForState({
+        finalState,
+        previousCheckpoint: checkpoint,
+        sinceMs,
+      });
       await writeScanCheckpoint({
         familyId: family.id,
         userId: user.id,
-        checkpoint: {
-          lastScannedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
-          lastCursor: JSON.stringify({
-            scanKey: finalState.scanKey,
-            seen: finalState.seen,
-            total: finalState.total,
-            sinceMs,
-            mediaLibraryChangeAt: change?.changedAt || null,
-            extraAssetCount: targetedAssetIds.length,
-          }),
-        },
+        checkpoint: nextCheckpoint,
       });
+      if (!historicalComplete) return;
       await clearPendingMediaLibraryChange({
         familyId: family.id,
         userId: user.id,
@@ -244,7 +221,7 @@ export async function startLibraryScan({
         userId: user.id,
         status: 'ready',
         surfacedCount: finalState.totalMatchCount || finalState.acceptedCount || 0,
-        savedCount: finalState.autoSavedCount || 0,
+        savedCount: 0,
         completedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
       }).catch(() => {});
     },

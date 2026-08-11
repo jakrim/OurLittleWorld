@@ -21,8 +21,8 @@ import * as Scan from './scanController';
  * Brief radar splash. Kicks off the background scan via the controller,
  * then returns to timeline so users can keep using the app while scanning.
  *
- * First scans are review-only. Background auto-save is only enabled after
- * the user has calibrated trust by keeping/skipping a review batch.
+ * Discovery is review-only: likely memories stay private on this device until
+ * a parent explicitly keeps one.
  */
 export default function ScanProgressScreen() {
   const router = useRouter();
@@ -50,6 +50,7 @@ export default function ScanProgressScreen() {
   const pulse2 = useRef(new Animated.Value(0)).current;
   const fired = useRef(false);
   const handedOff = useRef(false);
+  const fallbackStarted = useRef(false);
 
   useEffect(() => {
     if (reducedMotion) {
@@ -118,8 +119,8 @@ export default function ScanProgressScreen() {
     return () => Scan.abort();
   }, [firstValueRequested]);
 
-  // Hand off to timeline once scanning has begun. Auto-save + ScanBanner
-  // do the rest in the background.
+  // Hand off to timeline once scanning has begun. The quiet scan banner can
+  // report progress while the parent continues using the app.
   useEffect(() => {
     if (firstValueRequested) return undefined;
     if (handedOff.current) return;
@@ -142,15 +143,13 @@ export default function ScanProgressScreen() {
 
   const stopScan = () => {
     Scan.abort();
-    if (firstValueRequested) {
-      router.replace({ pathname: '/reference', params: { source: 'first_value' } });
-    }
   };
 
   const retryFirstValueScan = () => {
     Scan.abort();
     Scan.reset();
     fired.current = false;
+    fallbackStarted.current = false;
     setStartError('');
     setFirstValueReady(false);
     setScanAttempt((value) => value + 1);
@@ -173,6 +172,15 @@ export default function ScanProgressScreen() {
       setPreparingReference(false);
     }
   };
+
+  // A bounded First Look that finds no second match still ends with a real,
+  // parent-confirmed photo—not a dead end or three new chores. This is only a
+  // local preview; the parent must still explicitly approve and Keep it.
+  useEffect(() => {
+    if (!firstValueRequested || firstValueReady || scan.phase !== 'done' || fallbackStarted.current) return;
+    fallbackStarted.current = true;
+    continueWithReference();
+  }, [firstValueReady, firstValueRequested, scan.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const firstValueProgress = firstValueProgressCopy({
     checked: scan.checked,
@@ -219,44 +227,29 @@ export default function ScanProgressScreen() {
           <Eyebrow align="center">Private First Look</Eyebrow>
           <Spacer h={space.sm} />
           <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
-            The quick search is finished.
+            {scan.phase === 'aborted'
+              ? 'Private discovery stopped.'
+              : startError === 'photo-permission'
+                ? 'Photo access is paused.'
+                : 'No second photo was clear enough yet.'}
           </Hero>
           <Spacer h={space.md} />
           <Caption align="center">
             {startError === 'photo-permission'
-              ? 'Photo access is needed for private discovery. Nothing was uploaded.'
-              : 'We did not find a clear enough match in this short pass. Nothing was uploaded, and you do not need to wait any longer.'}
+              ? 'Allow access when you are ready. Nothing was uploaded.'
+              : 'Your confirmed starting photo can still become the first page. Nothing was uploaded.'}
           </Caption>
           <Spacer h={space.xxl} />
           {startError === 'photo-permission' ? (
             <>
               <Button onPress={retryFirstValueScan}>
-                Check photo access again
-              </Button>
-              <Spacer h={space.sm} />
-              <Button
-                variant="quiet"
-                onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}
-              >
-                Choose a different reference
+                Review photo access
               </Button>
             </>
           ) : (
             <>
               <Button onPress={continueWithReference} loading={preparingReference} disabled={preparingReference}>
-                Continue with your photo
-              </Button>
-              <Spacer h={space.sm} />
-              <Button
-                variant="ghost"
-                onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}
-                disabled={preparingReference}
-              >
-                Choose a different photo
-              </Button>
-              <Spacer h={space.sm} />
-              <Button variant="quiet" onPress={retryFirstValueScan}>
-                Try another short search
+                Use this photo for now
               </Button>
               {referenceFallbackError ? (
                 <>
@@ -292,7 +285,7 @@ export default function ScanProgressScreen() {
           {firstValueRequested
             ? firstValueProgress.eyebrow
             : scan.total
-            ? `${scan.seen.toLocaleString()} of ${scan.total.toLocaleString()} media`
+            ? `${scan.checked.toLocaleString()} analyzed privately`
             : 'Reading your library'}
         </Eyebrow>
         <Spacer h={space.sm} />
@@ -307,7 +300,7 @@ export default function ScanProgressScreen() {
             ? firstValueProgress.detail
             : scan.matches.length > 0
               ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
-              : 'First review builds trust; later clear matches can save automatically.'}
+              : 'Likely memories stay on this device until you choose Keep.'}
         </Caption>
 
         <Spacer h={space.xxxl} />

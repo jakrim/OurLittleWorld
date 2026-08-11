@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collapseScoredMediaCandidates } from '../../src/scanMediaMatchModel.js';
+import {
+  collapseAnalyzedMediaCandidates,
+  collapseScoredMediaCandidates,
+} from '../../src/scanMediaMatchModel.js';
 
 test('video scanning keeps its strongest sampled frame and across-video evidence', () => {
   const candidates = [0, 1, 2].map((index) => ({
@@ -35,4 +38,28 @@ test('video scanning keeps its strongest sampled frame and across-video evidence
   assert.equal(result[0].videoMatchedFrames, 2);
   assert.equal(result[0].videoPresenceRatio, 2 / 3);
   assert.deepEqual(result[0].visualFingerprint, [1, -1]);
+});
+
+test('completed adult-only, weak, and no-face analysis rows stay durable but out of the passing lane', () => {
+  const candidates = ['child', 'adult', 'no-face'].map((assetId, index) => ({
+    assetId,
+    sourceAssetId: assetId,
+    mediaType: 'image',
+    creationTime: 100 - index,
+    localUri: `file:///private/${assetId}.jpg`,
+  }));
+  const scored = [
+    { assetId: 'child', score: 0.94, captureQuality: 0.91 },
+    { assetId: 'adult', score: 0.18, captureQuality: 0.88 },
+  ];
+  const analysis = collapseAnalyzedMediaCandidates({
+    candidates,
+    scored,
+    processedAssetIds: ['child', 'adult', 'no-face'],
+  });
+  const passing = collapseScoredMediaCandidates({ candidates, scored, cutoff: 0.68 });
+
+  assert.deepEqual(analysis.map((row) => row.assetId), ['child', 'adult', 'no-face']);
+  assert.equal(analysis.find((row) => row.assetId === 'no-face')?.score, null);
+  assert.deepEqual(passing.map((row) => row.assetId), ['child']);
 });

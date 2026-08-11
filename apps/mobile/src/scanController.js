@@ -41,7 +41,10 @@ import {
   isNative,
 } from './faceMatcher';
 import { buildDailyCurationPlan } from './dailyCurationModel';
-import { collapseScoredMediaCandidates } from './scanMediaMatchModel';
+import {
+  collapseAnalyzedMediaCandidates,
+  collapseScoredMediaCandidates,
+} from './scanMediaMatchModel';
 import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
 import { CANDIDATE_LIVE_MATCH_LIMIT } from './candidateLedgerModel';
 import {
@@ -77,6 +80,12 @@ const initialState = () => ({
   batchStartedAt: null,
   timedOutBatches: 0,
   finishReason: null,
+  photoCursor: null,
+  photoHasNextPage: false,
+  photosComplete: false,
+  videoCursor: null,
+  videoHasNextPage: false,
+  videosComplete: false,
 });
 
 const HIGH_THRESHOLD = HIGH_CONFIDENCE_THRESHOLD;
@@ -330,12 +339,17 @@ export async function start({
   onICloudWait,
   onICloudReady,
   onCandidates,
+  onAnalysis,
   onAssetsSeen,
   photoPageSize,
   nativeBatchTimeoutMs,
   maxPhotoAssets,
   maxScanDurationMs,
   includeVideos = true,
+  startAfterPhotoCursor,
+  startAfterVideoCursor,
+  startPhotosComplete = false,
+  startVideosComplete = false,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -371,6 +385,10 @@ export async function start({
     phase: 'scanning',
     startedAt: Date.now(),
     scanKey,
+    photoCursor: startAfterPhotoCursor || null,
+    photosComplete: startPhotosComplete === true,
+    videoCursor: startAfterVideoCursor || null,
+    videosComplete: startVideosComplete === true,
   };
   notify();
 
@@ -423,7 +441,7 @@ export async function start({
         visitedAssetIds.add(candidateId);
         freshAssets.push(asset);
       }
-      if (!freshAssets.length) return;
+      if (!freshAssets.length) return true;
       await reportICloudStatus(freshAssets);
       if (onAssetsSeen) {
         const sourceAssetIds = [...new Set(
@@ -466,7 +484,7 @@ export async function start({
             skippedDuringAnalysis: state.skippedDuringAnalysis + candidates.length,
             finishReason: 'time-budget',
           });
-          return;
+          return false;
         }
         const effectiveBatchTimeoutMs = remainingScanMs == null
           ? nativeBatchTimeoutMs
@@ -500,15 +518,11 @@ export async function start({
         : candidates.map((candidate) => candidate.assetId);
       const processedCount = new Set(processedAssetIds.filter(Boolean)).size;
       const skippedDuringAnalysis = Math.max(0, candidates.length - processedCount);
-      if (!me.aborted) {
-        setState({
-          checked: state.checked + processedCount,
-          skippedDuringAnalysis: state.skippedDuringAnalysis + skippedDuringAnalysis,
-          batchSize: 0,
-          batchStartedAt: null,
-          timedOutBatches: state.timedOutBatches + (batchTimedOut ? 1 : 0),
-        });
-      }
+      const analyzedRows = collapseAnalyzedMediaCandidates({
+        candidates,
+        scored,
+        processedAssetIds,
+      });
       const newMatchesRaw = collapseScoredMediaCandidates({
         candidates,
         scored,
@@ -522,14 +536,21 @@ export async function start({
         newMatches.push(match);
       }
 
-      if (me.aborted) return;
+      if (me.aborted) return false;
 
-      // The durable private ledger owns the historical backlog. Awaiting this
-      // bounded batch before continuing means cancellation or termination can
-      // lose at most the native analysis currently in flight, never prior pages.
-      if (newMatches.length) {
-        await onCandidates?.({ matches: newMatches, scanKey });
-      }
+      // The durable private ledger owns both useful candidates and completed
+      // rejections. Progress advances only after this local write succeeds, so
+      // it always means analysis plus durable recovery state, never fetched files.
+      if (analyzedRows.length) await onAnalysis?.({ matches: analyzedRows, scanKey });
+      if (newMatches.length) await onCandidates?.({ matches: newMatches, scanKey });
+      if (me.aborted) return false;
+      setState({
+        checked: state.checked + processedCount,
+        skippedDuringAnalysis: state.skippedDuringAnalysis + skippedDuringAnalysis,
+        batchSize: 0,
+        batchStartedAt: null,
+        timedOutBatches: state.timedOutBatches + (batchTimedOut ? 1 : 0),
+      });
 
       // Update incremental counters so React screens don't have to.
       let addHigh = 0; let addBorder = 0;
@@ -557,6 +578,12 @@ export async function start({
         autoSavePlanMatches = rollingPlan.selectedMatches.slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
       }
 
+      // A page cursor is only durable when every locally available candidate
+      // in that page finished analysis. A timed-out partial batch deliberately
+      // leaves the page cursor in place; the next pass excludes ledger rows that
+      // were already completed and retries only the remaining candidates.
+      return processedCount === candidates.length;
+
     };
 
     if (extraIds.length) {
@@ -569,7 +596,9 @@ export async function start({
     const initialPhotoPageSize = resolvedMaxPhotoAssets
       ? Math.min(resolvedPhotoPageSize, resolvedMaxPhotoAssets)
       : resolvedPhotoPageSize;
-    let page = await fetchPhotoPage(undefined, since, initialPhotoPageSize);
+    let page = startPhotosComplete
+      ? { assets: [], endCursor: startAfterPhotoCursor || null, hasNextPage: false }
+      : await fetchPhotoPage(startAfterPhotoCursor || undefined, since, initialPhotoPageSize);
 
     while (true) {
       if (me.aborted) break;
@@ -581,24 +610,25 @@ export async function start({
         break;
       }
 
-      if (page.assets.length === 0) break;
+      if (page.assets.length === 0) {
+        setState({ photoHasNextPage: false, photosComplete: true });
+        break;
+      }
       photoAssetsRead += page.assets.length;
       const remainingPhotoAssets = resolvedMaxPhotoAssets
         ? Math.max(0, resolvedMaxPhotoAssets - photoAssetsRead)
         : null;
 
-      const nextPagePromise =
-        page.hasNextPage && !me.aborted && remainingPhotoAssets !== 0
-          ? fetchPhotoPage(
-            page.endCursor,
-            since,
-            remainingPhotoAssets == null
-              ? resolvedPhotoPageSize
-              : Math.min(resolvedPhotoPageSize, remainingPhotoAssets),
-          )
-          : null;
+      const pageCompleted = await scoreAssets(page.assets);
+      if (!me.aborted && pageCompleted) {
+        setState({
+          photoCursor: page.endCursor || state.photoCursor,
+          photoHasNextPage: !!page.hasNextPage,
+          photosComplete: !page.hasNextPage,
+        });
+      }
 
-      await scoreAssets(page.assets);
+      if (!pageCompleted) break;
 
       if (
         resolvedMaxScanDurationMs
@@ -612,12 +642,18 @@ export async function start({
         break;
       }
       if (!page.hasNextPage) break;
-      if (!nextPagePromise) break;
-      page = await nextPagePromise;
+      page = await fetchPhotoPage(
+        page.endCursor,
+        since,
+        remainingPhotoAssets == null
+          ? resolvedPhotoPageSize
+          : Math.min(resolvedPhotoPageSize, remainingPhotoAssets),
+      );
     }
 
-    if (includeVideos && !me.aborted && !state.finishReason) {
+    if (includeVideos && !me.aborted && state.photosComplete && !state.finishReason) {
       let videoPage = await fetchVideoFrameCandidatesPage({
+        after: startAfterVideoCursor || undefined,
         pageSize: VIDEO_PAGE_SIZE,
         createdAfterMs: since,
       });
@@ -625,7 +661,25 @@ export async function start({
       while (true) {
         if (me.aborted) break;
 
-        if (videoPage.assets.length) await scoreAssets(videoPage.assets);
+        if (
+          resolvedMaxScanDurationMs
+          && Date.now() - state.startedAt >= resolvedMaxScanDurationMs
+        ) {
+          setState({ finishReason: 'time-budget' });
+          break;
+        }
+
+        const pageCompleted = videoPage.assets.length
+          ? await scoreAssets(videoPage.assets)
+          : true;
+        if (!me.aborted && pageCompleted) {
+          setState({
+            videoCursor: videoPage.endCursor || state.videoCursor,
+            videoHasNextPage: !!videoPage.hasNextPage,
+            videosComplete: !videoPage.hasNextPage,
+          });
+        }
+        if (!pageCompleted) break;
         if (!videoPage.hasNextPage) break;
         videoPage = await fetchVideoFrameCandidatesPage({
           after: videoPage.endCursor,
@@ -633,6 +687,8 @@ export async function start({
           createdAfterMs: since,
         });
       }
+    } else if ((!includeVideos || startVideosComplete) && state.photosComplete) {
+      setState({ videosComplete: true });
     }
 
     // Curate only after every page and sampled video has been compared.

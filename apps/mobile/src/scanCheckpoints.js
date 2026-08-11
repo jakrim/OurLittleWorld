@@ -1,7 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { supabase } from './supabase';
-
 const VERSION = 'v2';
 const INCREMENTAL_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -15,15 +13,6 @@ export async function clearScanCheckpoint({ familyId, userId }) {
     scanCheckpointStorageKey({ familyId, userId }),
     `olw:scan-checkpoint:v1:${familyId}:${userId}`,
   ]);
-  try {
-    await supabase
-      .from('scan_checkpoints')
-      .delete()
-      .eq('family_id', familyId)
-      .eq('user_id', userId);
-  } catch {
-    // Local state controls the next scan when the network is unavailable.
-  }
 }
 
 function normalize(row) {
@@ -54,26 +43,7 @@ async function writeLocal({ familyId, userId, checkpoint }) {
 }
 
 export async function readScanCheckpoint({ familyId, userId }) {
-  const local = await readLocal({ familyId, userId });
-  if (!familyId || !userId) return local;
-
-  try {
-    const { data, error } = await supabase
-      .from('scan_checkpoints')
-      .select('last_scanned_at, last_cursor, updated_at')
-      .eq('family_id', familyId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (error || !data) return local;
-    const remote = normalize(data);
-    const localTime = new Date(local.updatedAt || local.lastScannedAt || 0).getTime();
-    const remoteTime = new Date(remote.updatedAt || remote.lastScannedAt || 0).getTime();
-    const next = remoteTime >= localTime ? remote : local;
-    await writeLocal({ familyId, userId, checkpoint: next });
-    return next;
-  } catch {
-    return local;
-  }
+  return readLocal({ familyId, userId });
 }
 
 export async function writeScanCheckpoint({ familyId, userId, checkpoint }) {
@@ -82,33 +52,66 @@ export async function writeScanCheckpoint({ familyId, userId, checkpoint }) {
     updatedAt: new Date().toISOString(),
   });
   await writeLocal({ familyId, userId, checkpoint: next });
-  if (!familyId || !userId) return next;
-
-  try {
-    await supabase.from('scan_checkpoints').upsert(
-      {
-        family_id: familyId,
-        user_id: userId,
-        last_scanned_at: next.lastScannedAt,
-        last_cursor: next.lastCursor,
-      },
-      { onConflict: 'family_id,user_id' },
-    );
-  } catch {
-    // Local checkpointing is enough to keep repeat scans incremental on device.
-  }
-
   return next;
+}
+
+export function scanResumeState(checkpoint) {
+  if (!checkpoint?.lastCursor) return null;
+  try {
+    const value = JSON.parse(checkpoint.lastCursor);
+    if (value?.version !== 1 || value?.historicalComplete === true) return null;
+    return {
+      photoCursor: safeCursor(value.photoCursor),
+      videoCursor: safeCursor(value.videoCursor),
+      photosComplete: value.photosComplete === true,
+      videosComplete: value.videosComplete === true,
+      sinceMs: finiteOrNull(value.sinceMs),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function scanCheckpointForState({ finalState, previousCheckpoint = null, sinceMs = null } = {}) {
+  const historicalComplete = finalState?.photosComplete === true && finalState?.videosComplete === true;
+  const finishedAt = Number(finalState?.finishedAt || Date.now());
+  return {
+    lastScannedAt: historicalComplete
+      ? new Date(finishedAt).toISOString()
+      : previousCheckpoint?.lastScannedAt || null,
+    lastCursor: JSON.stringify({
+      version: 1,
+      scanKey: finalState?.scanKey || null,
+      checked: Math.max(0, Number(finalState?.checked || 0)),
+      sinceMs: finiteOrNull(sinceMs),
+      photoCursor: safeCursor(finalState?.photoCursor),
+      videoCursor: safeCursor(finalState?.videoCursor),
+      photosComplete: finalState?.photosComplete === true,
+      videosComplete: finalState?.videosComplete === true,
+      historicalComplete,
+    }),
+  };
 }
 
 export function sinceMsForScan({ babyBirthday, checkpoint, forceFullRescan = false }) {
   const birthdayMs = babyBirthday
     ? new Date(`${babyBirthday}T00:00:00`).getTime()
     : null;
-  const checkpointMs = !forceFullRescan && checkpoint?.lastScannedAt
+  const resume = !forceFullRescan ? scanResumeState(checkpoint) : null;
+  const checkpointMs = !resume && !forceFullRescan && checkpoint?.lastScannedAt
     ? new Date(checkpoint.lastScannedAt).getTime() - INCREMENTAL_LOOKBACK_MS
     : null;
-  const candidates = [birthdayMs, checkpointMs].filter((value) => Number.isFinite(value));
+  const candidates = [birthdayMs, resume?.sinceMs, checkpointMs].filter((value) => Number.isFinite(value));
   if (!candidates.length) return undefined;
   return Math.max(...candidates);
+}
+
+function safeCursor(value) {
+  const cursor = typeof value === 'string' ? value.trim() : '';
+  return cursor && cursor.length <= 2048 ? cursor : null;
+}
+
+function finiteOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }

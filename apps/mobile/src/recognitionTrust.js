@@ -1,8 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { hasEarnedAutoSaveTrust } from './photoIngestionTrustModel';
 import { buildScanAutoSaveGate } from './scanAutoSaveModel';
-import { supabase } from './supabase';
 
 export const REVIEW_THRESHOLD = 0.68;
 export const HIGH_CONFIDENCE_THRESHOLD = 0.8;
@@ -27,20 +25,11 @@ export async function clearImportCalibration({ familyId, userId }) {
     `olw:media-import-calibration:v1:${familyId}:${userId}`,
     `olw:media-import-recent-auto-saves:v1:${familyId}:${userId}`,
   ]);
-  try {
-    await supabase
-      .from('media_import_calibrations')
-      .delete()
-      .eq('family_id', familyId)
-      .eq('user_id', userId);
-  } catch {
-    // A local reset is still enough to prevent reuse on this device.
-  }
 }
 
 function normalizeCalibration(raw) {
   return {
-    autoSaveEnabled: !!(raw?.autoSaveEnabled ?? raw?.auto_save_enabled),
+    autoSaveEnabled: false,
     autoSaveThreshold: Number(raw?.autoSaveThreshold ?? raw?.auto_save_threshold ?? DEFAULT_AUTO_SAVE_THRESHOLD),
     batchReviewMin: Number(raw?.batchReviewMin ?? raw?.batch_review_min ?? REVIEW_THRESHOLD),
     calibratedAt: raw?.calibratedAt ?? raw?.calibrated_at ?? null,
@@ -71,48 +60,12 @@ async function writeLocalCalibration({ familyId, userId, calibration }) {
 }
 
 export async function getImportCalibration({ familyId, userId }) {
-  const local = await readLocalCalibration({ familyId, userId });
-  if (!familyId || !userId) return local;
-
-  try {
-    const { data, error } = await supabase
-      .from('media_import_calibrations')
-      .select('auto_save_enabled, auto_save_threshold, batch_review_min, calibrated_at, corrections, negative_examples')
-      .eq('family_id', familyId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (error || !data) return local;
-    const remote = normalizeCalibration(data);
-    await writeLocalCalibration({ familyId, userId, calibration: remote });
-    return remote;
-  } catch {
-    return local;
-  }
+  return readLocalCalibration({ familyId, userId });
 }
 
 async function saveImportCalibration({ familyId, userId, calibration }) {
   const next = normalizeCalibration(calibration);
   await writeLocalCalibration({ familyId, userId, calibration: next });
-  if (!familyId || !userId) return next;
-
-  try {
-    await supabase.from('media_import_calibrations').upsert(
-      {
-        family_id: familyId,
-        user_id: userId,
-        auto_save_enabled: next.autoSaveEnabled,
-        auto_save_threshold: next.autoSaveThreshold,
-        batch_review_min: next.batchReviewMin,
-        calibrated_at: next.calibratedAt,
-        corrections: next.corrections,
-        negative_examples: next.negativeExamples,
-      },
-      { onConflict: 'family_id,user_id' },
-    );
-  } catch {
-    // Local trust state is enough for device-side scan behavior.
-  }
-
   return next;
 }
 
@@ -200,10 +153,10 @@ export async function recordNegativeExample({ familyId, userId, match }) {
 export async function setAutoSavePreference({ familyId, userId, enabled }) {
   const previous = await getImportCalibration({ familyId, userId });
   const nextEnabled = !!enabled;
-  if (nextEnabled && !hasEarnedAutoSaveTrust(previous)) {
+  if (nextEnabled) {
     return {
       changed: false,
-      reason: 'trust-not-earned',
+      reason: 'explicit-keep-required',
       calibration: previous,
     };
   }

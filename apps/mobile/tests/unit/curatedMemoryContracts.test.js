@@ -7,15 +7,17 @@ const source = (name) => readFileSync(new URL(`../../src/${name}`, import.meta.u
 test('scan persistence happens batch-by-batch before live state and checkpoint completion', () => {
   const controller = source('scanController.js');
   const launcher = source('libraryScanLauncher.js');
-  const persistIndex = controller.indexOf('await onCandidates?.({ matches: newMatches, scanKey })');
+  const persistIndex = controller.indexOf('await onAnalysis?.({ matches: analyzedRows, scanKey })');
   const stateIndex = controller.indexOf('const liveMatches = state.matches.concat(newMatches)');
 
   assert.ok(persistIndex > 0 && persistIndex < stateIndex, 'candidate batch is durable before live state advances');
-  assert.match(launcher, /if \(finalState\?\.phase !== 'done'\) return;/);
+  assert.match(launcher, /\['done', 'aborted'\]\.includes\(finalState\?\.phase\)/);
   assert.match(launcher, /persistScanCandidates/);
+  assert.match(launcher, /autoSave: null/);
+  assert.match(launcher, /scanCheckpointForState/);
   assert.match(launcher, /listCachedAnalysisAssetIds/);
   assert.match(controller, /await onAssetsSeen\(\{ assetIds: sourceAssetIds, scanKey \}\)/);
-  assert.match(launcher, /if \(change\?\.requiresFullLibraryScan\) \{[\s\S]*reconcileCompletedFullScan/);
+  assert.match(launcher, /if \(historicalComplete && change\?\.requiresFullLibraryScan\) \{[\s\S]*reconcileCompletedFullScan/);
   assert.match(launcher, /if \(!change\?\.requiresFullLibraryScan\) \{[\s\S]*cachedAnalysisIds/);
   assert.match(launcher, /getFamilyRitualSettings/);
   assert.match(launcher, /captureTimezone/);

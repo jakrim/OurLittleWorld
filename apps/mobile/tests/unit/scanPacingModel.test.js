@@ -7,6 +7,8 @@ import {
   FIRST_VALUE_SCAN_MAX_PHOTOS,
   FIRST_VALUE_SCAN_PHOTO_PAGE_SIZE,
   FIRST_VALUE_SCAN_WATCHDOG_MS,
+  LIBRARY_SCAN_PASS_MAX_DURATION_MS,
+  LIBRARY_SCAN_PASS_MAX_PHOTOS,
   firstValueProgressCopy,
   resolveScanPhotoPageSize,
 } from '../../src/scanPacingModel.js';
@@ -16,6 +18,11 @@ test('first-value discovery uses a bounded batch while regular scans retain thro
   assert.equal(DEFAULT_SCAN_PHOTO_PAGE_SIZE, 60);
   assert.equal(resolveScanPhotoPageSize(FIRST_VALUE_SCAN_PHOTO_PAGE_SIZE), 8);
   assert.equal(resolveScanPhotoPageSize(undefined), DEFAULT_SCAN_PHOTO_PAGE_SIZE);
+});
+
+test('historical catch-up is split into bounded durable passes', () => {
+  assert.equal(LIBRARY_SCAN_PASS_MAX_PHOTOS, 240);
+  assert.equal(LIBRARY_SCAN_PASS_MAX_DURATION_MS, 90_000);
 });
 
 test('scan page size rejects invalid input and caps oversized batches', () => {
