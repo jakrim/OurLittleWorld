@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRootNavigationState, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
 
 import { useAuth } from '../AuthContext';
 import { useBilling } from '../BillingContext';
@@ -10,6 +10,7 @@ import { useFamily } from '../FamilyContext';
 import { firstLookStorageKey, shouldShowFirstLook } from '../reveal';
 import { isApprovedFirstValuePreview } from '../firstValuePreviewModel';
 import { readFirstValuePreview } from '../firstValuePreviewStore';
+import { isSyntheticManualQaRoute } from '../manualQaRuntime';
 import { BrandMark, useTheme } from '../ui';
 import useReducedMotion from '../ui/useReducedMotion';
 import FamilyOnboardingScreen from '../FamilyOnboardingScreen';
@@ -85,7 +86,12 @@ export function ProtectedRoute({
   allowMissingSubscription = false,
   allowReadOnlyArchive = false,
 }) {
+  const params = useLocalSearchParams();
   const gate = useAppGate();
+
+  // An explicitly flagged local build may render synthetic, read-only fixtures
+  // without creating a fake account. Production builds cannot enter this lane.
+  if (isSyntheticManualQaRoute(params.qa)) return children;
 
   if (gate.loading) return <CenteredSpinner />;
   if (gate.reason === 'signed-out') return <RouteRedirect href="/welcome" />;

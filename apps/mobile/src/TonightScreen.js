@@ -179,7 +179,6 @@ export default function TonightScreen() {
   }, [canCurate, family?.id]);
 
   const load = useCallback(async () => {
-    if (billingLoading) return;
     if (manualQaFixture) {
       setSession(manualQaFixture.session);
       setCatchup(null);
@@ -187,6 +186,7 @@ export default function TonightScreen() {
       setLoading(false);
       return;
     }
+    if (billingLoading) return;
     if (!canCurate || !family?.id || !user?.id) {
       setLoading(false);
       return;
@@ -681,11 +681,11 @@ export default function TonightScreen() {
     }
   };
 
-  if (!writer) return <TonightDenied router={router} kind="circle" />;
-  if (loading || billingLoading) {
+  if (!writer && !manualQaFixture) return <TonightDenied router={router} kind="circle" />;
+  if ((loading || billingLoading) && !manualQaFixture) {
     return <Screen variant="warm" contentStyle={styles.centered}><ActivityIndicator color={theme.semantic.primary} /></Screen>;
   }
-  if (!canCurate) return <TonightDenied router={router} kind="lapsed" />;
+  if (!canCurate && !manualQaFixture) return <TonightDenied router={router} kind="lapsed" />;
 
   if (lookbackOpen && lookback) {
     const lookbackMedia = lookback.media?.[0] || null;
