@@ -7,8 +7,7 @@ import {
   scheduledRequestCountForLocalDay,
   shouldScheduleTonightNotification,
   TONIGHT_NOTIFICATION_CATEGORY,
-  TONIGHT_NOTIFICATION_ROUTE,
-  tonightNotificationCopy,
+  tonightNotificationContent,
 } from './tonightNotificationModel.js';
 
 export async function maybeScheduleTonightNotification({
@@ -34,9 +33,9 @@ export async function maybeScheduleTonightNotification({
     timezone,
   })) return { scheduled: false, reason: 'not-ready' };
 
-  const copy = tonightNotificationCopy(session);
+  const content = tonightNotificationContent(session);
   const triggerDate = nextTonightNotificationDate({ now, timezone, preferences, targetTime });
-  if (!copy || !triggerDate) return { scheduled: false, reason: 'no-safe-time' };
+  if (!content || !triggerDate) return { scheduled: false, reason: 'no-safe-time' };
 
   try {
     const notifications = require('expo-notifications');
@@ -70,16 +69,7 @@ export async function maybeScheduleTonightNotification({
       return { scheduled: false, reason: 'already-scheduled', identifier: existing.identifier };
     }
     const identifier = await notifications.scheduleNotificationAsync({
-      content: {
-        ...copy,
-        data: {
-          route: TONIGHT_NOTIFICATION_ROUTE,
-          category: TONIGHT_NOTIFICATION_CATEGORY,
-          queue_state: 'ready',
-          queue_count: session.items.filter((item) => ['queued', 'shown', 'unavailable'].includes(item.state)).length,
-          queue_date: session.localDay,
-        },
-      },
+      content,
       trigger: { type: 'date', date: triggerDate },
     });
     const next = markTonightNotificationScheduled(state, session, {

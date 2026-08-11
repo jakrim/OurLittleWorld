@@ -45,3 +45,7 @@ export function buildTodayManualQaFixture(value) {
     },
   };
 }
+
+export function todayManualQaRouteParams(fixture) {
+  return fixture ? { source: 'today', qa: 'photo-first' } : { source: 'today' };
+}

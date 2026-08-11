@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 
 import { Screen, Button, Brand, BrandMark, Display, Body, BodyTight, Caption, Eyebrow, Spacer, space, radius, shadow, useTheme } from './ui';
 import useReducedMotion from './ui/useReducedMotion';
+import { welcomeCardStyle } from './themeStyleContractModel.js';
 
 const SLIDES = [
   {
@@ -51,6 +52,7 @@ const TERMS_URL = 'https://ourlittleworld.me/terms/';
 export default function WelcomeScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const welcomeStyle = welcomeCardStyle(theme);
   const reducedMotion = useReducedMotion();
   const scrollRef = useRef(null);
   const [activeSlide, setActiveSlide] = useState(0);
@@ -183,13 +185,13 @@ export default function WelcomeScreen() {
 
                 <Spacer h={eyebrowGap} />
 
-                <Display align="center" style={[styles.headline, { color: theme.semantic.text }, isCompact && styles.headlineCompact]}>
+                <Display align="center" style={[styles.headline, { color: welcomeStyle.titleColor }, isCompact && styles.headlineCompact]}>
                   {slide.title}
                 </Display>
 
                 <Spacer h={bodyGap} />
 
-                <Body align="center" style={[styles.body, { color: theme.semantic.textSoft }, isCompact && styles.bodyCompact]}>
+                <Body align="center" style={[styles.body, { color: welcomeStyle.bodyColor }, isCompact && styles.bodyCompact]}>
                   {slide.body}
                 </Body>
               </View>
@@ -225,8 +227,9 @@ export default function WelcomeScreen() {
 }
 
 function LegalNotice({ theme }) {
+  const welcomeStyle = welcomeCardStyle(theme);
   return (
-    <Caption align="center" style={[styles.legalText, { color: theme.semantic.textMuted }]}>
+    <Caption align="center" style={[styles.legalText, { color: welcomeStyle.captionColor }]}>
       By continuing, you agree to the{' '}
       <Text
         accessibilityRole="link"
@@ -264,6 +267,7 @@ function SlideArt({ type, compact, progress, theme }) {
 }
 
 function BabyBookArt({ compact, progress, theme }) {
+  const welcomeStyle = welcomeCardStyle(theme);
   const journeyShift = progress.interpolate({
     inputRange: [0, 0.32, 0.4, 0.66, 0.74, 1],
     outputRange: [0, 0, -58, -58, -116, -116],
@@ -273,7 +277,7 @@ function BabyBookArt({ compact, progress, theme }) {
     <View style={[styles.artScene, compact && styles.artSceneCompact]}>
       <View style={[styles.bookGlow, { backgroundColor: theme.colors.primarySoft }]} />
       <View style={[styles.backPage, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]} />
-      <View style={[styles.bookCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+      <View style={[styles.bookCard, { backgroundColor: welcomeStyle.backgroundColor, borderColor: welcomeStyle.borderColor }]}>
         <View style={[styles.bookSpine, { backgroundColor: theme.colors.primarySoft }]} />
         <StreamIn progress={progress} index={0} style={styles.bookHeader}>
           <View style={styles.bookHeaderCopy}>
@@ -302,6 +306,7 @@ function BabyBookArt({ compact, progress, theme }) {
 }
 
 function DetailsArt({ compact, progress, theme }) {
+  const welcomeStyle = welcomeCardStyle(theme);
   const detailShift = progress.interpolate({
     inputRange: [0, 0.3, 0.36, 0.64, 0.7, 1],
     outputRange: [0, 0, -104, -104, -208, -208],
@@ -315,7 +320,7 @@ function DetailsArt({ compact, progress, theme }) {
         <View style={[styles.photoHill, { backgroundColor: theme.colors.goldSoft }]} />
         <View style={[styles.photoSun, { backgroundColor: theme.colors.gold }]} />
       </View>
-      <View style={[styles.noteCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+      <View style={[styles.noteCard, { backgroundColor: welcomeStyle.backgroundColor, borderColor: welcomeStyle.borderColor }]}>
         <Animated.View style={[styles.detailsTicker, { transform: [{ translateY: detailShift }] }]}>
           <DetailMoment time="2:14 AM" first="tiny laugh" second="milk drunk" theme={theme} />
           <DetailMoment time="6:40 AM" first="first smile" second="morning stretch" theme={theme} />
@@ -327,6 +332,7 @@ function DetailsArt({ compact, progress, theme }) {
 }
 
 function GrowthArt({ compact, progress, theme }) {
+  const welcomeStyle = welcomeCardStyle(theme);
   const recordShift = progress.interpolate({
     inputRange: [0, 0.3, 0.36, 0.64, 0.7, 1],
     outputRange: [0, 0, -112, -112, -224, -224],
@@ -338,7 +344,7 @@ function GrowthArt({ compact, progress, theme }) {
       <View style={[styles.leafBadge, { backgroundColor: theme.semantic.cardAlt }]}>
         <Ionicons name="leaf" size={32} color={theme.semantic.secondary} />
       </View>
-      <View style={[styles.growthCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+      <View style={[styles.growthCard, { backgroundColor: welcomeStyle.backgroundColor, borderColor: welcomeStyle.borderColor }]}>
         <View style={[styles.ruler, { backgroundColor: theme.colors.primarySoft }]}>
           {[0, 1, 2, 3, 4].map((tick) => (
             <View
@@ -366,6 +372,7 @@ function GrowthArt({ compact, progress, theme }) {
 }
 
 function PrivateArt({ compact, progress, theme }) {
+  const welcomeStyle = welcomeCardStyle(theme);
   const openOpacity = progress.interpolate({
     inputRange: [0, 0.34, 0.48, 1],
     outputRange: [1, 1, 0, 0],
@@ -382,7 +389,7 @@ function PrivateArt({ compact, progress, theme }) {
   return (
     <View style={[styles.artScene, compact && styles.artSceneCompact]}>
       <View style={[styles.artGlow, styles.privateGlow, { backgroundColor: theme.colors.primarySoft }]} />
-      <View style={[styles.privateCard, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+      <View style={[styles.privateCard, { backgroundColor: welcomeStyle.backgroundColor, borderColor: welcomeStyle.borderColor }]}>
         <View style={[styles.lockBadge, { backgroundColor: theme.colors.goldSoft }]}>
           <Animated.View style={[styles.lockLayer, { opacity: openOpacity }]}>
             <Ionicons name="lock-open" size={28} color={theme.semantic.text} />
@@ -396,8 +403,8 @@ function PrivateArt({ compact, progress, theme }) {
           <View style={[styles.avatar, { backgroundColor: theme.semantic.primary, borderColor: theme.semantic.card }]} />
         </StreamIn>
         <StreamIn progress={progress} index={2}>
-          <BodyTight align="center" style={[styles.privateTitle, { color: theme.semantic.text }]}>Only your family</BodyTight>
-          <Caption align="center" style={[styles.privateCaption, { color: theme.semantic.textSoft }]}>no public feed</Caption>
+          <BodyTight align="center" style={[styles.privateTitle, { color: welcomeStyle.titleColor }]}>Only your family</BodyTight>
+          <Caption align="center" style={[styles.privateCaption, { color: welcomeStyle.bodyColor }]}>no public feed</Caption>
         </StreamIn>
         <StreamIn progress={progress} index={3} style={styles.privateChip}>
           <ArtChip icon="people" label="shared with care" theme={theme} />

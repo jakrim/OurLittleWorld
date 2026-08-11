@@ -1,25 +1,21 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const source = readFileSync(new URL('../../src/FirstComposeSheetScreen.js', import.meta.url), 'utf8');
+import { ASSISTED_FIRST_COPY, assistedFirstPresentation } from '../../src/assistedFirstExperienceModel.js';
 
-test('an assisted First begins with a large candidate and parent confirmation', () => {
-  const heroIndex = source.indexOf('<FirstCandidateHero');
-  const noteIndex = source.indexOf('placeholder="What happened around it?"');
-
-  assert.match(source, /Could this be the moment\?/);
-  assert.match(source, /testID="first-candidate-hero"/);
-  assert.match(source, /Possible First/);
-  assert.match(source, /Confirm First/);
-  assert.match(source, /Nothing is asserted until you confirm/);
-  assert.match(source, /Choose another/);
-  assert.ok(heroIndex > 0 && heroIndex < noteIndex, 'candidate media appears before optional authorship');
-  assert.match(source, /caption="Optional\. One small detail is enough\."/);
+test('an assisted First leads with an uncertain candidate and parent confirmation', () => {
+  const presentation = assistedFirstPresentation({ assisted: true });
+  assert.deepEqual(presentation, {
+    title: 'Could this be the moment?',
+    showCandidateFirst: true,
+    primaryAction: 'Confirm First',
+    correctionActions: ['Correct date', 'Edit first title', 'Choose another'],
+  });
+  assert.match(ASSISTED_FIRST_COPY.dateCaption, /Nothing is asserted until you confirm/);
+  assert.match(ASSISTED_FIRST_COPY.noteCaption, /Optional/);
 });
 
-test('assisted First preserves parent correction authority', () => {
-  assert.match(source, /Correct date/);
-  assert.match(source, /Edit first title/);
-  assert.doesNotMatch(source, /automatically confirmed|we know this was|definitely (?:a )?first/i);
+test('ordinary and existing Firsts keep their distinct authoring modes', () => {
+  assert.equal(assistedFirstPresentation().primaryAction, 'Save');
+  assert.equal(assistedFirstPresentation({ existing: true }).title, 'edit this first');
 });

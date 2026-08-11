@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 5;
+export const MEDIA_DB_SCHEMA_VERSION = 6;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -230,6 +230,14 @@ export const TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL = `
     check (collection_commit_state in ('idle', 'saving', 'saved', 'failed', 'skipped'));
 `;
 
+export const TONIGHT_CONTINUATION_MIGRATION_SQL = `
+  alter table nightly_review_sessions add column is_continuation integer not null default 0
+    check (is_continuation in (0, 1));
+  update nightly_review_sessions
+    set is_continuation = 1
+    where seed like '%:more:%' or seed like '%:revalidated';
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -258,6 +266,14 @@ export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
 export const MEDIA_DB_REQUIRED_COLLECTION_DRAFT_COLUMNS = Object.freeze([
   'draft_collection_keys_json',
   'collection_commit_state',
+]);
+
+export const MEDIA_DB_REQUIRED_SESSION_COLUMNS = Object.freeze([
+  'family_id',
+  'user_id',
+  'local_day',
+  'status',
+  'is_continuation',
 ]);
 
 export const MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS = Object.freeze([
@@ -334,6 +350,16 @@ export function applyMediaDbMigrations(database) {
       throw new Error(`Local Tonight collection draft migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
+  if (currentVersion < 6) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(TONIGHT_CONTINUATION_MIGRATION_SQL);
+        database.execSync('pragma user_version = 6;');
+      });
+    } catch (error) {
+      throw new Error(`Local Tonight continuation migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
   assertCandidateLedgerSchema(database);
   return MEDIA_DB_SCHEMA_VERSION;
 }
@@ -355,6 +381,13 @@ export function assertCandidateLedgerSchema(database) {
     .filter((column) => !enrichmentColumns.has(column));
   if (missingCollectionDraft.length) {
     throw new Error(`Local Tonight collection draft store is incomplete; missing columns: ${missingCollectionDraft.join(', ')}. Restart the app after freeing device storage.`);
+  }
+  const sessionRows = database.getAllSync('pragma table_info(nightly_review_sessions)');
+  const sessionColumns = new Set((sessionRows || []).map((row) => row.name));
+  const missingSessionColumns = MEDIA_DB_REQUIRED_SESSION_COLUMNS
+    .filter((column) => !sessionColumns.has(column));
+  if (missingSessionColumns.length) {
+    throw new Error(`Local Tonight session store is incomplete; missing columns: ${missingSessionColumns.join(', ')}. Restart the app after freeing device storage.`);
   }
   const savedDayRows = database.getAllSync('pragma table_info(family_saved_day_facts)');
   const savedDayColumns = new Set((savedDayRows || []).map((row) => row.name));

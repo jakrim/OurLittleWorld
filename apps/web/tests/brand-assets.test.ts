@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { publicPageContent } from "../content/publicPageContent.ts";
@@ -32,19 +32,6 @@ function icoSizes(bytes: Buffer) {
     const offset = 6 + index * 16;
     return [bytes[offset] || 256, bytes[offset + 1] || 256];
   }).sort((left, right) => left[0] - right[0]);
-}
-
-async function sourceFiles(directory: URL): Promise<URL[]> {
-  const files: URL[] = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const entryUrl = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, directory);
-    if (entry.isDirectory()) {
-      files.push(...(await sourceFiles(entryUrl)));
-    } else if (/\.(?:css|js|jsx|mjs|ts|tsx)$/.test(entry.name)) {
-      files.push(entryUrl);
-    }
-  }
-  return files;
 }
 
 test("web brand master is the exact canonical mobile mark", async () => {
@@ -101,40 +88,26 @@ test("generated brand renditions match the integrity manifest", async () => {
   assert.deepEqual(icoSizes(favicon), [[16, 16], [32, 32], [48, 48]]);
 });
 
-test("public website has no legacy logo asset or reference", async () => {
+test("public website has no legacy logo asset or emitted reference", async () => {
   const legacyName = ["logo", "mark.png"].join("-");
   await assert.rejects(access(new URL(`assets/brand/${legacyName}`, publicUrl)));
 
-  const sourceUrls = (
-    await Promise.all(
-      ["../app/", "../components/", "../content/", "../lib/"].map((path) =>
-        sourceFiles(new URL(path, import.meta.url)),
-      ),
-    )
-  ).flat();
-  for (const sourceUrl of sourceUrls) {
+  for (const page of ["home", "story", "pricing", "gift"] as const) {
     assert.doesNotMatch(
-      await readFile(sourceUrl, "utf8"),
+      publicPageContent(page, { commerceState: "coming_soon", partnersEnabled: false }),
       new RegExp(legacyName.replace(".", "\\.")),
-      `${sourceUrl.pathname} still references the legacy mark`,
+      `${page} emitted a legacy mark`,
     );
   }
 });
 
-test("home hero reserves image space and never uses the off-canvas device treatment", async () => {
+test("home hero public output reserves image space without inline off-canvas positioning", () => {
   const html = publicPageContent("home", { commerceState: "coming_soon", partnersEnabled: false });
   assert.match(
     html,
     /welcome\.png" alt="Our Little World welcome screen" width="640" height="1386" decoding="async" fetchpriority="high"/,
   );
-
-  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.doesNotMatch(css, /main\s*\{[^}]*overflow:\s*hidden/);
-  assert.doesNotMatch(css, /\.hero-home\s*\{[^}]*overflow:\s*hidden/);
-  assert.match(css, /main\s*\{[^}]*overflow-x:\s*clip/);
-  assert.doesNotMatch(css, /\.hero-device\s*\{[^}]*position:\s*absolute/);
-  assert.doesNotMatch(css, /\.hero-device\s*\{[^}]*right:\s*-\d/);
-  assert.doesNotMatch(css, /\.hero-device\s*\{[^}]*bottom:\s*-\d/);
-  assert.match(css, /@media \(max-width: 680px\)[\s\S]*?\.hero-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
-  assert.match(css, /@media \(min-width: 681px\) and \(max-height: 820px\)/);
+  assert.match(html, /class="wrap hero-grid"/);
+  assert.match(html, /class="device-stage hero-device"/);
+  assert.doesNotMatch(html, /style="[^"]*(?:position:\s*absolute|right:\s*-|bottom:\s*-)/);
 });

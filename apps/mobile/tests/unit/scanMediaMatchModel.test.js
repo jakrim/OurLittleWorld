@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   collapseAnalyzedMediaCandidates,
   collapseScoredMediaCandidates,
+  completelyAnalyzedMediaCandidates,
 } from '../../src/scanMediaMatchModel.js';
 
 test('video scanning keeps its strongest sampled frame and across-video evidence', () => {
@@ -62,4 +63,36 @@ test('completed adult-only, weak, and no-face analysis rows stay durable but out
   assert.deepEqual(analysis.map((row) => row.assetId), ['child', 'adult', 'no-face']);
   assert.equal(analysis.find((row) => row.assetId === 'no-face')?.score, null);
   assert.deepEqual(passing.map((row) => row.assetId), ['child']);
+});
+
+test('a partially processed video source is neither cached nor surfaced', () => {
+  const candidates = [0, 1, 2].map((index) => ({
+    assetId: `video#${index}`,
+    sourceAssetId: 'video',
+    mediaType: 'video',
+    frameTimeMs: index * 1000,
+    creationTime: 10,
+    localUri: `frame-${index}.jpg`,
+  }));
+  const scored = [{ assetId: 'video#0', score: 0.96, captureQuality: 0.9 }];
+
+  assert.deepEqual(collapseAnalyzedMediaCandidates({
+    candidates,
+    scored,
+    processedAssetIds: ['video#0'],
+  }), []);
+  assert.deepEqual(collapseScoredMediaCandidates({
+    candidates: completelyAnalyzedMediaCandidates(candidates, ['video#0']),
+    scored,
+    cutoff: 0.65,
+  }), []);
+
+  const complete = collapseAnalyzedMediaCandidates({
+    candidates,
+    scored,
+    processedAssetIds: candidates.map((candidate) => candidate.assetId),
+  });
+  assert.equal(complete.length, 1);
+  assert.equal(complete[0].assetId, 'video');
+  assert.equal(complete[0].videoSampledFrames, 3);
 });

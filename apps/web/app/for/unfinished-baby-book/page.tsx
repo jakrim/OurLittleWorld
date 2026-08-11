@@ -5,12 +5,13 @@ import Link from "next/link";
 import CommercialAvailability from "@/components/CommercialAvailability";
 import { BreadcrumbStructuredData } from "@/components/StructuredData";
 import { metadataFor } from "@/lib/siteSeo";
+import { unfinishedBabyBookActions } from "@/lib/unfinishedBabyBookPageModel";
 
 export const metadata: Metadata = metadataFor("unfinishedBabyBook");
 
 export default function UnfinishedBabyBookPage() {
-  const launchHref = "#launch-list";
-  const giftHref = "/gift/?angle=unfinished-baby-book";
+  const launchHref = unfinishedBabyBookActions.launch.href;
+  const giftHref = unfinishedBabyBookActions.gift.href;
 
   return (
     <main id="main" className="olw-angle-page">
@@ -32,10 +33,10 @@ export default function UnfinishedBabyBookPage() {
             </p>
             <div className="olw-angle-actions">
               <Link className="button button-dark" href={launchHref}>
-                Join the launch list
+                {unfinishedBabyBookActions.launch.label}
               </Link>
               <Link className="button button-ghost" href={giftHref}>
-                Explore planned gift years
+                {unfinishedBabyBookActions.gift.label}
               </Link>
             </div>
             <p className="olw-angle-trust">
@@ -149,7 +150,7 @@ export default function UnfinishedBabyBookPage() {
           <h2>Save one parent-approved moment.</h2>
           <p>Let the baby book grow from there, without asking today to become a project.</p>
           <Link className="button button-dark" href={launchHref}>
-            Join the launch list
+            {unfinishedBabyBookActions.launch.label}
           </Link>
         </div>
       </section>

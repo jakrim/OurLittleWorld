@@ -13,6 +13,7 @@ import {
   NIGHTLY_QUEUE_QUALITY_FLOOR,
 } from './nightlyQueueModel';
 import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
+import { isNightlySessionContinuation } from './nightlySessionModel.js';
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
@@ -364,7 +365,7 @@ function createNightlySession(database, {
   const completedSessionCount = Number(database.getFirstSync(
     `select count(*) as count from nightly_review_sessions
      where family_id = ? and user_id = ? and status = 'completed'
-       and seed not like '%:more:%'`,
+       and is_continuation = 0`,
     [familyId, userId],
   )?.count || 0);
   const maxItems = recommendedNightlySize({
@@ -388,10 +389,11 @@ function createNightlySession(database, {
       database.runSync(
         `insert into nightly_review_sessions (
            session_id, family_id, user_id, local_day, timezone, seed, status,
-           generation_version, model_version, current_position, item_count, created_at, updated_at
-         ) values (?, ?, ?, ?, ?, ?, 'active', ?, ?, 0, ?, ?, ?)`,
+           generation_version, model_version, current_position, item_count, created_at, updated_at,
+           is_continuation
+         ) values (?, ?, ?, ?, ?, ?, 'active', ?, ?, 0, ?, ?, ?, ?)`,
         [sessionId, familyId, userId, day, timezone, seed, NIGHTLY_QUEUE_GENERATION_VERSION,
-          CANDIDATE_SCORER_VERSION, queue.length, stamp, stamp],
+          CANDIDATE_SCORER_VERSION, queue.length, stamp, stamp, continuation ? 1 : 0],
       );
       for (const item of queue) {
         database.runSync(
@@ -441,7 +443,7 @@ export function getTonightSummary({
   const completedSessionCount = Number(database.getFirstSync(
     `select count(*) as count from nightly_review_sessions
      where family_id = ? and user_id = ? and status = 'completed'
-       and seed not like '%:more:%'`,
+       and is_continuation = 0`,
     [familyId, userId],
   )?.count || 0);
   return {
@@ -1055,7 +1057,7 @@ function hydrateSession(database, session) {
     currentPosition: Number(session.current_position || 0),
     itemCount: Number(session.item_count || rows.length),
     completed: session.status === 'completed',
-    continuation: String(session.seed || '').includes(':more:'),
+    continuation: isNightlySessionContinuation(session),
     createdAt: session.created_at,
     completedAt: session.completed_at || null,
     items: rows.map(mapSessionItem),

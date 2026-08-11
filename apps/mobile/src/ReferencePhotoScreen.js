@@ -35,6 +35,8 @@ import {
   readFirstValuePreview,
   writeFirstValuePreview,
 } from './firstValuePreviewStore';
+import { referenceDiscoveryBackTarget, referenceDiscoveryTrustCopy } from './referenceDiscoveryExperienceModel.js';
+import { referenceDiscoveryPanelStyle } from './themeStyleContractModel.js';
 
 /**
  * Find or pick one clear starting photo. Face evidence and fallback
@@ -476,15 +478,9 @@ export default function ReferencePhotoScreen() {
         attempt: { status: 'manual', reason: 'cancelled' },
       });
     }
-    if (firstValueRequested) {
-      router.replace({
-        pathname: '/setup',
-        params: { source: 'first_value', resumeDiscovery: '1' },
-      });
-      return;
-    }
-    if (router.canGoBack()) router.back();
-    else router.replace('/timeline');
+    const target = referenceDiscoveryBackTarget({ firstValueRequested, canGoBack: router.canGoBack() });
+    if (target.action === 'back') router.back();
+    else router.replace(target.destination);
   };
 
   const autoSeeding = autoSeedState.status === 'running' || autoSeedState.status === 'idle';
@@ -496,6 +492,8 @@ export default function ReferencePhotoScreen() {
   const automaticFallback = autoSeedRequested
     && autoSeedState.status === 'manual'
     && !['user-chose-manual', 'user-correction'].includes(autoSeedState.reason);
+  const trustCopy = referenceDiscoveryTrustCopy({ babyName: family?.babyName });
+  const panelStyle = referenceDiscoveryPanelStyle(theme);
 
   const onClearReference = async () => {
     if (!family || !user) return;
@@ -586,7 +584,7 @@ export default function ReferencePhotoScreen() {
               })}
             </View>
             <Caption align="center" style={{ color: theme.semantic.textMuted }}>
-              These are possibilities, not confirmed matches. You decide which photo is {family?.babyName || 'your baby'}.
+              {trustCopy.possibility}
             </Caption>
           </View>
         ) : (
@@ -598,10 +596,7 @@ export default function ReferencePhotoScreen() {
             style={[
               styles.frame,
               picked && !autoSeeding && styles.selectedFrame,
-              {
-                backgroundColor: theme.semantic.cardAlt,
-                borderColor: theme.semantic.border,
-              },
+              panelStyle.frame,
               autoSeeding && styles.progressFrame,
             ]}
           >
@@ -611,14 +606,14 @@ export default function ReferencePhotoScreen() {
                 testID="birthday-discovery-progress"
                 accessibilityLiveRegion="polite"
               >
-                <ActivityIndicator color={theme.semantic.primary} />
+                <ActivityIndicator color={panelStyle.progressColor} />
                 <Spacer h={space.md} />
                 <Body align="center" style={{ color: theme.semantic.textSoft }}>{progressCopy.title}</Body>
                 <Caption align="center" style={{ marginTop: 4 }}>
                   {progressCopy.detail}
                 </Caption>
                 <Caption align="center" style={[styles.privateCaption, { color: theme.semantic.textMuted }]}>
-                  Photos stay on this iPhone.
+                  {trustCopy.privacy}
                 </Caption>
               </View>
             ) : picked ? (

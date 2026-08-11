@@ -33,6 +33,7 @@ import { listSharedTagged, listSharedTaggedChronological, uploadForTag } from '.
 import { FIRST_GOAL_DEFINITIONS, Firsts } from './rituals';
 import { loadBestPhotoCandidates } from './bestPhotoCandidates';
 import { candidateId } from './bestPhotoCandidateModel.js';
+import { ASSISTED_FIRST_COPY, assistedFirstPresentation } from './assistedFirstExperienceModel.js';
 
 const RECENT_PHOTO_LIMIT = 60;
 const FIRST_PHOTO_CANDIDATE_LIMIT = 120;
@@ -76,6 +77,7 @@ export default function FirstComposeSheetScreen() {
   }), [seedAssetId, seedAssetOwnerUserId, seedAssetUri, seedDateParam, user?.id]);
   const sourceMomentId = existing?.moment_id || seedMomentId || null;
   const assistedFirst = Boolean(seededFirst && seedPhoto);
+  const presentation = assistedFirstPresentation({ assisted: assistedFirst, existing: !!existing });
 
   const close = useCallback(() => {
     if (router.canGoBack?.()) router.back();
@@ -356,7 +358,7 @@ export default function FirstComposeSheetScreen() {
   return (
     <Screen bare scroll keyboard edges={{ top: false, bottom: true }} contentStyle={styles.screenContent}>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
-        <Title>{existing ? 'edit this first' : assistedFirst ? 'Could this be the moment?' : 'add a first'}</Title>
+        <Title>{presentation.title}</Title>
         {assistedFirst ? (
           <FirstCandidateHero
             photo={selectedPhoto || seedPhoto}
@@ -371,7 +373,7 @@ export default function FirstComposeSheetScreen() {
           <View style={[styles.templateCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
             <View style={styles.templateHeader}>
               <View style={styles.templateTitleWrap}>
-                <Caption>Possible First</Caption>
+                <Caption>{ASSISTED_FIRST_COPY.candidateLabel}</Caption>
                 <Title style={styles.templateTitle}>{title || seedTitle}</Title>
               </View>
               <Pressable
@@ -412,10 +414,10 @@ export default function FirstComposeSheetScreen() {
               </View>
               <Ionicons name="calendar-outline" size={20} color={theme.semantic.primary} />
             </View>
-            <Caption>{dateLockedToMoment ? lockedDateCaption : 'From this photo’s capture date. Nothing is asserted until you confirm.'}</Caption>
+            <Caption>{dateLockedToMoment ? lockedDateCaption : ASSISTED_FIRST_COPY.dateCaption}</Caption>
             {!dateLockedToMoment ? (
               <Pressable onPress={() => setEditingDate(true)} accessibilityRole="button" accessibilityLabel="Correct the First date">
-                <Caption style={{ color: theme.semantic.primary, fontWeight: '800' }}>Correct date</Caption>
+                <Caption style={{ color: theme.semantic.primary, fontWeight: '800' }}>{ASSISTED_FIRST_COPY.correctDateLabel}</Caption>
               </Pressable>
             ) : null}
           </View>
@@ -433,7 +435,7 @@ export default function FirstComposeSheetScreen() {
           value={note}
           onChangeText={setNote}
           placeholder="What happened around it?"
-          caption="Optional. One small detail is enough."
+          caption={ASSISTED_FIRST_COPY.noteCaption}
         />
         {suggestedNote && !note.trim() ? (
           <Pressable
@@ -476,7 +478,7 @@ export default function FirstComposeSheetScreen() {
           <View style={styles.composerActions}>
             <Button variant="ghost" size="md" fullWidth={false} onPress={close}>Cancel</Button>
             <Button size="md" fullWidth={false} onPress={save} loading={saving} disabled={!effectiveTitle}>
-              {assistedFirst ? 'Confirm First' : 'Save'}
+              {presentation.primaryAction}
             </Button>
           </View>
         </View>
@@ -496,14 +498,14 @@ function FirstCandidateHero({ photo, title, date, ageLabel, onChooseAnother, the
       )}
       <View style={styles.candidateHeroScrim} />
       <View style={styles.candidateHeroCopy}>
-        <Caption style={styles.candidateHeroLabel}>Possible First</Caption>
+        <Caption style={styles.candidateHeroLabel}>{ASSISTED_FIRST_COPY.candidateLabel}</Caption>
         <Title maxFontSizeMultiplier={1.45} style={styles.candidateHeroTitle}>{title}</Title>
         <Caption maxFontSizeMultiplier={1.5} style={styles.candidateHeroContext}>
           {[date ? formatLongDate(date) : null, ageLabel].filter(Boolean).join(' · ')}
         </Caption>
         <Pressable onPress={onChooseAnother} accessibilityRole="button" accessibilityLabel="Choose another memory" style={styles.candidateHeroAction}>
           <Ionicons name="images-outline" size={16} color="#fff" />
-          <Caption style={styles.candidateHeroActionText}>Choose another</Caption>
+          <Caption style={styles.candidateHeroActionText}>{ASSISTED_FIRST_COPY.chooseAnotherLabel}</Caption>
         </Pressable>
       </View>
     </View>

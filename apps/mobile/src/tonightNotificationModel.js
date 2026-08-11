@@ -28,6 +28,7 @@ export function shouldScheduleTonightNotification({
 }) {
   if (!['creator', 'partner'].includes(role) || entitlementActive !== true) return false;
   if (!session?.sessionId || session.status !== 'active' || session.completed) return false;
+  if (session.continuation === true) return false;
   if (!remainingCount(session)) return false;
   if (preferences?.categories?.[TONIGHT_NOTIFICATION_CATEGORY] === false) return false;
   if (!isValidTimeZone(timezone)) return false;
@@ -35,6 +36,21 @@ export function shouldScheduleTonightNotification({
   const key = tonightNotificationKey(session);
   if (normalizeTonightNotificationState(state).scheduledQueues[key]) return false;
   return Boolean(nextTonightNotificationDate({ now, timezone, preferences }));
+}
+
+export function tonightNotificationContent(session) {
+  const copy = tonightNotificationCopy(session);
+  if (!copy) return null;
+  return {
+    ...copy,
+    data: {
+      route: TONIGHT_NOTIFICATION_ROUTE,
+      category: TONIGHT_NOTIFICATION_CATEGORY,
+      queue_state: 'ready',
+      queue_count: remainingCount(session),
+      queue_date: session.localDay,
+    },
+  };
 }
 
 export function nextTonightNotificationDate({

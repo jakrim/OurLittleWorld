@@ -18,6 +18,7 @@ import {
   space,
   useTheme,
 } from './ui';
+import { familyOnboardingSurfaceStyle } from './themeStyleContractModel.js';
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import RelationshipRolePicker from './RelationshipRolePicker';
@@ -96,7 +97,7 @@ export default function FamilyOnboardingScreen({ route }) {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
+    <View style={[styles.root, familyOnboardingSurfaceStyle(theme)]}>
       <Screen
         bare
         scroll

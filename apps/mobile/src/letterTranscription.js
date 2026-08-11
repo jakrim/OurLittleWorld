@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { transcribeLocalLetterRecording } from './letterStudioModel.js';
 
 let nativeTranscriber = null;
 if (Platform.OS === 'ios') {
@@ -15,9 +16,5 @@ export function canTranscribeLetterLocally() {
 
 export async function transcribeLetterRecording(uri) {
   if (!uri) throw new Error('No voice recording to transcribe');
-  if (!canTranscribeLetterLocally()) {
-    throw new Error('On-device transcription requires the latest iPhone app build');
-  }
-  const text = await nativeTranscriber.transcribe(uri);
-  return String(text || '').trim();
+  return transcribeLocalLetterRecording(uri, nativeTranscriber?.transcribe?.bind(nativeTranscriber));
 }

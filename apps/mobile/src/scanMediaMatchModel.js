@@ -66,8 +66,7 @@ export function collapseAnalyzedMediaCandidates({
   scored = [],
   processedAssetIds = [],
 } = {}) {
-  const processed = new Set(processedAssetIds.filter(Boolean));
-  const completedCandidates = (candidates || []).filter((candidate) => processed.has(candidate.assetId));
+  const completedCandidates = completelyAnalyzedMediaCandidates(candidates, processedAssetIds);
   const collapsed = collapseScoredMediaCandidates({
     candidates: completedCandidates,
     scored,
@@ -102,6 +101,24 @@ export function collapseAnalyzedMediaCandidates({
   }
   return collapsed.concat(rejectedWithoutScore)
     .sort((a, b) => Number(b.creationTime || 0) - Number(a.creationTime || 0));
+}
+
+export function completelyAnalyzedMediaCandidates(candidates = [], processedAssetIds = []) {
+  const processed = new Set(processedAssetIds.filter(Boolean));
+  const bySource = new Map();
+  for (const candidate of candidates || []) {
+    const sourceId = candidate?.sourceAssetId || candidate?.assetId;
+    if (!sourceId || !candidate?.assetId) continue;
+    if (!bySource.has(sourceId)) bySource.set(sourceId, []);
+    bySource.get(sourceId).push(candidate);
+  }
+  const completed = [];
+  for (const sourceCandidates of bySource.values()) {
+    if (sourceCandidates.every((candidate) => processed.has(candidate.assetId))) {
+      completed.push(...sourceCandidates);
+    }
+  }
+  return completed;
 }
 
 function compareFrame(a, b) {

@@ -23,7 +23,7 @@ import { archivePageRanges } from './archivePaginationModel';
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
 import * as mediaDb from './mediaDb';
-import { isMissingPostgrestRelationship } from './postgrestCompatibility';
+import { readPostgrestRelationshipCompatible } from './postgrestCompatibility';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -36,6 +36,42 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
 export const MOMENT_DAY_INDEX_MAX_MOMENTS = 5000;
 export const MOMENT_DAY_INDEX_MAX_MEDIA = 20000;
 export const MOMENT_DAY_INDEX_PAGE_SIZE = 500;
+
+const MOMENT_BASE_SELECT = 'id, family_id, author_user_id, title, caption_note, captured_at, place_name, latitude, longitude, shared_with, created_at';
+const MOMENT_RICH_SELECT = `
+  ${MOMENT_BASE_SELECT},
+  moment_media:moment_media!moment_media_moment_family_fkey (
+    id,
+    media_type,
+    local_identifier,
+    owner_user_id,
+    file_name,
+    mime_type,
+    width,
+    height,
+    duration_sec,
+    metadata,
+    upload_status,
+    quota_class,
+    storage_provider,
+    playback_provider,
+    stream_uid,
+    sort_order
+  ),
+  voice_notes:voice_notes!voice_notes_moment_family_fkey (
+    id,
+    author_user_id,
+    duration_sec,
+    waveform,
+    audio_object,
+    mime_type,
+    upload_status
+  ),
+  moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
+  moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
+`;
+const MOMENT_DAY_BASE_SELECT = 'id, captured_at';
+const MOMENT_DAY_SELECT = `${MOMENT_DAY_BASE_SELECT}, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)`;
 
 const MIME_EXT = {
   'image/jpeg': 'jpg',
@@ -803,63 +839,22 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   if (!safeLimit) return [];
   const rows = [];
   for (const pageRange of archivePageRanges(safeLimit)) {
-    const { data, error } = await supabase
-      .from('moments')
-      .select(`
-        id,
-        family_id,
-        author_user_id,
-        title,
-        caption_note,
-        captured_at,
-        place_name,
-        latitude,
-        longitude,
-        shared_with,
-        created_at,
-        moment_media:moment_media!moment_media_moment_family_fkey (
-          id,
-          media_type,
-          local_identifier,
-          owner_user_id,
-          file_name,
-          mime_type,
-          width,
-          height,
-          duration_sec,
-          metadata,
-          upload_status,
-          quota_class,
-          storage_provider,
-          playback_provider,
-          stream_uid,
-          sort_order
-        ),
-        voice_notes:voice_notes!voice_notes_moment_family_fkey (
-          id,
-          author_user_id,
-          duration_sec,
-          waveform,
-          audio_object,
-          mime_type,
-          upload_status
-        ),
-        moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
-        moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
-      `)
-      .eq('family_id', familyId)
-      .order('captured_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(pageRange.from, pageRange.to);
-    if (error) {
-      if (isMissingPostgrestRelationship(error)) {
-        return listMomentArchiveWithoutEmbeddedRelationships(familyId, safeLimit);
-      }
+    let page;
+    try {
+      page = await readMomentRowsCompatible({
+        familyId,
+        embeddedSelect: MOMENT_RICH_SELECT,
+        baseSelect: MOMENT_BASE_SELECT,
+        applyQuery: (query) => query
+          .order('captured_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(pageRange.from, pageRange.to),
+      });
+    } catch (error) {
       console.warn('listMomentArchive', error.message);
       if (!rows.length) return [];
       break;
     }
-    const page = data || [];
     rows.push(...page);
     if (page.length < pageRange.take) break;
   }
@@ -867,24 +862,21 @@ export async function listMomentArchive(familyId, { limit = 120 } = {}) {
   return hydrateMomentRows(familyId, rows);
 }
 
-async function listMomentArchiveWithoutEmbeddedRelationships(familyId, safeLimit) {
-  const rows = [];
-  for (const pageRange of archivePageRanges(safeLimit)) {
-    const { data, error } = await supabase
-      .from('moments')
-      .select('id, family_id, author_user_id, title, caption_note, captured_at, place_name, latitude, longitude, shared_with, created_at')
-      .eq('family_id', familyId)
-      .order('captured_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(pageRange.from, pageRange.to);
-    if (error) throw error;
-    const page = data || [];
-    rows.push(...page);
-    if (page.length < pageRange.take) break;
-  }
-  if (!rows.length) return [];
-  const related = await attachMomentRelationsWithoutEmbeds(familyId, rows);
-  return hydrateMomentRows(familyId, related);
+async function readMomentRowsCompatible({
+  familyId,
+  embeddedSelect,
+  baseSelect,
+  applyQuery,
+  attachRelations = attachMomentRelationsWithoutEmbeds,
+}) {
+  return readPostgrestRelationshipCompatible({
+    familyId,
+    embeddedSelect,
+    baseSelect,
+    createQuery: (select) => supabase.from('moments').select(select),
+    applyQuery,
+    attachRelations,
+  });
 }
 
 async function attachMomentRelationsWithoutEmbeds(familyId, moments) {
@@ -946,58 +938,42 @@ async function attachMomentRelationsWithoutEmbeds(familyId, moments) {
   }));
 }
 
+async function attachMomentMediaWithoutEmbeds(familyId, moments) {
+  const ids = moments.map((moment) => moment.id).filter(Boolean);
+  const media = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const pageIds = ids.slice(offset, offset + 100);
+    const { data, error } = await supabase
+      .from('moment_media')
+      .select('id, moment_id, media_type, metadata, sort_order')
+      .eq('family_id', familyId)
+      .in('moment_id', pageIds);
+    if (error) throw error;
+    media.push(...(data || []));
+  }
+  const byMoment = new Map();
+  for (const row of media) {
+    if (!byMoment.has(row.moment_id)) byMoment.set(row.moment_id, []);
+    byMoment.get(row.moment_id).push(row);
+  }
+  return moments.map((moment) => ({
+    ...moment,
+    moment_media: (byMoment.get(moment.id) || [])
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)),
+  }));
+}
+
 export async function listMomentArchiveByIds(familyId, momentIds = []) {
   const ids = [...new Set((momentIds || []).filter(Boolean))].slice(0, 60);
   if (!familyId || !ids.length) return [];
-  const { data, error } = await supabase
-    .from('moments')
-    .select(`
-      id,
-      family_id,
-      author_user_id,
-      title,
-      caption_note,
-      captured_at,
-      place_name,
-      latitude,
-      longitude,
-      shared_with,
-      created_at,
-      moment_media:moment_media!moment_media_moment_family_fkey (
-        id,
-        media_type,
-        local_identifier,
-        owner_user_id,
-        file_name,
-        mime_type,
-        width,
-        height,
-        duration_sec,
-        metadata,
-        upload_status,
-        quota_class,
-        storage_provider,
-        playback_provider,
-        stream_uid,
-        sort_order
-      ),
-      voice_notes:voice_notes!voice_notes_moment_family_fkey (
-        id,
-        author_user_id,
-        duration_sec,
-        waveform,
-        audio_object,
-        mime_type,
-        upload_status
-      ),
-      moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
-      moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
-    `)
-    .eq('family_id', familyId)
-    .in('id', ids);
-  if (error) throw error;
+  const data = await readMomentRowsCompatible({
+    familyId,
+    embeddedSelect: MOMENT_RICH_SELECT,
+    baseSelect: MOMENT_BASE_SELECT,
+    applyQuery: (query) => query.in('id', ids),
+  });
   const order = new Map(ids.map((id, index) => [id, index]));
-  const rows = (data || []).sort((a, b) => (order.get(a.id) ?? ids.length) - (order.get(b.id) ?? ids.length));
+  const rows = data.sort((a, b) => (order.get(a.id) ?? ids.length) - (order.get(b.id) ?? ids.length));
   return hydrateMomentRows(familyId, rows);
 }
 
@@ -1013,15 +989,16 @@ export async function listMomentDayArchive(familyId, {
   const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
   for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
     const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
-    const { data, error } = await supabase
-      .from('moments')
-      .select('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)')
-      .eq('family_id', familyId)
-      .order('captured_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(offset, offset + take - 1);
-    if (error) throw error;
-    const page = data || [];
+    const page = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_DAY_SELECT,
+      baseSelect: MOMENT_DAY_BASE_SELECT,
+      applyQuery: (query) => query
+        .order('captured_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + take - 1),
+      attachRelations: attachMomentMediaWithoutEmbeds,
+    });
     for (const moment of page) {
       moments.push({ id: moment.id, captured_at: moment.captured_at });
       for (const media of moment.moment_media || []) {
@@ -1076,17 +1053,18 @@ export async function listMomentDayDetails(familyId, {
   const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
   for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
     const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
-    const { data, error } = await supabase
-      .from('moments')
-      .select('id, captured_at, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)')
-      .eq('family_id', familyId)
-      .gte('captured_at', range.start)
-      .lt('captured_at', range.end)
-      .order('captured_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(offset, offset + take - 1);
-    if (error) throw error;
-    const page = data || [];
+    const page = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_DAY_SELECT,
+      baseSelect: MOMENT_DAY_BASE_SELECT,
+      applyQuery: (query) => query
+        .gte('captured_at', range.start)
+        .lt('captured_at', range.end)
+        .order('captured_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + take - 1),
+      attachRelations: attachMomentMediaWithoutEmbeds,
+    });
     for (const moment of page) {
       moments.push({ id: moment.id, captured_at: moment.captured_at });
       for (const media of moment.moment_media || []) {
@@ -1110,58 +1088,19 @@ export async function listMomentDayDetails(familyId, {
 
 export async function getMomentDetail({ familyId, momentId }) {
   if (!familyId || !momentId) return null;
-  const { data, error } = await supabase
-    .from('moments')
-    .select(`
-      id,
-      family_id,
-      author_user_id,
-      title,
-      caption_note,
-      captured_at,
-      place_name,
-      latitude,
-      longitude,
-      shared_with,
-      created_at,
-      moment_media:moment_media!moment_media_moment_family_fkey (
-        id,
-        media_type,
-        local_identifier,
-        owner_user_id,
-        file_name,
-        mime_type,
-        width,
-        height,
-        duration_sec,
-        metadata,
-        upload_status,
-        quota_class,
-        storage_provider,
-        playback_provider,
-        stream_uid,
-        sort_order
-      ),
-      voice_notes:voice_notes!voice_notes_moment_family_fkey (
-        id,
-        author_user_id,
-        duration_sec,
-        waveform,
-        audio_object,
-        mime_type,
-        upload_status
-      ),
-      moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
-      moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
-    `)
-    .eq('family_id', familyId)
-    .eq('id', momentId)
-    .maybeSingle();
-  if (error) {
+  let rows;
+  try {
+    rows = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_RICH_SELECT,
+      baseSelect: MOMENT_BASE_SELECT,
+      applyQuery: (query) => query.eq('id', momentId).limit(1),
+    });
+  } catch (error) {
     console.warn('getMomentDetail', error.message);
     return null;
   }
-  const hydrated = await hydrateMomentRows(familyId, data ? [data] : []);
+  const hydrated = await hydrateMomentRows(familyId, rows);
   return hydrated[0] || null;
 }
 

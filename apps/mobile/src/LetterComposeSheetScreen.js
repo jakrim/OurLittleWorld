@@ -23,6 +23,7 @@ import { isMediaPolicyError, promptOverLimitVideo } from './mediaPolicy';
 import { uploadLetterAttachments } from './moments';
 import { notifyPartnerLetterSaved } from './notificationEvents';
 import { Letters } from './rituals';
+import { letterDraftState } from './letterStudioModel.js';
 
 const STARTERS = [
   { icon: 'sunny-outline', label: 'Right now', text: 'Right now, I want you to know…' },
@@ -62,8 +63,7 @@ export default function LetterComposeSheetScreen() {
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
     : Math.round(voice?.durationSec || 0);
-  const hasDraft = Boolean(title.trim() || body.trim() || assets.length || voice?.uri);
-  const canSave = Boolean(body.trim() || assets.length || voice?.uri);
+  const { hasDraft, canSave } = letterDraftState({ title, body, assets, voice });
   const privateCaption = useMemo(
     () => `Only the two family writers can read this letter for ${family?.babyName || 'your baby'}.`,
     [family?.babyName],

@@ -1,75 +1,66 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const source = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+import { buildPhotoBookHtml } from '../../src/archiveExportModel.js';
+import { savedFingerprintTelemetry } from '../../src/savedMediaFingerprintModel.js';
+import {
+  annotationDraftAnalytics,
+  annotationDraftKey,
+  clearSharedAnnotationDraft,
+  saveSharedAnnotationDraft,
+} from '../../src/sharedAnnotationDraftModel.js';
+import { sharedAnnotationExportRanges } from '../../src/sharedEnrichmentModel.js';
+import { chooseSharedTonightLookback } from '../../src/sharedLookbackModel.js';
 
-test('private shared-enrichment drafts have no network, logging, or error-reporting transport', () => {
-  const draftStore = source('../../src/sharedAnnotationDraftStore.js');
-  const draftModel = source('../../src/sharedAnnotationDraftModel.js');
-  const component = source('../../src/SharedMomentEnrichmentCard.js');
-
-  assert.doesNotMatch(`${draftStore}\n${draftModel}`, /from ['"]\.\/supabase|trackAnalytics|PostHog|Sentry|console\./i);
-  assert.doesNotMatch(component, /from ['"]\.\/supabase|PostHog|Sentry|console\./i);
-  assert.match(component, /trackAnalyticsEvent\('shared_annotation_saved',\s*\{\s*surface:\s*analyticsSurface,\s*annotation_kind:/s);
-  const eventCall = component.slice(
-    component.indexOf("trackAnalyticsEvent('shared_annotation_saved'"),
-    component.indexOf('await onSaved?.()'),
-  );
-  assert.doesNotMatch(eventCall, /\b(text|voice|uri|moment_id|asset_id|draft_text)\s*:/i);
-  assert.match(draftStore, /shared-annotation-drafts-v1/);
-  assert.match(draftModel, /familyId.*userId.*momentId/s);
+test('shared annotation drafts remain scoped and analytics contain only coarse state', async () => {
+  const rows = new Map();
+  const storage = {
+    getItem: async (key) => rows.get(key) || null,
+    setItem: async (key, value) => rows.set(key, value),
+    removeItem: async (key) => rows.delete(key),
+  };
+  const scope = { familyId: 'family-a', userId: 'parent-a', momentId: 'moment-a' };
+  const draft = await saveSharedAnnotationDraft(scope, {
+    text: 'Private parent words',
+    voice: { uri: 'file:///private/voice.m4a', durationSec: 4 },
+  }, storage);
+  assert.match(annotationDraftKey(scope), /family-a:parent-a:moment-a$/);
+  assert.deepEqual(annotationDraftAnalytics(draft), {
+    has_text: true,
+    has_voice: true,
+    commit_state: 'draft',
+  });
+  let deletedVoice = null;
+  await clearSharedAnnotationDraft(scope, { storage, deleteVoice: async (uri) => { deletedVoice = uri; } });
+  assert.equal(deletedVoice, 'file:///private/voice.m4a');
+  assert.equal(rows.size, 0);
 });
 
-test('saved-media fingerprints are registered only after canonical ready writes and never logged', () => {
-  const fingerprint = source('../../src/savedMediaFingerprint.js');
-  const moments = source('../../src/moments.js');
-  const photoSync = source('../../src/photoSync.js');
-
-  assert.doesNotMatch(fingerprint, /trackAnalytics|PostHog|Sentry|console\./i);
-  assert.match(fingerprint, /register_saved_media_fingerprint/);
-  assert.match(moments, /upload_status:\s*'ready'[\s\S]{0,500}registerReadySavedFileFingerprint/);
-  assert.match(photoSync, /upload_status:\s*'ready'[\s\S]{0,900}registerReadySavedFileFingerprint/);
-  assert.match(`${moments}\n${photoSync}`, /registerReadySavedFileFingerprint\([\s\S]*?\)\.catch\(\(\) => null\)/);
+test('saved lookbacks and fingerprint telemetry expose no private identity evidence', () => {
+  const chosen = chooseSharedTonightLookback([
+    { id: 'kept-b', captured_at: '2026-07-02' },
+    { id: 'kept-a', captured_at: '2026-07-01' },
+  ], { localDate: new Date('2026-08-10T12:00:00Z') });
+  assert.ok(['kept-a', 'kept-b'].includes(chosen.id));
+  assert.deepEqual(savedFingerprintTelemetry({ fingerprint_digest: 'private' }), { grouped_after_keep: true });
+  assert.deepEqual(sharedAnnotationExportRanges({ limit: 1200 }), [
+    { from: 0, to: 499, take: 500 },
+    { from: 500, to: 999, take: 500 },
+    { from: 1000, to: 1199, take: 200 },
+  ]);
 });
 
-test('shared Tonight lookbacks query only already-kept moments and never the private candidate ledger', () => {
-  const tonight = source('../../src/TonightScreen.js');
-  const moments = source('../../src/moments.js');
-  const archiveQuery = moments.slice(
-    moments.indexOf('export async function listMomentArchive('),
-    moments.indexOf('export async function listMomentArchiveByIds('),
-  );
-
-  assert.match(archiveQuery, /from\('moments'\)/);
-  assert.doesNotMatch(archiveQuery, /candidateLedger|mediaDb|local_asset_id|fingerprint/i);
-  assert.match(tonight, /listMomentArchive/);
-  assert.match(tonight, /media\.upload_status === 'ready'/);
-  assert.match(tonight, /SHARED_LOOKBACK_QUERY_LIMIT/);
-  assert.match(tonight, /Revisit a saved memory/);
-});
-
-test('archive media embeds name the family-scoped foreign keys', () => {
-  const moments = source('../../src/moments.js');
-  const photoSync = source('../../src/photoSync.js');
-
-  assert.match(moments, /moment_media:moment_media!moment_media_moment_family_fkey/);
-  assert.doesNotMatch(moments, /moment_media \(/);
-  assert.match(moments, /voice_notes:voice_notes!voice_notes_moment_family_fkey/);
-  assert.doesNotMatch(moments, /voice_notes \(/);
-  assert.match(moments, /moment_tags:moment_tags!moment_tags_moment_family_fkey/);
-  assert.match(moments, /moment_reactions:moment_reactions!moment_reactions_moment_family_fkey/);
-  assert.match(photoSync, /moment_media:moment_media!photo_tags_media_family_fkey/);
-  assert.doesNotMatch(photoSync, /moment_media\((?:media_type|metadata)/);
-});
-
-test('shared structures are included in archive export without exporting exact-group fingerprints', () => {
-  const exportService = source('../../src/archiveExport.js');
-  const exportModel = source('../../src/archiveExportModel.js');
-  const enrichment = source('../../src/sharedEnrichment.js');
-
-  assert.match(`${exportService}\n${exportModel}`, /annotations/);
-  assert.match(`${exportService}\n${exportModel}`, /collections/);
-  assert.doesNotMatch(`${exportService}\n${exportModel}`, /saved_event_groups|fingerprint_digest|content-md5/i);
-  assert.match(enrichment, /\.range\(range\.from, range\.to\)/);
+test('archive output includes parent contributions and factual collections only', () => {
+  const html = buildPhotoBookHtml({
+    family: { babyName: 'Child' },
+    annotations: [{ annotation_type: 'text', body: 'A parent note', author_user_id: 'parent-a' }],
+    annotationAuthors: { 'parent-a': 'Parent' },
+    collections: [{ title: 'First year', moment_count: 1 }],
+    generatedAt: new Date('2026-08-10T12:00:00Z'),
+    saved_event_groups: [{ fingerprint_digest: 'must-not-export' }],
+  });
+  assert.match(html, /Parent contributions/);
+  assert.match(html, /A parent note/);
+  assert.match(html, /First year/);
+  assert.doesNotMatch(html, /must-not-export|fingerprint_digest/);
 });

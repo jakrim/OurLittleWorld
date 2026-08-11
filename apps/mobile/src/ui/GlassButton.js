@@ -4,10 +4,11 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { glass, radius, useTheme } from './theme';
+import { glassButtonIconColor } from '../themeStyleContractModel.js';
 
 export default function GlassButton({ icon, onPress, accessibilityLabel, style }) {
   const theme = useTheme();
-  const iconColor = theme.colors.ink;
+  const iconColor = glassButtonIconColor(theme);
   return (
     <Pressable
       onPress={onPress}

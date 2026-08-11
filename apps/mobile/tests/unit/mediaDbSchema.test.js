@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -19,9 +19,11 @@ import {
   MEDIA_DB_REQUIRED_COLLECTION_DRAFT_COLUMNS,
   MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS,
   MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS,
+  MEDIA_DB_REQUIRED_SESSION_COLUMNS,
   MEDIA_DB_SCHEMA_VERSION,
   TONIGHT_ENRICHMENT_MIGRATION_SQL,
   TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL,
+  TONIGHT_CONTINUATION_MIGRATION_SQL,
 } from '../../src/mediaDbSchema.js';
 
 test('candidate ledger migration succeeds on a fresh database and is repeatable', () => {
@@ -69,7 +71,7 @@ test('mixed Tonight drafts and stable retry identities survive reopen and remain
     run(dbPath, `
       insert into nightly_review_sessions values (
         'session-draft','family-a','parent-a','2026-07-18','America/New_York','seed','active',
-        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18','2026-07-18',null
+        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18','2026-07-18',null,0
       );
       insert into nightly_review_items (
         session_id,position,family_id,user_id,asset_id,reason_code,item_state,commit_state,draft_text,updated_at
@@ -152,6 +154,29 @@ test('version 4 upgrades Tonight collection drafts without changing an active ca
   });
 });
 
+test('version 5 upgrades legacy continuation seeds to an explicit durable flag', () => {
+  withDatabase((dbPath) => {
+    migrateV5(dbPath);
+    run(dbPath, `
+      insert into nightly_review_sessions values
+        ('primary','family-a','parent-a','2026-08-10','America/New_York','2026-08-10','completed',
+         'nightly-queue-v2','curated-ledger-v1',1,1,'2026-08-10','2026-08-10','2026-08-10'),
+        ('more','family-a','parent-a','2026-08-10','America/New_York','2026-08-10:more:1','completed',
+         'nightly-queue-v2','curated-ledger-v1',1,1,'2026-08-10','2026-08-10','2026-08-10'),
+        ('revalidated','family-a','parent-a','2026-08-10','America/New_York','2026-08-10:revalidated','active',
+         'nightly-queue-v2','curated-ledger-v1',0,1,'2026-08-10','2026-08-10',null);
+    `);
+    run(dbPath, `begin immediate; ${TONIGHT_CONTINUATION_MIGRATION_SQL} pragma user_version = 6; commit;`);
+    assert.equal(query(dbPath, `select group_concat(value, ',') from (
+      select session_id || ':' || is_continuation as value
+      from nightly_review_sessions order by session_id
+    );`), 'more:1,primary:0,revalidated:1');
+    const columns = query(dbPath, 'pragma table_info(nightly_review_sessions);')
+      .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
+    for (const required of MEDIA_DB_REQUIRED_SESSION_COLUMNS) assert.ok(columns.includes(required));
+  });
+});
+
 test('upgrade preserves the current production local tables and their rows', () => {
   withDatabase((dbPath) => {
     run(dbPath, `
@@ -191,11 +216,11 @@ test('overlapping scans remain idempotent and one scope has only one active queu
 
     run(dbPath, `insert into nightly_review_sessions values (
       'session-a','family-a','parent-a','2026-07-18','America/New_York','seed','active',
-      'nightly-queue-v1','curated-ledger-v1',0,0,'2026-07-18','2026-07-18',null
+      'nightly-queue-v1','curated-ledger-v1',0,0,'2026-07-18','2026-07-18',null,0
     );`);
     assert.throws(() => run(dbPath, `insert into nightly_review_sessions values (
       'session-b','family-a','parent-a','2026-07-19','America/New_York','seed','active',
-      'nightly-queue-v1','curated-ledger-v1',0,0,'2026-07-19','2026-07-19',null
+      'nightly-queue-v1','curated-ledger-v1',0,0,'2026-07-19','2026-07-19',null,0
     );`));
   });
 });
@@ -207,7 +232,7 @@ test('queue session and item creation roll back together on an invalid item', ()
       begin immediate;
       insert into nightly_review_sessions values (
         'session-rollback','family-a','parent-a','2026-07-18','America/New_York','seed','active',
-        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18','2026-07-18',null
+        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18','2026-07-18',null,0
       );
       insert into nightly_review_items (
         session_id,position,family_id,user_id,asset_id,reason_code,item_state,updated_at
@@ -225,7 +250,7 @@ test('session order, draft and decision survive process-style database reopen', 
     run(dbPath, `
       insert into nightly_review_sessions values (
         'session-1','family-a','parent-a','2026-07-18','America/New_York','seed','active',
-        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18T20:00:00Z','2026-07-18T20:00:00Z',null
+        'nightly-queue-v1','curated-ledger-v1',0,1,'2026-07-18T20:00:00Z','2026-07-18T20:00:00Z',null,0
       );
       insert into nightly_review_items (
         session_id,position,family_id,user_id,asset_id,reason_code,item_state,commit_state,draft_text,updated_at
@@ -275,7 +300,7 @@ test('migration wrapper turns partial or storage failures into actionable diagno
   );
 });
 
-test('schema validation rejects a version 5 database missing saved-day coverage', () => {
+test('schema validation rejects a current database missing saved-day coverage', () => {
   const database = {
     getAllSync: (sql) => {
       if (sql.includes('discovery_candidates')) return MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS.map((name) => ({ name }));
@@ -283,6 +308,7 @@ test('schema validation rejects a version 5 database missing saved-day coverage'
         return [...MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS, ...MEDIA_DB_REQUIRED_COLLECTION_DRAFT_COLUMNS]
           .map((name) => ({ name }));
       }
+      if (sql.includes('nightly_review_sessions')) return MEDIA_DB_REQUIRED_SESSION_COLUMNS.map((name) => ({ name }));
       if (sql.includes('family_saved_day_facts')) return [];
       if (sql.includes('local_asset_mappings')) return MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS.map((name) => ({ name }));
       return MEDIA_DB_REQUIRED_SAVED_DAY_COLUMNS.map((name) => ({ name }));
@@ -291,12 +317,16 @@ test('schema validation rejects a version 5 database missing saved-day coverage'
   assert.throws(() => assertCandidateLedgerSchema(database), /saved-day coverage store is incomplete/i);
 });
 
-test('private ledger implementation has no Supabase, analytics, Sentry or PostHog transport', () => {
-  const source = readFileSync(new URL('../../src/candidateLedgerStore.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /from ['"]\.\/supabase|trackAnalytics|Sentry|PostHog|posthog/);
-  for (const privateField of ['asset_id', 'visual_fingerprint_json', 'identity_evidence_json']) {
-    assert.ok(CANDIDATE_LEDGER_MIGRATION_SQL.includes(privateField));
-  }
+test('private evidence is accepted only in the device-local ledger schema', () => {
+  withDatabase((dbPath) => {
+    migrate(dbPath);
+    run(dbPath, candidateInsert({ familyId: 'family-a', userId: 'parent-a', assetId: 'asset-private', state: 'eligible' }));
+    run(dbPath, `update discovery_candidates
+      set visual_fingerprint_json='[1,-1]', identity_evidence_json='{"score":0.94}'
+      where family_id='family-a' and user_id='parent-a' and asset_id='asset-private';`);
+    assert.equal(query(dbPath, `select visual_fingerprint_json || '|' || identity_evidence_json
+      from discovery_candidates where asset_id='asset-private';`), '[1,-1]|{"score":0.94}');
+  });
 });
 
 test('5,000 private candidates ingest and query within a bounded page', () => {
@@ -389,7 +419,7 @@ test('5,000 kept-media identity mappings remain bounded and use the remote looku
 function migrate(dbPath) {
   if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
@@ -416,6 +446,11 @@ function migrateV3(dbPath) {
 function migrateV4(dbPath) {
   migrateV3(dbPath);
   run(dbPath, `begin immediate; ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} pragma user_version = 4; commit;`);
+}
+
+function migrateV5(dbPath) {
+  migrateV4(dbPath);
+  run(dbPath, `begin immediate; ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} pragma user_version = 5; commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {

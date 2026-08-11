@@ -95,6 +95,7 @@ import {
 } from './curatedMemoryAnalyticsModel';
 import {
   TONIGHT_MEDIA_COLLAPSE_DISTANCE,
+  TONIGHT_REVIEW_COPY,
   tonightMediaHeights,
 } from './tonightReviewLayoutModel';
 import { buildTodayManualQaFixture } from './todayManualQaFixtures';
@@ -870,7 +871,7 @@ export default function TonightScreen() {
 
           <Spacer h={space.md} />
           <Field
-            label="Add a note (optional)"
+            label={TONIGHT_REVIEW_COPY.noteLabel}
             value={draft}
             onChangeText={changeDraft}
             placeholder="What do you want to remember?"
@@ -927,7 +928,7 @@ export default function TonightScreen() {
             <View style={styles.collectionDraft}>
               <View style={styles.collectionDraftHeader}>
                 <Caption style={styles.collectionDraftTitle}>Collections</Caption>
-                <Caption>Selected collections are added when you Keep.</Caption>
+                <Caption>{TONIGHT_REVIEW_COPY.collectionCaption}</Caption>
               </View>
               <View style={styles.collectionChipRow}>
                 {collectionSuggestions.map((suggestion) => {
@@ -979,7 +980,7 @@ export default function TonightScreen() {
         <View style={[styles.decisionDock, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
           {statusCopy || error || keepNeedsRetry ? (
             <Caption style={[styles.error, { color: error ? theme.colors.danger : theme.semantic.muted }]}>
-              {statusCopy || error || 'This memory didn’t finish saving. Retry Keep before moving on.'}
+              {statusCopy || error || TONIGHT_REVIEW_COPY.retryKeep}
             </Caption>
           ) : null}
           <View style={styles.actions}>
@@ -997,7 +998,7 @@ export default function TonightScreen() {
             testID="tonight-picker"
           >
             <Ionicons name="images-outline" size={17} color={theme.semantic.primary} />
-            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>Another</Caption>
+            <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>{TONIGHT_REVIEW_COPY.anotherLabel}</Caption>
           </Pressable>
         </View>
       </KeyboardAvoidingView>

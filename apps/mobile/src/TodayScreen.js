@@ -42,7 +42,7 @@ import { bucketCount } from './analyticsEventsModel';
 import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 import { localDayInTimeZone } from './firstYearCatchupModel';
 import { parentReasonLabel } from './nightlyQueueModel';
-import { buildTodayManualQaFixture } from './todayManualQaFixtures';
+import { buildTodayManualQaFixture, todayManualQaRouteParams } from './todayManualQaFixtures';
 import { isManualQaRuntime } from './manualQaRuntime';
 
 export default function TodayScreen() {
@@ -178,10 +178,7 @@ export default function TodayScreen() {
     if (home.kind === 'tonight') {
       router.push({
         pathname: '/tonight',
-        params: {
-          source: 'today',
-          ...(manualQaFixture ? { qa: 'photo-first' } : {}),
-        },
+        params: todayManualQaRouteParams(manualQaFixture),
       });
       return;
     }

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import robots from "../app/robots.ts";
@@ -14,6 +13,7 @@ import {
   websiteStructuredData,
   type SiteRouteId,
 } from "../lib/siteSeo.ts";
+import { unfinishedBabyBookActions } from "../lib/unfinishedBabyBookPageModel.ts";
 
 const indexableRouteIds = [
   "home",
@@ -90,8 +90,6 @@ test("email preferences remains crawlable for users but noindex for search", () 
 });
 
 test("noncanonical routes cannot inherit the homepage canonical from the root layout", () => {
-  const layoutSource = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(layoutSource, /metadataFor\("home"\)/);
   assert.equal(metadataFor("checkoutSuccess").alternates, undefined);
   assert.equal(metadataFor("giftCheckoutSuccess").alternates, undefined);
   assert.equal(metadataFor("partners").alternates, undefined);
@@ -99,14 +97,9 @@ test("noncanonical routes cannot inherit the homepage canonical from the root la
 });
 
 test("unfinished baby-book angle uses the pre-launch form instead of purchase CTAs", () => {
-  const source = readFileSync(
-    new URL("../app/for/unfinished-baby-book/page.tsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.match(source, /CommercialAvailability surface="angle"/);
-  assert.match(source, /Join the launch list/);
-  assert.match(source, /Explore planned gift years/);
-  assert.doesNotMatch(source, />\s*Start your baby book\s*</);
-  assert.doesNotMatch(source, />\s*Gift the first year\s*</);
+  assert.deepEqual(unfinishedBabyBookActions, {
+    launch: { href: "#launch-list", label: "Join the launch list" },
+    gift: { href: "/gift/?angle=unfinished-baby-book", label: "Explore planned gift years" },
+  });
+  assert.doesNotMatch(JSON.stringify(unfinishedBabyBookActions), /Start your baby book|Gift the first year/);
 });

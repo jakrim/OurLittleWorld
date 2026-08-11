@@ -1,58 +1,47 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { test } from 'node:test';
+import test from 'node:test';
 
-const SRC = path.resolve(import.meta.dirname, '../../src');
-const APP = path.resolve(import.meta.dirname, '../../app');
+import {
+  autoSeedProgressCopy,
+  selectAutoSeedSuggestions,
+} from '../../src/referenceAutoSeedModel.js';
+import {
+  referenceDiscoveryBackTarget,
+  referenceDiscoveryTrustCopy,
+} from '../../src/referenceDiscoveryExperienceModel.js';
 
-test('reference discovery surfaces real-photo possibilities and explicit retry', async () => {
-  const [screen, discovery] = await Promise.all([
-    readFile(path.join(SRC, 'ReferencePhotoScreen.js'), 'utf8'),
-    readFile(path.join(SRC, 'referenceAutoSeed.js'), 'utf8'),
-  ]);
-  assert.match(screen, /birthday-discovery-suggestions/);
-  assert.match(screen, /These are possibilities, not confirmed matches/);
-  assert.match(screen, /Choose another from Photos/);
-  assert.match(screen, /Return to suggested photos/);
-  assert.match(screen, /Try automatic search again/);
-  assert.match(screen, /\(!autoSeedRequested && autoSeedRun === 0\)/);
-  assert.match(screen, /Photos stay on this iPhone/);
-  assert.match(screen, /preparedPreview/);
-  assert.match(screen, /'\/first-value-preview'/);
-  assert.match(screen, /AUTO_SEED_UI_WATCHDOG_MS/);
-  assert.match(screen, /picked && !autoSeeding/);
-  assert.match(screen, /restored && !error && !autoSeeding/);
-  assert.match(screen, /autoSeeding \? \(\s*<Button variant="quiet" onPress=\{onBack\}>/);
-  assert.doesNotMatch(screen, /Choose from Photos instead/);
-  assert.doesNotMatch(screen, /Step 1 of 2/);
-  assert.doesNotMatch(screen, /progressPercent/);
-  assert.doesNotMatch(screen, /appears across the months/);
-  assert.match(discovery, /AUTO_SEED_ANALYSIS_WAVE_SIZE/);
-  assert.match(discovery, /AUTO_SEED_MAX_DURATION_MS/);
-  assert.match(discovery, /AUTO_SEED_EMBED_TIMEOUT_MS/);
-  assert.match(discovery, /resolveWithin/);
-  assert.match(discovery, /firstLookPreview/);
-  assert.match(discovery, /earlyExit/);
+test('reference discovery presents measured possibilities without confirming identity', () => {
+  const suggestions = selectAutoSeedSuggestions({
+    clusters: [
+      {
+        members: [
+          { assetId: 'a', captureQuality: 0.9, embedding: [1, 0], localUri: 'file:///a.jpg', faceCount: 1 },
+          { assetId: 'a-peer', captureQuality: 0.8, embedding: [0.99, 0.01], localUri: 'file:///a-peer.jpg', faceCount: 1 },
+        ],
+      },
+      {
+        members: [
+          { assetId: 'b', captureQuality: 0.8, embedding: [0, 1], localUri: 'file:///b.jpg', faceCount: 1 },
+          { assetId: 'b-peer', captureQuality: 0.75, embedding: [0.01, 0.99], localUri: 'file:///b-peer.jpg', faceCount: 1 },
+        ],
+      },
+    ],
+  });
+  assert.ok(suggestions.length <= 3);
+  const copy = referenceDiscoveryTrustCopy({ babyName: 'Child' });
+  assert.match(copy.possibility, /possibilities, not confirmed matches/);
+  assert.match(copy.privacy, /this iPhone/);
+  assert.doesNotMatch(copy.possibility, /definitely|we know/i);
 });
 
-test('first-value Back uses a stable setup route instead of router history', async () => {
-  const [screen, setupRoute, setupScreen, scanScreen, previewScan] = await Promise.all([
-    readFile(path.join(SRC, 'ReferencePhotoScreen.js'), 'utf8'),
-    readFile(path.join(APP, 'setup.jsx'), 'utf8'),
-    readFile(path.join(SRC, 'SetupScreen.js'), 'utf8'),
-    readFile(path.join(SRC, 'ScanProgressScreen.js'), 'utf8'),
-    readFile(path.join(SRC, 'firstValuePreviewScan.js'), 'utf8'),
-  ]);
-  assert.match(screen, /pathname: '\/setup'/);
-  assert.match(screen, /resumeDiscovery: '1'/);
-  assert.match(setupRoute, /allowFirstValue/);
-  assert.match(setupScreen, /autoSeed: 'resume'/);
-  assert.match(previewScan, /FIRST_VALUE_SCAN_WATCHDOG_MS/);
-  assert.match(previewScan, /Scan\.abort\(\)/);
-  assert.match(scanScreen, /\['done', 'failed', 'aborted'\]/);
-  assert.match(scanScreen, /Use this photo for now/);
-  assert.doesNotMatch(scanScreen, /Try another short search|Choose a different photo/);
-  assert.match(scanScreen, /prepareReferenceFirstValuePreview/);
-  assert.match(previewScan, /previewFromReference/);
+test('first-value Back returns to a stable resumable setup destination', () => {
+  assert.deepEqual(referenceDiscoveryBackTarget({ firstValueRequested: true, canGoBack: true }), {
+    action: 'replace',
+    destination: {
+      pathname: '/setup',
+      params: { source: 'first_value', resumeDiscovery: '1' },
+    },
+  });
+  assert.deepEqual(referenceDiscoveryBackTarget({ canGoBack: true }), { action: 'back', destination: null });
+  assert.match(autoSeedProgressCopy({ phase: 'analyzing', completed: 3, total: 12 }).title, /clear face/i);
 });

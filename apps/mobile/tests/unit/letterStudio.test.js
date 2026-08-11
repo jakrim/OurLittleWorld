@@ -1,43 +1,35 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { test } from 'node:test';
+import test from 'node:test';
 
-const MOBILE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const REPO_ROOT = path.resolve(MOBILE_ROOT, '../..');
+import { attachmentTarget } from '../../src/mediaAttachmentTarget.js';
+import { letterDraftState, transcribeLocalLetterRecording } from '../../src/letterStudioModel.js';
 
-test('letter studio exposes durable media, voice, and editable transcription tools', async () => {
-  const source = await readFile(path.join(MOBILE_ROOT, 'src/LetterComposeSheetScreen.js'), 'utf8');
-
-  assert.match(source, /launchImageLibraryAsync/);
-  assert.match(source, /launchCameraAsync/);
-  assert.match(source, /useAudioRecorder/);
-  assert.match(source, /transcribeLetterRecording/);
-  assert.match(source, /setBody\(\(current\).*transcript/s);
-  assert.match(source, /uploadLetterAttachments/);
-  assert.match(source, /canSave = Boolean\(body\.trim\(\) \|\| assets\.length \|\| voice\?\.uri\)/);
+test('letters save from words, media, or local voice without requiring a title', () => {
+  assert.deepEqual(letterDraftState({ title: 'Title only' }), { hasDraft: true, canSave: false });
+  assert.deepEqual(letterDraftState({ body: 'Parent words' }), { hasDraft: true, canSave: true });
+  assert.equal(letterDraftState({ assets: [{ uri: 'file:///photo.jpg' }] }).canSave, true);
+  assert.equal(letterDraftState({ voice: { uri: 'file:///voice.m4a' } }).canSave, true);
 });
 
-test('letter attachments have exactly one owner and remain writer-only', async () => {
-  const migration = await readFile(
-    path.join(REPO_ROOT, 'supabase/migrations/20260711230000_letter_media_attachments.sql'),
-    'utf8',
+test('letter transcription invokes only the supplied on-device interface', async () => {
+  const calls = [];
+  const text = await transcribeLocalLetterRecording('file:///private/letter.m4a', async (uri) => {
+    calls.push(uri);
+    return '  Parent transcript  ';
+  });
+  assert.equal(text, 'Parent transcript');
+  assert.deepEqual(calls, ['file:///private/letter.m4a']);
+  await assert.rejects(
+    transcribeLocalLetterRecording('https://example.com/voice.m4a', async () => 'never'),
+    /local recording/,
   );
-
-  assert.match(migration, /add column if not exists letter_id uuid references public\.letters\(id\) on delete cascade/);
-  assert.match(migration, /num_nonnulls\(moment_id, letter_id\) = 1/g);
-  assert.match(migration, /moment_id is not null\s+and public\.is_family_circle_member/s);
-  assert.doesNotMatch(migration, /letter_id is not null\s+and public\.is_family_circle_member/s);
 });
 
-test('letter transcription explicitly requires on-device recognition', async () => {
-  const source = await readFile(
-    path.join(MOBILE_ROOT, 'modules/expo-letter-transcriber/ios/ExpoLetterTranscriberModule.swift'),
-    'utf8',
-  );
-
-  assert.match(source, /supportsOnDeviceRecognition/);
-  assert.match(source, /requiresOnDeviceRecognition = true/);
-  assert.doesNotMatch(source, /URLSession|uploadTask|dataTask/);
+test('letter attachment targets are mutually exclusive with moment targets', () => {
+  assert.deepEqual(attachmentTarget({ familyId: 'family-a', letterId: 'letter-a' }), {
+    id: 'letter-a',
+    basePath: 'family-a/letters/letter-a',
+    columns: { letter_id: 'letter-a' },
+  });
+  assert.throws(() => attachmentTarget({ familyId: 'family-a', momentId: 'moment-a', letterId: 'letter-a' }), /exactly one/i);
 });

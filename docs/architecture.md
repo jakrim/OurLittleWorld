@@ -160,12 +160,14 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   ranked against family-union saved-day coverage in the family ritual timezone;
   completed primary sessions pace from three to five to seven cards, and an optional
   continuation is capped at three without counting as another evening or notification.
-  SQLite schema version 4 persists capture timezone, scan last-seen/availability
+  SQLite schema version 6 persists capture timezone, scan last-seen/availability
   provenance, unavailable reason, and a family-scoped saved-day fact cache in addition
   to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
   selected burst alternate, stable retry/canonical identities, per-step commit state,
-  and private-file cleanup state. The item row retains the 280-character text draft.
+  and private-file cleanup state. Sessions persist `is_continuation` explicitly so
+  revalidated and parent-requested continuations share pacing, analytics, and local
+  notification suppression semantics. The item row retains the 280-character text draft.
   An unfinished session resumes until completed; one active
   session is enforced per family/parent, and a completed session suppresses another
   queue on the same local day. `/tonight` keeps through the canonical
@@ -214,7 +216,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   summary/page views inherit writer-only RLS; active entitlement is required for
   correction RPCs, while Circle cannot enumerate the archive. The mobile reader pages
   at 60 memories and scans at most 5,000 lightweight IDs; canonical moments are then
-  hydrated in ordered bounded batches. SQLite schema version 5 keeps Tonight's
+  hydrated in ordered bounded batches. SQLite schema version 6 keeps Tonight's
   selected-by-default factual choices and collection commit state private until Keep,
   after which the existing idempotent moment transaction applies them. Scene/activity
   classification remains gated because the existing heuristic is not a validated

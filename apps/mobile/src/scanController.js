@@ -44,6 +44,7 @@ import { buildDailyCurationPlan } from './dailyCurationModel';
 import {
   collapseAnalyzedMediaCandidates,
   collapseScoredMediaCandidates,
+  completelyAnalyzedMediaCandidates,
 } from './scanMediaMatchModel';
 import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
 import { CANDIDATE_LIVE_MATCH_LIMIT } from './candidateLedgerModel';
@@ -523,8 +524,9 @@ export async function start({
         scored,
         processedAssetIds,
       });
+      const completedCandidates = completelyAnalyzedMediaCandidates(candidates, processedAssetIds);
       const newMatchesRaw = collapseScoredMediaCandidates({
-        candidates,
+        candidates: completedCandidates,
         scored,
         cutoff,
       });
