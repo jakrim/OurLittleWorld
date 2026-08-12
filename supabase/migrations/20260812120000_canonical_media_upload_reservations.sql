@@ -9,6 +9,21 @@ create unique index if not exists media_upload_reservations_canonical_active_idx
     and transport is not null
     and status in ('reserved', 'finalized');
 
+drop policy if exists media_upload_reservations_select on public.media_upload_reservations;
+create policy media_upload_reservations_select on public.media_upload_reservations for select
+  using (
+    (
+      status = 'reserved'
+      and user_id = auth.uid()
+      and public.is_family_writer(family_id)
+      and public.family_has_active_entitlement(family_id)
+    )
+    or (
+      status in ('finalized', 'released', 'expired')
+      and public.is_family_member(family_id)
+    )
+  );
+
 create or replace function public.authorize_canonical_media_upload(target_family_id uuid)
 returns void
 language plpgsql
