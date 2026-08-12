@@ -5,6 +5,7 @@ import {
   assertCanonicalMediaIdentity,
   canonicalMediaProviderIdentity,
   ensureCanonicalMoment,
+  finalizeCanonicalProviderUpload,
   resumeCanonicalProviderUpload,
 } from '../../src/canonicalMediaKeepModel.js';
 
@@ -124,6 +125,36 @@ test('process replay reconciles an accepted upload before reusing a consumed URL
   assert.equal(replayed.uid, 'stream-1');
   assert.equal(replayed.state, 'uploaded');
   assert.equal(replayed.uploadURL, null);
+});
+
+test('provider finalization only becomes terminal after confirmation persists', async () => {
+  let persisted = { uid: 'stream-1', reservationId: 'reservation-1', state: 'uploaded' };
+  let remoteStatus = 'reserved';
+  let finalizeCalls = 0;
+  let failFinalizedPersist = true;
+  const run = () => finalizeCanonicalProviderUpload({
+    context: persisted,
+    finalize: async () => {
+      finalizeCalls += 1;
+      if (remoteStatus !== 'finalized') remoteStatus = 'finalized';
+    },
+    persist: async (next) => {
+      if (failFinalizedPersist) {
+        failFinalizedPersist = false;
+        throw new Error('local state write failed after quota finalize');
+      }
+      persisted = next;
+    },
+  });
+
+  await assert.rejects(run, /after quota finalize/);
+  assert.equal(persisted.state, 'uploaded');
+  const replayed = await run();
+
+  assert.equal(finalizeCalls, 2);
+  assert.equal(remoteStatus, 'finalized');
+  assert.equal(replayed.uid, 'stream-1');
+  assert.equal(replayed.state, 'finalized');
 });
 
 test('canonical identity checks refuse unrelated moment and media rows', async () => {

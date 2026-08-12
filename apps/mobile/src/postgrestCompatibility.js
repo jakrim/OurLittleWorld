@@ -32,6 +32,38 @@ export async function readPostgrestRelationshipCompatible({
   return rows.length ? attachRelations(familyId, rows) : [];
 }
 
+export async function readChronologicalPostgrestRelationshipCompatible({
+  familyId,
+  embeddedSelect,
+  baseSelect,
+  createQuery,
+  applyQuery = async (query) => query,
+  attachRelations,
+  limit = 60,
+  capturedOnOrAfter = null,
+  capturedBefore = null,
+} = {}) {
+  return readPostgrestRelationshipCompatible({
+    familyId,
+    embeddedSelect,
+    baseSelect,
+    createQuery: (select) => {
+      let query = createQuery(select)
+        .eq('upload_status', 'ready')
+        .not('creation_time', 'is', null)
+        .order('creation_time', { ascending: true, nullsFirst: false })
+        .order('asset_owner_user_id', { ascending: true })
+        .order('asset_id', { ascending: true })
+        .limit(limit);
+      if (capturedOnOrAfter) query = query.gte('creation_time', capturedOnOrAfter);
+      if (capturedBefore) query = query.lt('creation_time', capturedBefore);
+      return query;
+    },
+    applyQuery,
+    attachRelations,
+  });
+}
+
 function rowsFromResult(data) {
   if (Array.isArray(data)) return data;
   return data ? [data] : [];

@@ -62,6 +62,18 @@ export async function resumeCanonicalProviderUpload({ context = null, prepare, p
   return current;
 }
 
+export async function finalizeCanonicalProviderUpload({ context, finalize, persist }) {
+  const current = normalizedProviderContext(context);
+  if (!current?.uid || !current?.reservationId) throw new Error('Provider upload identity is incomplete');
+  if (current.state === 'finalized') return current;
+  if (current.state !== 'uploaded') throw new Error('Provider upload is not ready to finalize');
+
+  await finalize(current);
+  const finalized = { ...current, uploadURL: null, state: 'finalized' };
+  await persist(finalized);
+  return finalized;
+}
+
 function validateCanonicalMoment(existing, expected) {
   if (
     String(existing.family_id || '') !== String(expected.family_id)

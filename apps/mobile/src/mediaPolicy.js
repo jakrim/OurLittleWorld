@@ -3,6 +3,7 @@ import { File } from 'expo-file-system';
 
 import { supabase } from './supabase';
 import { getFamilyEntitlement } from './billing';
+import { confirmMediaUploadFinalized } from './mediaUploadRecoveryModel.js';
 
 /**
  * Media policy for uploads. Wraps the plan entitlement checks and the
@@ -69,7 +70,7 @@ export async function assertVideoWithinPlan({ familyId, durationSec, sourceBytes
  * infrastructure errors fail open (upload proceeds, server still counts
  * usage at finalize) so a flaky network can't brick saving memories.
  */
-export async function reserveMediaUpload({ familyId, mediaType, bytes, durationSec = 0, quotaClass = 'optimized' }) {
+export async function reserveMediaUpload({ familyId, mediaType, bytes, durationSec = 0, quotaClass = 'optimized', required = false }) {
   try {
     const { data, error } = await supabase.rpc('reserve_media_upload', {
       target_family_id: familyId,
@@ -85,19 +86,34 @@ export async function reserveMediaUpload({ familyId, mediaType, bytes, durationS
     return row.reservation_id;
   } catch (err) {
     if (isMediaPolicyError(err)) throw err;
+    if (required) throw err;
     console.warn('reserveMediaUpload skipped', err?.message);
     return null;
   }
 }
 
 export async function finalizeMediaUpload(reservationId, { bytes = null, durationSec = null } = {}) {
-  if (!reservationId) return;
-  const { error } = await supabase.rpc('finalize_media_upload', {
-    p_reservation_id: reservationId,
-    p_actual_bytes: bytes == null ? null : Math.max(0, Math.round(bytes)),
-    p_actual_duration_sec: durationSec == null ? null : Math.max(0, Math.round(durationSec)),
+  if (!reservationId) return null;
+  return confirmMediaUploadFinalized({
+    reservationId,
+    finalize: async () => {
+      const { error } = await supabase.rpc('finalize_media_upload', {
+        p_reservation_id: reservationId,
+        p_actual_bytes: bytes == null ? null : Math.max(0, Math.round(bytes)),
+        p_actual_duration_sec: durationSec == null ? null : Math.max(0, Math.round(durationSec)),
+      });
+      if (error) throw error;
+    },
+    read: async () => {
+      const { data, error } = await supabase
+        .from('media_upload_reservations')
+        .select('id, status')
+        .eq('id', reservationId)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
   });
-  if (error) console.warn('finalizeMediaUpload', error.message);
 }
 
 export async function releaseMediaUpload(reservationId) {

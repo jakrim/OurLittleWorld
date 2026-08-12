@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert@1';
 
-import { canonicalStreamCreator, streamVideoDisposition } from './model.ts';
+import { canonicalStreamCreator, legacyStreamRetryDisposition, streamVideoDisposition } from './model.ts';
 
 const mediaId = '11111111-1111-4111-8111-111111111111';
 const familyId = '22222222-2222-4222-8222-222222222222';
@@ -41,4 +41,80 @@ Deno.test('provider records must match canonical family scope', () => {
     meta: { familyId: 'another-family', canonicalMediaId: mediaId, reservationId: 'reservation-1' },
   }), { canonicalMediaId: mediaId, familyId });
   assertEquals(result.action, 'invalid');
+});
+
+Deno.test('legacy provider retries require attached reservation and canonical media authorization', () => {
+  const authorized = legacyStreamRetryDisposition({
+    canonicalMediaId: mediaId,
+    familyId,
+    userId: 'parent-1',
+    providerUid: 'legacy-stream-1',
+    providerState: 'uploaded',
+    reservation: {
+      id: 'reservation-legacy',
+      family_id: familyId,
+      user_id: 'parent-1',
+      provider: null,
+      provider_object_id: null,
+      status: 'reserved',
+    },
+    media: {
+      id: mediaId,
+      family_id: familyId,
+      owner_user_id: 'parent-1',
+      stream_uid: 'legacy-stream-1',
+    },
+    video: {
+      uid: 'legacy-stream-1',
+      meta: { familyId },
+      status: { state: 'ready' },
+    },
+  });
+  assertEquals(authorized, { action: 'uploaded', reservationId: 'reservation-legacy' });
+
+  const denied = legacyStreamRetryDisposition({
+    canonicalMediaId: mediaId,
+    familyId,
+    userId: 'parent-1',
+    providerUid: 'legacy-stream-1',
+    reservation: {
+      id: 'reservation-other',
+      family_id: 'another-family',
+      user_id: 'parent-1',
+      provider: null,
+      provider_object_id: null,
+      status: 'reserved',
+    },
+    media: {
+      id: mediaId,
+      family_id: familyId,
+      owner_user_id: 'parent-1',
+      stream_uid: 'legacy-stream-1',
+    },
+    video: { uid: 'legacy-stream-1', meta: { familyId }, status: { state: 'ready' } },
+  });
+  assertEquals(denied, { action: 'invalid', reservationId: null });
+
+  const arbitraryUid = legacyStreamRetryDisposition({
+    canonicalMediaId: mediaId,
+    familyId,
+    userId: 'parent-1',
+    providerUid: 'unrelated-stream',
+    reservation: {
+      id: 'reservation-legacy',
+      family_id: familyId,
+      user_id: 'parent-1',
+      provider: 'stream',
+      provider_object_id: 'unrelated-stream',
+      status: 'reserved',
+    },
+    media: {
+      id: mediaId,
+      family_id: familyId,
+      owner_user_id: 'parent-1',
+      stream_uid: 'legacy-stream-1',
+    },
+    video: { uid: 'unrelated-stream', meta: { familyId }, status: { state: 'ready' } },
+  });
+  assertEquals(arbitraryUid, { action: 'invalid', reservationId: null });
 });

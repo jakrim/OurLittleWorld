@@ -9,7 +9,12 @@ import {
   rpc,
   supabaseRequest,
 } from '../_shared/billing.ts';
-import { canonicalStreamCreator, streamVideoDisposition, type StreamVideo } from './model.ts';
+import {
+  canonicalStreamCreator,
+  legacyStreamRetryDisposition,
+  streamVideoDisposition,
+  type StreamVideo,
+} from './model.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
@@ -21,6 +26,7 @@ Deno.serve(async (req) => {
     const familyId = String(body.familyId || body.family_id || '').trim();
     const canonicalMediaId = canonicalStreamCreator(body.canonicalMediaId || body.canonical_media_id);
     const providerUid = String(body.providerUid || body.provider_uid || '').trim() || null;
+    const providerReservationId = canonicalStreamCreator(body.reservationId || body.reservation_id);
     const providerState = ['prepared', 'uploading', 'uploaded'].includes(String(body.providerState || ''))
       ? String(body.providerState)
       : null;
@@ -32,6 +38,55 @@ Deno.serve(async (req) => {
     const accountId = requiredEnv('CLOUDFLARE_ACCOUNT_ID');
     const apiToken = requiredEnv('CLOUDFLARE_API_TOKEN');
     const videos = await listCanonicalVideos({ accountId, apiToken, canonicalMediaId });
+    if (providerUid && !videos.some((video) => video.uid === providerUid)) {
+      const [reservation, media] = await Promise.all([
+        providerReservationId
+          ? readReservation({ reservationId: providerReservationId, familyId, userId: user.id, token })
+          : readReservationByProvider({ providerUid, familyId, userId: user.id, token }),
+        readCanonicalMedia({ canonicalMediaId, providerUid, familyId, userId: user.id, token }),
+      ]);
+      const legacyVideo = reservation && media
+        ? await getStreamVideo({ accountId, apiToken, uid: providerUid })
+        : null;
+      const disposition = legacyStreamRetryDisposition({
+        canonicalMediaId,
+        familyId,
+        userId: user.id,
+        providerUid,
+        providerState,
+        reservation,
+        media,
+        video: legacyVideo,
+      });
+      if (disposition.action === 'invalid') {
+        throw new HttpError(409, 'Canonical provider identity is inconsistent.');
+      }
+      await ensureProviderAttachment({ reservation, uid: providerUid, token });
+      if (reservation?.status === 'finalized' && disposition.action !== 'uploaded') {
+        throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
+      }
+      if (disposition.action !== 'replace') {
+        await removeCanonicalDuplicates({
+          videos,
+          canonicalMediaId,
+          familyId,
+          userId: user.id,
+          token,
+          accountId,
+          apiToken,
+        });
+        return json({
+          uid: providerUid,
+          reservationId: disposition.reservationId,
+          state: disposition.action,
+        });
+      }
+      if (reservation?.status === 'finalized') {
+        throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
+      }
+      await deleteStreamVideo({ accountId, apiToken, uid: providerUid });
+      await releaseReservation(disposition.reservationId, token);
+    }
     if (videos.length) {
       const selected = videos.find((video) => video.uid === providerUid) || videos[0];
       const selectedDisposition = streamVideoDisposition(selected, {
@@ -49,6 +104,9 @@ Deno.serve(async (req) => {
         token,
       });
       await ensureProviderAttachment({ reservation, uid: selected.uid, token });
+      if (reservation.status === 'finalized' && selectedDisposition.action !== 'uploaded') {
+        throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
+      }
 
       for (const duplicate of videos.filter((video) => video.uid !== selected.uid)) {
         const duplicateDisposition = streamVideoDisposition(duplicate, {
@@ -59,12 +117,15 @@ Deno.serve(async (req) => {
         if (duplicateDisposition.action === 'invalid') {
           throw new HttpError(409, 'Canonical provider identity is inconsistent.');
         }
-        await readReservation({
+        const duplicateReservation = await readReservation({
           reservationId: duplicateDisposition.reservationId,
           familyId,
           userId: user.id,
           token,
         });
+        if (duplicateReservation.status === 'finalized') {
+          throw new HttpError(409, 'A duplicate finalized Stream upload requires reconciliation.');
+        }
         await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
         await releaseReservation(duplicateDisposition.reservationId, token);
       }
@@ -184,7 +245,7 @@ async function readReservation({ reservationId, familyId, userId, token }: {
     id: `eq.${reservationId}`,
     family_id: `eq.${familyId}`,
     user_id: `eq.${userId}`,
-    select: 'id,status,provider,provider_object_id',
+    select: 'id,family_id,user_id,status,provider,provider_object_id',
     limit: '1',
   });
   const rows = await supabaseRequest(`/rest/v1/media_upload_reservations?${query}`, {
@@ -198,6 +259,106 @@ async function readReservation({ reservationId, familyId, userId, token }: {
   return reservation;
 }
 
+async function readReservationByProvider({ providerUid, familyId, userId, token }: {
+  providerUid: string;
+  familyId: string;
+  userId: string;
+  token: string;
+}) {
+  const query = new URLSearchParams({
+    provider: 'eq.stream',
+    provider_object_id: `eq.${providerUid}`,
+    family_id: `eq.${familyId}`,
+    user_id: `eq.${userId}`,
+    select: 'id,family_id,user_id,status,provider,provider_object_id',
+    limit: '2',
+  });
+  const rows = await supabaseRequest(`/rest/v1/media_upload_reservations?${query}`, {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+  }, token);
+  return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+}
+
+async function readCanonicalMedia({ canonicalMediaId, providerUid, familyId, userId, token }: {
+  canonicalMediaId: string;
+  providerUid: string;
+  familyId: string;
+  userId: string;
+  token: string;
+}) {
+  const query = new URLSearchParams({
+    id: `eq.${canonicalMediaId}`,
+    family_id: `eq.${familyId}`,
+    owner_user_id: `eq.${userId}`,
+    stream_uid: `eq.${providerUid}`,
+    select: 'id,family_id,owner_user_id,stream_uid',
+    limit: '2',
+  });
+  const rows = await supabaseRequest(`/rest/v1/moment_media?${query}`, {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+  }, token);
+  return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+}
+
+async function getStreamVideo({ accountId, apiToken, uid }: {
+  accountId: string;
+  apiToken: string;
+  uid: string;
+}): Promise<StreamVideo | null> {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${encodeURIComponent(uid)}`,
+    { headers: { authorization: `Bearer ${apiToken}` } },
+  );
+  if (response.status === 404) return null;
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.result) {
+    throw new HttpError(502, payload?.errors?.[0]?.message || 'Stream upload status could not be checked.');
+  }
+  return payload.result as StreamVideo;
+}
+
+async function removeCanonicalDuplicates({
+  videos,
+  canonicalMediaId,
+  familyId,
+  userId,
+  token,
+  accountId,
+  apiToken,
+}: {
+  videos: StreamVideo[];
+  canonicalMediaId: string;
+  familyId: string;
+  userId: string;
+  token: string;
+  accountId: string;
+  apiToken: string;
+}) {
+  for (const duplicate of videos) {
+    const disposition = streamVideoDisposition(duplicate, {
+      canonicalMediaId,
+      familyId,
+      providerState: null,
+    });
+    if (disposition.action === 'invalid') {
+      throw new HttpError(409, 'Canonical provider identity is inconsistent.');
+    }
+    const reservation = await readReservation({
+      reservationId: disposition.reservationId,
+      familyId,
+      userId,
+      token,
+    });
+    if (reservation.status === 'finalized') {
+      throw new HttpError(409, 'A duplicate finalized Stream upload requires reconciliation.');
+    }
+    await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
+    await releaseReservation(disposition.reservationId, token);
+  }
+}
+
 async function ensureProviderAttachment({ reservation, uid, token }: {
   reservation: Record<string, any>;
   uid: string;
@@ -207,6 +368,7 @@ async function ensureProviderAttachment({ reservation, uid, token }: {
     throw new HttpError(409, 'Canonical upload reservation belongs to another provider object.');
   }
   if (reservation.provider === 'stream' && reservation.provider_object_id === uid) return;
+  if (reservation.status === 'finalized' && !reservation.provider && !reservation.provider_object_id) return;
   await rpc('attach_media_upload_provider_object', {
     p_reservation_id: reservation.id,
     p_provider: 'stream',

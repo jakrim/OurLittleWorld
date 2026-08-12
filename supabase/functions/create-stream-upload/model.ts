@@ -38,6 +38,59 @@ export function streamVideoDisposition(video: StreamVideo, {
     return { action: 'invalid', reservationId: null };
   }
 
+  return uploadStateDisposition(video, reservationId, providerState, nowMs);
+}
+
+export function legacyStreamRetryDisposition({
+  canonicalMediaId,
+  familyId,
+  userId,
+  providerUid,
+  providerState = null,
+  reservation,
+  media,
+  video,
+  nowMs = Date.now(),
+}: {
+  canonicalMediaId: string;
+  familyId: string;
+  userId: string;
+  providerUid: string;
+  providerState?: string | null;
+  reservation: Record<string, any> | null;
+  media: Record<string, any> | null;
+  video: StreamVideo | null;
+  nowMs?: number;
+}): StreamVideoDisposition {
+  const meta = video?.meta && typeof video.meta === 'object' ? video.meta : {};
+  const rawCreator = String(video?.creator || '').trim();
+  const creator = canonicalStreamCreator(video?.creator);
+  const providerAttached = reservation?.provider === 'stream'
+    && reservation.provider_object_id === providerUid;
+  const legacyProviderUnattached = !reservation?.provider && !reservation?.provider_object_id;
+  const valid = !!reservation?.id
+    && reservation.family_id === familyId
+    && reservation.user_id === userId
+    && (providerAttached || legacyProviderUnattached)
+    && ['reserved', 'finalized'].includes(reservation.status)
+    && media?.id === canonicalMediaId
+    && media.family_id === familyId
+    && media.owner_user_id === userId
+    && media.stream_uid === providerUid
+    && video?.uid === providerUid
+    && (!rawCreator || creator === canonicalMediaId)
+    && meta.familyId === familyId
+    && (!meta.canonicalMediaId || String(meta.canonicalMediaId).toLowerCase() === canonicalMediaId);
+  if (!valid) return { action: 'invalid', reservationId: null };
+  return uploadStateDisposition(video, reservation.id, providerState, nowMs);
+}
+
+function uploadStateDisposition(
+  video: StreamVideo,
+  reservationId: string,
+  providerState: string | null,
+  nowMs: number,
+): StreamVideoDisposition {
   const state = String(video?.status?.state || '').toLowerCase();
   if (
     Number(video?.size || 0) > 0

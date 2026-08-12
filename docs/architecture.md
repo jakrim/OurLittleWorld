@@ -160,8 +160,9 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   ranked against family-union saved-day coverage in the family ritual timezone;
   completed primary sessions pace from three to five to seven cards, and an optional
   continuation is capped at three without counting as another evening or notification.
-  SQLite schema version 7 persists capture timezone, scan last-seen/availability
-  provenance, unavailable reason, and a family-scoped saved-day fact cache in addition
+  SQLite schema version 8 persists capture timezone, scan last-seen/availability
+  provenance, unavailable reason, legacy-video recovery state, and a family-scoped
+  saved-day fact cache in addition
   to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
   selected burst alternate, stable retry/canonical identities, per-step commit state,
@@ -216,9 +217,12 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   summary/page views inherit writer-only RLS; active entitlement is required for
   correction RPCs, while Circle cannot enumerate the archive. The mobile reader pages
   at 60 memories and scans at most 5,000 lightweight IDs; canonical moments are then
-  hydrated in ordered bounded batches. SQLite schema version 7 keeps Tonight's
+  hydrated in ordered bounded batches. SQLite schema version 8 keeps Tonight's
   selected-by-default factual choices and collection commit state private until Keep,
-  after which the existing idempotent moment transaction applies them. Scene/activity
+  distinguishes automatic defaults from legacy parent-authored selections, voice,
+  favorite, and reaction work, and marks sampled-frame-only legacy videos for private
+  Photos recovery before playback. After Keep, the existing idempotent moment transaction
+  applies the selected facts. Scene/activity
   classification remains gated because the existing heuristic is not a validated
   visual model.
 - **Grounded context and shared enrichment:** migration `20260720230000` adds

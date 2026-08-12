@@ -52,6 +52,7 @@ export async function createStreamUpload({ familyId, mediaId, durationSec, sourc
       durationSec,
       sourceBytes,
       providerUid: context?.uid || null,
+      reservationId: context?.reservationId || null,
       providerState: context?.state || null,
     },
   });
