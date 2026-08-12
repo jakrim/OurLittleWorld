@@ -19,6 +19,11 @@ export const CANDIDATE_STATES = Object.freeze([
 ]);
 
 export const FINAL_PARENT_DECISION_STATES = Object.freeze(['kept', 'skipped']);
+export const PRESERVE_CANDIDATE_LIFECYCLE_ON_ANALYSIS_SQL = `case
+  when discovery_candidates.lifecycle_state in ('kept','skipped','queued','shown')
+    then discovery_candidates.lifecycle_state
+  else excluded.lifecycle_state
+end`;
 
 export const SELECTION_REASONS = Object.freeze({
   best_day: 'A clear photo from this day',

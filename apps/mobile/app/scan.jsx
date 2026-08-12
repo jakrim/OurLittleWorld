@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function ScanRoute() {
   return (
-    <ProtectedRoute allowFirstValue>
+    <ProtectedRoute allowFirstValue allowMissingSubscription>
       <ScanProgressScreen />
     </ProtectedRoute>
   );

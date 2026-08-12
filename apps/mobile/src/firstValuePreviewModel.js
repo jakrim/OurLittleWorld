@@ -69,6 +69,35 @@ export function isApprovedFirstValuePreview(value) {
   return isFirstValuePreview(value) && ['approved', 'kept'].includes(value.status);
 }
 
+export function firstValueSubscriptionRoute(preview) {
+  if (!isApprovedFirstValuePreview(preview)) return '/purchase';
+  return {
+    pathname: '/purchase',
+    params: {
+      source: 'first_value_preview',
+      returnTo: '/first-value-preview',
+    },
+  };
+}
+
+export function activeFirstValuePreviewRoute({
+  preview,
+  entitlementActive = false,
+  isCreator = false,
+} = {}) {
+  if (!isCreator || entitlementActive !== true) return null;
+  return isFirstValuePreview(preview) && preview.status === 'approved'
+    ? '/first-value-preview'
+    : null;
+}
+
+export function shouldClearFirstValuePreviewForReferenceScan({
+  firstValueRequested = false,
+  referenceConfirmed = false,
+} = {}) {
+  return firstValueRequested && referenceConfirmed;
+}
+
 export function previewAnalyticsProperties(preview) {
   return {
     preview_state: isApprovedFirstValuePreview(preview) ? 'approved' : 'found',

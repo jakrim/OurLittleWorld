@@ -32,6 +32,7 @@ export async function executeTonightCommit({
           match,
           videoPosterOnly: false,
           source: 'tonight-curation',
+          activeTonightItem: scope,
         });
       } catch (error) {
         if (current.mediaType !== 'video' || !isMediaPolicyFailure(error)) throw error;
@@ -42,6 +43,7 @@ export async function executeTonightCommit({
           match,
           videoPosterOnly: true,
           source: 'tonight-curation',
+          activeTonightItem: scope,
         });
       }
       const target = await dependencies.savedTarget({ familyId, assetId: current.assetId, ownerUserId: userId });

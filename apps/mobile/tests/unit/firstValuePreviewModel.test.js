@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  activeFirstValuePreviewRoute,
   approveFirstValuePreview,
+  firstValueSubscriptionRoute,
   firstValueReferenceExclusionIds,
   isFirstValueReferenceEcho,
   firstValuePreviewStorageKey,
@@ -11,6 +13,7 @@ import {
   previewAnalyticsProperties,
   previewFromMatch,
   previewFromReference,
+  shouldClearFirstValuePreviewForReferenceScan,
 } from '../../src/firstValuePreviewModel.js';
 
 test('builds a device-local preview without family content or remote media', () => {
@@ -39,6 +42,46 @@ test('approval and keep are explicit, durable transitions', () => {
   assert.equal(isApprovedFirstValuePreview(approved), true);
   assert.equal(kept.status, 'kept');
   assert.deepEqual(previewAnalyticsProperties(approved), { preview_state: 'approved', media_kind: 'video' });
+  assert.deepEqual(firstValueSubscriptionRoute(approved), {
+    pathname: '/purchase',
+    params: {
+      source: 'first_value_preview',
+      returnTo: '/first-value-preview',
+    },
+  });
+  assert.equal(firstValueSubscriptionRoute(found), '/purchase');
+});
+
+test('an active creator resumes an approved First Look until it is kept', () => {
+  const found = previewFromMatch({ assetId: 'photo-1', localUri: 'ph://photo-1' });
+  const approved = approveFirstValuePreview(found);
+  const kept = keepFirstValuePreview(approved);
+
+  assert.equal(activeFirstValuePreviewRoute({
+    preview: approved,
+    entitlementActive: true,
+    isCreator: true,
+  }), '/first-value-preview');
+  assert.equal(activeFirstValuePreviewRoute({
+    preview: kept,
+    entitlementActive: true,
+    isCreator: true,
+  }), null);
+  assert.equal(activeFirstValuePreviewRoute({
+    preview: found,
+    entitlementActive: true,
+    isCreator: true,
+  }), null);
+  assert.equal(activeFirstValuePreviewRoute({
+    preview: approved,
+    entitlementActive: false,
+    isCreator: true,
+  }), null);
+  assert.equal(activeFirstValuePreviewRoute({
+    preview: approved,
+    entitlementActive: true,
+    isCreator: false,
+  }), null);
 });
 
 test('local preview keys are scoped to the family and device user', () => {
@@ -84,4 +127,19 @@ test('a failed short search can fall back to an authentic parent-confirmed refer
     uri: 'ph://unconfirmed-photo',
     parentConfirmed: false,
   }), null);
+});
+
+test('a confirmed replacement reference retires the approved First Look before its new scan', () => {
+  assert.equal(shouldClearFirstValuePreviewForReferenceScan({
+    firstValueRequested: true,
+    referenceConfirmed: true,
+  }), true);
+  assert.equal(shouldClearFirstValuePreviewForReferenceScan({
+    firstValueRequested: true,
+    referenceConfirmed: false,
+  }), false);
+  assert.equal(shouldClearFirstValuePreviewForReferenceScan({
+    firstValueRequested: false,
+    referenceConfirmed: true,
+  }), false);
 });

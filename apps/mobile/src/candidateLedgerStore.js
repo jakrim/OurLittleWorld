@@ -4,6 +4,7 @@ import {
   CANDIDATE_BATCH_SIZE,
   CANDIDATE_SCORER_VERSION,
   normalizeDiscoveryCandidate,
+  PRESERVE_CANDIDATE_LIFECYCLE_ON_ANALYSIS_SQL,
 } from './candidateLedgerModel';
 import {
   buildNightlyQueue,
@@ -18,6 +19,7 @@ import {
   assertTonightKeepAbandonmentConfirmed,
   canAbandonTonightKeep,
 } from './tonightKeepBoundaryModel.js';
+import { reconcileCanonicalKeepInDatabase } from './canonicalKeepLedgerModel.js';
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
@@ -289,6 +291,37 @@ export function markCandidateDecisions({ familyId, userId, keptAssetIds = [], sk
   });
 }
 
+/**
+ * Reconciles private discovery state only after a canonical Keep has published.
+ * The kept tombstone makes both race orders safe: analysis that finished first
+ * is overwritten, while analysis that arrives later preserves the final state
+ * in `upsertCandidate`.
+ *
+ * Tonight's active item is deliberately preserved until its enrichment commit
+ * and normal `finishTonightKeep` path complete. Any other queued occurrence of
+ * the same effective asset is retired immediately.
+ */
+export function reconcileCanonicalKeep({
+  familyId,
+  userId,
+  assetId,
+  mediaType = 'image',
+  activeTonightItem = null,
+  now = new Date(),
+}) {
+  assertScope(familyId, userId);
+  if (!assetId) throw new Error('A kept asset is required for candidate reconciliation');
+  return reconcileCanonicalKeepInDatabase({
+    database: getMediaDatabase(),
+    familyId,
+    userId,
+    assetId,
+    mediaType,
+    activeTonightItem,
+    now,
+  });
+}
+
 export function ensureNightlySession({
   familyId,
   userId,
@@ -367,23 +400,13 @@ function createNightlySession(database, {
   seed,
   continuation,
 }) {
-  const stats = candidateBacklogStats(database, familyId, userId);
-  const completedSessionCount = Number(database.getFirstSync(
-    `select count(*) as count from nightly_review_sessions
-     where family_id = ? and user_id = ? and status = 'completed'
-       and is_continuation = 0`,
-    [familyId, userId],
-  )?.count || 0);
-  const maxItems = recommendedNightlySize({
-    eligibleCount: stats.eligibleCount,
-    uncoveredDayCount: stats.uncoveredDayCount,
-    completedSessionCount,
+  const queue = buildAvailableNightlyQueue(database, {
+    familyId,
+    userId,
+    now,
+    seed,
     continuation,
   });
-  if (!maxItems) return null;
-
-  const candidates = listEligibleCandidates(database, familyId, userId);
-  const queue = buildNightlyQueue(candidates, { nowMs: now.getTime(), seed, maxItems });
   if (!queue.length) return null;
   const sessionId = uuid();
   const stamp = now.toISOString();
@@ -424,6 +447,32 @@ function createNightlySession(database, {
   return hydrateSession(database, readActiveSession(database, familyId, userId));
 }
 
+function buildAvailableNightlyQueue(database, {
+  familyId,
+  userId,
+  now,
+  seed,
+  continuation = false,
+}) {
+  const stats = candidateBacklogStats(database, familyId, userId);
+  const completedSessionCount = Number(database.getFirstSync(
+    `select count(*) as count from nightly_review_sessions
+     where family_id = ? and user_id = ? and status = 'completed'
+       and is_continuation = 0`,
+    [familyId, userId],
+  )?.count || 0);
+  const maxItems = recommendedNightlySize({
+    eligibleCount: stats.eligibleCount,
+    uncoveredDayCount: stats.uncoveredDayCount,
+    completedSessionCount,
+    continuation,
+  });
+  if (!maxItems) return [];
+
+  const candidates = listEligibleCandidates(database, familyId, userId);
+  return buildNightlyQueue(candidates, { nowMs: now.getTime(), seed, maxItems });
+}
+
 export function getTonightSummary({
   familyId,
   userId,
@@ -443,18 +492,18 @@ export function getTonightSummary({
     );
     return { sessionId: active.session_id, count: Number(remaining?.count || 0), status: active.status };
   }
-  const completedToday = readCompletedSessionForDay(database, familyId, userId, localDayInTimeZone(now, timezone));
+  const day = localDayInTimeZone(now, timezone);
+  const completedToday = readCompletedSessionForDay(database, familyId, userId, day);
   if (completedToday) return { sessionId: completedToday.session_id, count: 0, status: 'completed' };
-  const stats = candidateBacklogStats(database, familyId, userId);
-  const completedSessionCount = Number(database.getFirstSync(
-    `select count(*) as count from nightly_review_sessions
-     where family_id = ? and user_id = ? and status = 'completed'
-       and is_continuation = 0`,
-    [familyId, userId],
-  )?.count || 0);
+  const queue = buildAvailableNightlyQueue(database, {
+    familyId,
+    userId,
+    now,
+    seed: day,
+  });
   return {
     sessionId: null,
-    count: recommendedNightlySize({ ...stats, completedSessionCount }),
+    count: queue.length,
     status: 'available',
   };
 }
@@ -1382,8 +1431,7 @@ function upsertCandidate(database, familyId, userId, candidate) {
        cluster_member_count = excluded.cluster_member_count, scorer_version = excluded.scorer_version,
        selection_reason_code = case when discovery_candidates.lifecycle_state in ('kept','skipped','queued','shown')
          then discovery_candidates.selection_reason_code else excluded.selection_reason_code end,
-       lifecycle_state = case when discovery_candidates.lifecycle_state in ('kept','skipped','queued','shown')
-         then discovery_candidates.lifecycle_state else excluded.lifecycle_state end,
+       lifecycle_state = ${PRESERVE_CANDIDATE_LIFECYCLE_ON_ANALYSIS_SQL},
        scan_key = excluded.scan_key, last_analyzed_at = excluded.last_analyzed_at,
        last_seen_scan_key = excluded.last_seen_scan_key, last_seen_at = excluded.last_seen_at,
        unavailable_reason = excluded.unavailable_reason, unavailable_code = excluded.unavailable_code,

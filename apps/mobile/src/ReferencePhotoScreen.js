@@ -29,7 +29,10 @@ import {
   readReferenceAutoSeedAttempt,
   writeReferenceAutoSeedAttempt,
 } from './referenceAutoSeedAttemptStore';
-import { previewFromMatch } from './firstValuePreviewModel';
+import {
+  previewFromMatch,
+  shouldClearFirstValuePreviewForReferenceScan,
+} from './firstValuePreviewModel';
 import {
   clearFirstValuePreview,
   readFirstValuePreview,
@@ -463,6 +466,12 @@ export default function ReferencePhotoScreen() {
       setRepresentative: true,
     });
     await clearReferenceAutoSeedAttempt({ familyId: family.id, userId: user.id });
+    if (shouldClearFirstValuePreviewForReferenceScan({
+      firstValueRequested,
+      referenceConfirmed: true,
+    })) {
+      await clearFirstValuePreview({ familyId: family.id, userId: user.id });
+    }
     // Picking a new reference always means a fresh scan — clear stale matches.
     Scan.reset();
     router.push(firstValueRequested ? { pathname: '/scan', params: { source: 'first_value' } } : '/scan');

@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 import { uploadForTag, deleteForTag } from './photoSync';
 import { resolveRemoteAssetKey } from './mediaDb';
+import { reconcileCanonicalKeep } from './candidateLedgerStore';
+import { completeCanonicalKeep } from './canonicalKeepCompletionModel.js';
+import { invalidateRitualHomeCache } from './ritualHomeCache';
 
 /**
  * Family-scoped storage for Tags + Memories. Both are now keyed by
@@ -75,14 +78,32 @@ export const Tags = {
    * their library. Awaiting this resolves once the upload (or deletion)
    * is complete; callers may opt to render an optimistic UI in parallel.
    */
-  async setBaby({ familyId, assetId, isBaby, match = null, videoPosterOnly = false, source = null }) {
+  async setBaby({
+    familyId,
+    assetId,
+    isBaby,
+    match = null,
+    videoPosterOnly = false,
+    source = null,
+    activeTonightItem = null,
+  }) {
     const userId = await currentUserId();
     if (!userId) throw new Error('Not signed in');
     if (!familyId) throw new Error('No family');
     if (!assetId) throw new Error('Missing asset id');
 
     if (isBaby) {
-      await uploadForTag({ familyId, assetId, match, videoPosterOnly, source });
+      await completeCanonicalKeep({
+        save: () => uploadForTag({ familyId, assetId, match, videoPosterOnly, source }),
+        reconcileCandidate: () => reconcileCanonicalKeep({
+          familyId,
+          userId,
+          assetId,
+          mediaType: match?.mediaType || match?.type,
+          activeTonightItem,
+        }),
+        invalidateHome: () => invalidateRitualHomeCache({ familyId, userId }),
+      });
     } else {
       await deleteForTag({ familyId, assetOwnerUserId: userId, assetId });
     }

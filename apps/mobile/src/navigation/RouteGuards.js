@@ -8,14 +8,17 @@ import { useBilling } from '../BillingContext';
 import { hasReadOnlyArchiveAccess } from '../entitlementAccessModel';
 import { useFamily } from '../FamilyContext';
 import { firstLookStorageKey, shouldShowFirstLook } from '../reveal';
-import { isApprovedFirstValuePreview } from '../firstValuePreviewModel';
+import {
+  activeFirstValuePreviewRoute,
+  firstValueSubscriptionRoute,
+  isApprovedFirstValuePreview,
+} from '../firstValuePreviewModel';
 import { readFirstValuePreview } from '../firstValuePreviewStore';
 import { isSyntheticManualQaRoute } from '../manualQaRuntime';
 import { BrandMark, useTheme } from '../ui';
 import useReducedMotion from '../ui/useReducedMotion';
 import FamilyOnboardingScreen from '../FamilyOnboardingScreen';
 import FirstLookRevealScreen from '../FirstLookRevealScreen';
-import PurchaseScreen from '../PurchaseScreen';
 import SetupScreen from '../SetupScreen';
 import WelcomeScreen from '../WelcomeScreen';
 
@@ -66,7 +69,7 @@ export function AppGate() {
   if (gate.reason === 'needs-setup') return <SetupScreen />;
   if (gate.reason === 'needs-first-look') return <FirstLookRevealScreen />;
   if (gate.reason === 'needs-first-value') return <RouteRedirect href={gate.href} />;
-  if (gate.reason === 'needs-subscription') return <PurchaseScreen />;
+  if (gate.reason === 'needs-subscription') return <RouteRedirect href={gate.href || '/purchase'} />;
   return <RouteRedirect href={gate.href || '/timeline'} />;
 }
 
@@ -157,8 +160,7 @@ export function useAppGate() {
       session
       && family?.id
       && user?.id
-      && family.createdBy === user.id
-      && !hasReadOnlyArchiveAccess(entitlement),
+      && family.createdBy === user.id,
     );
     if (!shouldLoad) {
       setFirstValuePreview({ loading: false, value: null });
@@ -177,7 +179,7 @@ export function useAppGate() {
     return () => {
       alive = false;
     };
-  }, [entitlement, family, session, user]);
+  }, [family, session, user]);
 
   const setupComplete = Boolean(family?.babyName && family?.babyBirthday);
   const waitingForBilling = Boolean(
@@ -204,6 +206,14 @@ export function useAppGate() {
   if (shouldShowFirstLook({ family, user }) && !firstLookSeen) {
     return { loading: false, reason: 'needs-first-look', href: '/first-look' };
   }
+  const activePreviewHref = activeFirstValuePreviewRoute({
+    preview: firstValuePreview.value,
+    entitlementActive: entitlement?.isActive,
+    isCreator: family.createdBy === user.id,
+  });
+  if (activePreviewHref) {
+    return { loading: false, reason: 'needs-first-value', href: activePreviewHref };
+  }
   if (
     !hasReadOnlyArchiveAccess(entitlement)
     && family.createdBy === user.id
@@ -216,7 +226,11 @@ export function useAppGate() {
     };
   }
   if (!hasReadOnlyArchiveAccess(entitlement)) {
-    return { loading: false, reason: 'needs-subscription', href: '/purchase' };
+    return {
+      loading: false,
+      reason: 'needs-subscription',
+      href: firstValueSubscriptionRoute(firstValuePreview.value),
+    };
   }
   if (!entitlement?.isActive) {
     return { loading: false, reason: 'read-only-archive', href: '/library' };

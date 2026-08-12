@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router/react-navigation';
 
 import { loadCatchupDismissals } from './catchupDismissals';
@@ -22,15 +21,18 @@ import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 import { buildBookHomeModel } from './bookHomeModel';
 import { selectBookReadinessNudge } from './bookReadinessNudgeModel';
+import {
+  readRitualHomeCache,
+  ritualHomeCacheKey,
+  ritualHomeCacheRevision,
+  subscribeRitualHomeInvalidation,
+  writeRitualHomeCache,
+} from './ritualHomeCache';
+import { shouldCommitRitualHomeRefresh } from './ritualHomeCacheModel.js';
 
-// v7: payload carries one book-readiness nudge candidate (F4).
-const CACHE_VERSION = 'v7';
 const REFRESH_TTL_MS = 30 * 1000;
 
-export function ritualHomeCacheKey({ familyId, userId }) {
-  if (!familyId || !userId) return null;
-  return `olw:ritual-home:${CACHE_VERSION}:${familyId}:${userId}`;
-}
+export { ritualHomeCacheKey };
 
 function annotatePromptState(promptState, userId) {
   const responses = promptState?.responses || [];
@@ -99,24 +101,6 @@ function buildDerivedPayload({ raw, userId }) {
     }),
     membersById: raw.membersById || {},
   };
-}
-
-async function readCache({ familyId, userId }) {
-  const key = ritualHomeCacheKey({ familyId, userId });
-  if (!key) return null;
-  const raw = await AsyncStorage.getItem(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-async function writeCache({ familyId, userId, payload }) {
-  const key = ritualHomeCacheKey({ familyId, userId });
-  if (!key || !payload) return;
-  await AsyncStorage.setItem(key, JSON.stringify(payload));
 }
 
 async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
@@ -188,7 +172,7 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
 
 export async function patchCachedPromptState({ familyId, userId, promptRow }) {
   if (!familyId || !userId || !promptRow) return null;
-  const cached = await readCache({ familyId, userId });
+  const cached = await readRitualHomeCache({ familyId, userId });
   if (!cached) return null;
   const promptDate = promptRow.prompt_date || promptRow.promptDate || null;
   const isTodayPrompt = cached.promptState?.promptDate && promptDate === cached.promptState.promptDate;
@@ -212,17 +196,17 @@ export async function patchCachedPromptState({ familyId, userId, promptRow }) {
     missedPrompts,
     missedPrompt: selectMissedPromptCatchup(missedPrompts),
   };
-  await writeCache({ familyId, userId, payload: next });
+  await writeRitualHomeCache({ familyId, userId, payload: next });
   return next;
 }
 
 export async function readCachedPromptState({ familyId, userId }) {
-  const cached = await readCache({ familyId, userId });
+  const cached = await readRitualHomeCache({ familyId, userId });
   return cached?.promptState || null;
 }
 
 export async function readCachedSharedPhotos({ familyId, userId }) {
-  const cached = await readCache({ familyId, userId });
+  const cached = await readRitualHomeCache({ familyId, userId });
   return cached?.sharedPhotos || [];
 }
 
@@ -247,8 +231,9 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
         alive = false;
       };
     }
-    readCache({ familyId, userId }).then((cached) => {
-      if (!alive || !cached) return;
+    const revision = ritualHomeCacheRevision({ familyId, userId });
+    readRitualHomeCache({ familyId, userId }).then((cached) => {
+      if (!alive || !cached || revision !== ritualHomeCacheRevision({ familyId, userId })) return;
       setPayload(cached);
       setStatus('cached');
     });
@@ -265,12 +250,19 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
       return payloadRef.current;
     }
 
+    const revision = ritualHomeCacheRevision({ familyId, userId });
     setStatus((current) => (current === 'idle' ? 'refreshing' : current));
     setError(null);
     const promise = fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName })
       .then(async (next) => {
+        if (!shouldCommitRitualHomeRefresh({
+          startedRevision: revision,
+          currentRevision: ritualHomeCacheRevision({ familyId, userId }),
+        })) {
+          return payloadRef.current;
+        }
         lastRefreshRef.current = Date.now();
-        await writeCache({ familyId, userId, payload: next });
+        await writeRitualHomeCache({ familyId, userId, payload: next });
         setPayload(next);
         setStatus('ready');
         return next;
@@ -287,16 +279,26 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
     return promise;
   }, [babyBirthday, babyName, familyId, userId]);
 
+  useEffect(() => subscribeRitualHomeInvalidation({ familyId, userId }, () => {
+    lastRefreshRef.current = 0;
+    payloadRef.current = null;
+    setPayload(null);
+    setStatus('refreshing');
+    refresh({ force: true });
+  }), [familyId, refresh, userId]);
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       (async () => {
-        const cached = await readCache({ familyId, userId });
-        if (alive && cached) {
+        const revision = ritualHomeCacheRevision({ familyId, userId });
+        const cached = await readRitualHomeCache({ familyId, userId });
+        const validCached = cached && revision === ritualHomeCacheRevision({ familyId, userId });
+        if (alive && validCached) {
           setPayload(cached);
           setStatus('cached');
         }
-        if (alive) refresh({ force: !cached });
+        if (alive) refresh({ force: !validCached });
       })();
       return () => {
         alive = false;

@@ -8,6 +8,7 @@ import {
   normalizeEntitlement,
   redeemPurchaseCode,
 } from './billing';
+import { shouldBlockBillingGateDuringRefresh } from './billingRefreshModel';
 
 const BillingContext = createContext({
   entitlement: normalizeEntitlement(null),
@@ -24,7 +25,8 @@ export function BillingProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options = {}) => {
+    const showLoading = shouldBlockBillingGateDuringRefresh(options);
     if (BILLING_BYPASS_ENABLED) {
       const bypass = normalizeEntitlement(null);
       setEntitlement(bypass);
@@ -41,7 +43,7 @@ export function BillingProvider({ children }) {
       return empty;
     }
 
-    setLoading(true);
+    if (showLoading) setLoading(true);
     try {
       const next = await getFamilyEntitlement(family.id);
       setEntitlement(next);
@@ -52,7 +54,7 @@ export function BillingProvider({ children }) {
       setEntitlement(normalizeEntitlement(null));
       return null;
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [family?.id, session]);
 
@@ -64,7 +66,7 @@ export function BillingProvider({ children }) {
   }, [family?.id, refresh]);
 
   useEffect(() => {
-    refresh();
+    refresh({ showLoading: true });
   }, [refresh]);
 
   const value = useMemo(

@@ -65,6 +65,12 @@ test('collection choices commit once after canonical media and remain retry-safe
   }]);
 });
 
+test('Tonight identifies its active item so canonical success does not finish enrichment early', async () => {
+  const harness = commitHarness(item());
+  await executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies });
+  assert.deepEqual(harness.calls.mediaInputs[0].activeTonightItem, scope);
+});
+
 function item(overrides = {}) {
   return {
     assetId: 'asset-1',
@@ -89,6 +95,7 @@ function voice() {
 function commitHarness(initialItem, options = {}) {
   const calls = {
     media: 0,
+    mediaInputs: [],
     text: 0,
     enrichment: [],
     voiceIdentities: [],
@@ -104,7 +111,10 @@ function commitHarness(initialItem, options = {}) {
       if (canonicalMomentId) initialItem.canonicalMomentId = canonicalMomentId;
       return initialItem;
     },
-    setBaby: async () => { calls.media += 1; },
+    setBaby: async (input) => {
+      calls.media += 1;
+      calls.mediaInputs.push(input);
+    },
     savedTarget: async () => ({ moment_id: 'moment-1' }),
     saveText: async () => {
       calls.text += 1;

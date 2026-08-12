@@ -42,6 +42,10 @@ import { bucketCount } from './analyticsEventsModel';
 import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 import { localDayInTimeZone } from './firstYearCatchupModel';
 import { parentReasonLabel } from './nightlyQueueModel';
+import {
+  nightlySessionScanTrigger,
+  shouldPrepareNightlySession,
+} from './nightlySessionModel';
 import { buildTodayManualQaFixture, todayManualQaRouteParams } from './todayManualQaFixtures';
 import { isManualQaRuntime } from './manualQaRuntime';
 
@@ -66,6 +70,10 @@ export default function TodayScreen() {
     [params.qa],
   );
   const scanState = Scan.useScanState();
+  const tonightScanTrigger = useMemo(() => nightlySessionScanTrigger({
+    phase: scanState.phase,
+    checked: scanState.checked,
+  }), [scanState.checked, scanState.phase]);
 
   useMediaLibraryChangeObserver({
     familyId: family?.id,
@@ -103,17 +111,34 @@ export default function TodayScreen() {
           timezone: ritualSettings.timezone,
         }).catch(() => null);
         if (!alive) return;
-        const session = ensureNightlySession({
+        const sessionNow = new Date();
+        const timezone = ritualSettings.timezone === 'local' ? undefined : ritualSettings.timezone;
+        const availableSummary = getTonightSummary({
           familyId: family.id,
           userId: user.id,
-          timezone: ritualSettings.timezone === 'local' ? undefined : ritualSettings.timezone,
+          now: sessionNow,
+          timezone,
         });
+        const session = shouldPrepareNightlySession({
+          summary: availableSummary,
+          scanPhase: tonightScanTrigger.phase,
+        })
+          ? ensureNightlySession({
+              familyId: family.id,
+              userId: user.id,
+              now: sessionNow,
+              timezone,
+            })
+          : null;
         setTonightSession(session);
-        setTonightSummary(getTonightSummary({
-          familyId: family.id,
-          userId: user.id,
-          timezone: session?.timezone,
-        }));
+        setTonightSummary(session
+          ? getTonightSummary({
+              familyId: family.id,
+              userId: user.id,
+              now: sessionNow,
+              timezone: session.timezone,
+            })
+          : availableSummary);
         if (session?.status === 'active' && !session.completed) {
           try {
             const scheduled = await maybeScheduleTonightNotification({
@@ -157,7 +182,14 @@ export default function TodayScreen() {
       }
     })();
     return () => { alive = false; };
-  }, [canUsePrivateDiscovery, entitlement?.isActive, family, manualQaFixture, user?.id]));
+  }, [
+    canUsePrivateDiscovery,
+    entitlement?.isActive,
+    family,
+    manualQaFixture,
+    tonightScanTrigger,
+    user?.id,
+  ]));
 
   const home = useMemo(
     () => selectPhotoFirstHome({ tonightSession, sharedPhotos, membersById }),
