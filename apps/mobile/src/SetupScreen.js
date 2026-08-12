@@ -143,7 +143,14 @@ export default function SetupScreen() {
     }
     setSaving(true);
     try {
-      await Family.update(family.id, { babyName: name.trim(), babyBirthday: birthday.trim() });
+      if (isFirstSetup) {
+        await Family.completeInitialProfile(family.id, {
+          babyName: name.trim(),
+          babyBirthday: birthday.trim(),
+        });
+      } else {
+        await Family.update(family.id, { babyName: name.trim(), babyBirthday: birthday.trim() });
+      }
       await Family.updateMyMembership(family.id, {
         relationshipLabel: relationshipValue(relationshipPreset, customRelationshipLabel),
       });

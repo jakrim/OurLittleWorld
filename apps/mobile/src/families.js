@@ -36,6 +36,11 @@ function hasMissingCreateFamilyRpc(error) {
   return error?.code === 'PGRST202' || message.includes('create_family');
 }
 
+function hasMissingCompleteInitialFamilyProfileRpc(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === 'PGRST202' || message.includes('complete_initial_family_profile');
+}
+
 function hasMissingUpdateMyMembershipRpc(error) {
   const message = String(error?.message || '').toLowerCase();
   return error?.code === 'PGRST202' || message.includes('update_my_family_membership');
@@ -243,6 +248,33 @@ export const Family = {
       error = fallback.error;
     }
     if (error) throw error;
+  },
+
+  /**
+   * Complete the child profile before the family has an entitlement.
+   *
+   * This deliberately uses a narrow server contract rather than relaxing the
+   * normal family update policy. The RPC is creator-only, write-once, and
+   * idempotent for an exact replay; established profiles still require the
+   * ordinary entitled update path above.
+   */
+  async completeInitialProfile(familyId, { babyName, babyBirthday }) {
+    if (!familyId) throw new Error('No family');
+    const normalizedName = babyName?.trim() || '';
+    const normalizedBirthday = babyBirthday == null ? '' : String(babyBirthday).trim();
+    if (!normalizedName) throw new Error('Child name is required');
+    if (!normalizedBirthday) throw new Error('Birth date is required');
+
+    const { error } = await supabase.rpc('complete_initial_family_profile', {
+      target_family_id: familyId,
+      target_baby_name: normalizedName,
+      target_baby_birthday: normalizedBirthday,
+    });
+    if (!error) return;
+    if (hasMissingCompleteInitialFamilyProfileRpc(error)) {
+      throw new Error('Family setup is temporarily unavailable. Please try again later.');
+    }
+    throw error;
   },
 
   async updateMyMembership(familyId, patch) {
