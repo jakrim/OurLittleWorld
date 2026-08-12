@@ -19,6 +19,9 @@ import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
 import { mediaUploadMetadata } from './mediaUploadMetadataModel';
 import {
+  assertCanonicalVideoPublication,
+  assertLegacyQueuedKeepResolved,
+  canonicalizeUploadJob,
   canonicalImageKeepRecovery,
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
@@ -244,7 +247,9 @@ async function publishVideoReadyRows({
       })
       .eq('family_id', familyId)
       .eq('asset_owner_user_id', userId)
-      .eq('asset_id', remoteAssetKey),
+      .eq('asset_id', remoteAssetKey)
+      .select('family_id, asset_owner_user_id, asset_id, moment_id, moment_media_id, upload_status')
+      .maybeSingle(),
     supabase
       .from('moment_media')
       .update({
@@ -261,10 +266,23 @@ async function publishVideoReadyRows({
         optimized_bytes: optimizedBytes,
         playback_seconds: durationSec ? Math.round(durationSec) : null,
       })
-      .eq('id', mediaId),
+      .eq('id', mediaId)
+      .eq('family_id', familyId)
+      .eq('owner_user_id', userId)
+      .select('id, family_id, owner_user_id, moment_id, upload_status')
+      .maybeSingle(),
   ]);
   if (tagDone.error) throw tagDone.error;
   if (mediaDone.error) throw mediaDone.error;
+  assertCanonicalVideoPublication({
+    tagRow: tagDone.data,
+    mediaRow: mediaDone.data,
+    familyId,
+    ownerUserId: userId,
+    remoteAssetKey,
+    momentId,
+    mediaId,
+  });
 }
 
 async function prepareCanonicalKeep({ familyId, userId, remoteIdentity, capturedAt, location }) {
@@ -431,9 +449,17 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
     ownerUserId: userId,
     localAssetId: assetId,
   });
-  const legacyIdentity = !existingIdentity && mediaDb.hasPendingUploadJob({ familyId, localAssetId: assetId })
-    ? await readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId: assetId })
-    : null;
+  const sourceJob = mediaDb.getPendingUploadJob({ familyId, localAssetId: assetId });
+  let legacyIdentity = null;
+  try {
+    legacyIdentity = !existingIdentity && sourceJob
+      ? await readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId: assetId })
+      : null;
+    assertLegacyQueuedKeepResolved({ sourceJob, existingIdentity, legacyIdentity });
+  } catch (error) {
+    safeCache(() => mediaDb.markUploadJob(sourceJob?.id, 'failed', String(error?.message || error)));
+    throw error;
+  }
   const remoteIdentity = mediaDb.getOrCreateRemoteAssetIdentity({
     familyId,
     ownerUserId: userId,
@@ -445,6 +471,16 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   const { remoteAssetKey } = remoteIdentity;
 
   const jobId = `${familyId}:${remoteAssetKey}`;
+  await canonicalizeUploadJob({
+    sourceJob,
+    canonicalJobId: jobId,
+    rekey: ({ sourceJobId, canonicalJobId }) => mediaDb.rekeyUploadJob({
+      sourceJobId,
+      canonicalJobId,
+      familyId,
+      localAssetId: assetId,
+    }),
+  });
   safeCache(() => mediaDb.enqueueUploadJob({
     id: jobId,
     familyId,
@@ -503,7 +539,6 @@ async function readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetI
       .select('family_id, asset_owner_user_id, asset_id, moment_id, moment_media_id, upload_status')
       .eq('family_id', familyId)
       .eq('asset_owner_user_id', userId)
-      .eq('upload_status', 'ready')
       .order('asset_id', { ascending: true })
       .range(offset, offset + pageSize - 1);
     if (error) throw error;

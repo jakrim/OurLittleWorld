@@ -477,13 +477,53 @@ export function listPendingUploadJobs(familyId, { maxAttempts = 5 } = {}) {
 }
 
 export function hasPendingUploadJob({ familyId, localAssetId }) {
-  if (!familyId || !localAssetId) return false;
-  return !!getDb().getFirstSync(
-    `select id from upload_jobs
+  return !!getPendingUploadJob({ familyId, localAssetId });
+}
+
+export function getPendingUploadJob({ familyId, localAssetId }) {
+  if (!familyId || !localAssetId) return null;
+  return getDb().getFirstSync(
+    `select * from upload_jobs
      where family_id = ? and local_asset_id = ? and status in ('queued', 'failed')
+     order by created_at asc
      limit 1`,
     [familyId, localAssetId],
   );
+}
+
+export function rekeyUploadJob({ sourceJobId, canonicalJobId, familyId, localAssetId }) {
+  if (!sourceJobId || !canonicalJobId || sourceJobId === canonicalJobId) return;
+  const database = getDb();
+  database.withTransactionSync(() => {
+    const source = database.getFirstSync(
+      `select id from upload_jobs
+       where id = ? and family_id = ? and local_asset_id = ?`,
+      [sourceJobId, familyId, localAssetId],
+    );
+    if (!source) return;
+    const target = database.getFirstSync(
+      'select family_id, local_asset_id from upload_jobs where id = ?',
+      [canonicalJobId],
+    );
+    if (target && (target.family_id !== familyId || target.local_asset_id !== localAssetId)) {
+      throw new Error('Canonical upload job belongs to another local asset');
+    }
+    if (target) {
+      database.runSync(
+        'delete from upload_jobs where family_id = ? and local_asset_id = ? and id <> ?',
+        [familyId, localAssetId, canonicalJobId],
+      );
+      return;
+    }
+    database.runSync(
+      'update upload_jobs set id = ?, updated_at = ? where id = ?',
+      [canonicalJobId, nowIso(), sourceJobId],
+    );
+    database.runSync(
+      'delete from upload_jobs where family_id = ? and local_asset_id = ? and id <> ?',
+      [familyId, localAssetId, canonicalJobId],
+    );
+  });
 }
 
 // ─── Signed URL variant cache ────────────────────────────────────────────────

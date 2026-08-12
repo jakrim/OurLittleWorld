@@ -334,17 +334,17 @@ select is(
     )
   ),
   'finalized|true',
-  'legacy ready rows adopt one exact finalized quota reservation with storage proof'
+  'legacy ready rows create canonical accounting without reuploading verified storage'
 );
 
 select is(
   (
-    select canonical_media_id::text || '|' || transport
+    select coalesce(canonical_media_id::text, 'unlinked') || '|' || coalesce(transport, 'unlinked')
     from public.media_upload_reservations
     where id = '83000000-0000-4000-8000-000000000008'
   ),
-  '84000000-0000-4000-8000-000000000008|video-direct',
-  'legacy quota evidence becomes attributable to the canonical direct video'
+  'unlinked|unlinked',
+  'same-sized historical quota evidence is not attributed without an immutable link'
 );
 
 select is(
@@ -447,7 +447,7 @@ select is(
     select count(*)
     from public.list_family_media_upload_lifecycle('82000000-0000-4000-8000-000000000001')
   ),
-  3::bigint,
+  6::bigint,
   'another family writer receives sanitized terminal lifecycle state'
 );
 
@@ -581,10 +581,11 @@ select is(
   (
     select accounting_resolution
     from public.media_upload_reservations
-    where id = '83000000-0000-4000-8000-000000000008'
+    where canonical_media_id = '84000000-0000-4000-8000-000000000008'
+      and transport = 'video-direct'
   ),
-  'legacy_adopted',
-  'one attributable legacy reservation records its accounting adoption'
+  'legacy_grandfathered_ambiguous',
+  'unlinked same-sized quota evidence receives an explicit accounting repair'
 );
 
 select is(

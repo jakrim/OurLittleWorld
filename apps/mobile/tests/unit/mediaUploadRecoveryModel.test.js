@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertCanonicalVideoPublication,
+  assertLegacyQueuedKeepResolved,
   canonicalImageKeepComplete,
   canonicalImageKeepRecovery,
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
+  canonicalizeUploadJob,
   confirmMediaUploadFinalized,
   legacyDirectVideoRowsMatch,
   legacyPosterVideoRowsMatch,
@@ -512,7 +515,7 @@ test('legacy ready poster-only video adopts its verified canonical object', asyn
   assert.equal(persisted.state, 'published');
 });
 
-test('queued pre-mapping Keep adopts only one authorized ready legacy target', () => {
+test('queued pre-mapping Keep adopts one authorized partial legacy target and otherwise fails closed', () => {
   const scope = {
     familyId: 'family-1',
     ownerUserId: 'parent-1',
@@ -524,7 +527,7 @@ test('queued pre-mapping Keep adopts only one authorized ready legacy target', (
     asset_id: 'legacy-photos-id',
     moment_id: 'moment-1',
     moment_media_id: 'media-1',
-    upload_status: 'ready',
+    upload_status: 'uploading',
   };
   const media = {
     id: 'media-1',
@@ -532,14 +535,20 @@ test('queued pre-mapping Keep adopts only one authorized ready legacy target', (
     family_id: 'family-1',
     owner_user_id: 'parent-1',
     local_identifier: 'legacy-photos-id',
-    upload_status: 'ready',
+    upload_status: 'failed',
   };
 
-  assert.deepEqual(legacyRemoteAssetIdentityFromRows({ ...scope, tags: [tag], media }), {
+  const legacyIdentity = legacyRemoteAssetIdentityFromRows({ ...scope, tags: [tag], media });
+  assert.deepEqual(legacyIdentity, {
     remoteAssetKey: 'legacy-photos-id',
     momentId: 'moment-1',
     mediaId: 'media-1',
   });
+  assert.deepEqual(assertLegacyQueuedKeepResolved({
+    sourceJob: { id: 'family-1:legacy-photos-id' },
+    existingIdentity: null,
+    legacyIdentity,
+  }), legacyIdentity);
   assert.equal(legacyRemoteAssetIdentityFromRows({ ...scope, tags: [tag, tag], media }), null);
   assert.equal(legacyRemoteAssetIdentityFromRows({
     ...scope,
@@ -548,7 +557,69 @@ test('queued pre-mapping Keep adopts only one authorized ready legacy target', (
   }), null);
   assert.equal(legacyRemoteAssetIdentityFromRows({
     ...scope,
-    tags: [{ ...tag, upload_status: 'failed' }],
-    media,
+    tags: [tag],
+    media: { ...media, local_identifier: 'rotated-without-durable-link' },
   }), null);
+  assert.throws(() => assertLegacyQueuedKeepResolved({
+    sourceJob: { id: 'family-1:legacy-photos-id' },
+    existingIdentity: null,
+    legacyIdentity: null,
+  }), /no verifiable canonical target/);
+});
+
+test('legacy upload job is re-keyed to the canonical opaque identity', async () => {
+  const queue = new Map([['family-1:local-photos-id', { attempts: 2 }]]);
+  const canonicalJobId = await canonicalizeUploadJob({
+    sourceJob: { id: 'family-1:local-photos-id' },
+    canonicalJobId: 'family-1:opaque-media-id',
+    rekey: async ({ sourceJobId, canonicalJobId: nextId }) => {
+      const job = queue.get(sourceJobId);
+      queue.delete(sourceJobId);
+      queue.set(nextId, job);
+    },
+  });
+
+  assert.equal(canonicalJobId, 'family-1:opaque-media-id');
+  assert.equal(queue.has('family-1:local-photos-id'), false);
+  assert.deepEqual(queue.get('family-1:opaque-media-id'), { attempts: 2 });
+  await canonicalizeUploadJob({
+    sourceJob: { id: canonicalJobId },
+    canonicalJobId,
+    rekey: async () => { throw new Error('must not re-key canonical job'); },
+  });
+});
+
+test('video publication requires both exact scoped rows to be observable', () => {
+  const input = {
+    familyId: 'family-1',
+    ownerUserId: 'parent-1',
+    remoteAssetKey: 'asset-1',
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    tagRow: {
+      family_id: 'family-1',
+      asset_owner_user_id: 'parent-1',
+      asset_id: 'asset-1',
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      upload_status: 'ready',
+    },
+    mediaRow: {
+      id: 'media-1',
+      family_id: 'family-1',
+      owner_user_id: 'parent-1',
+      moment_id: 'moment-1',
+      upload_status: 'ready',
+    },
+  };
+
+  assert.deepEqual(assertCanonicalVideoPublication(input), {
+    tagRow: input.tagRow,
+    mediaRow: input.mediaRow,
+  });
+  assert.throws(() => assertCanonicalVideoPublication({ ...input, tagRow: null }), /not confirmed/);
+  assert.throws(() => assertCanonicalVideoPublication({
+    ...input,
+    mediaRow: { ...input.mediaRow, owner_user_id: 'another-parent' },
+  }), /not confirmed/);
 });

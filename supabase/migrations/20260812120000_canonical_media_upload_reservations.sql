@@ -7,7 +7,6 @@ alter table public.media_upload_reservations
   add column if not exists accounting_resolution text not null default 'canonical'
     check (accounting_resolution in (
       'canonical',
-      'legacy_adopted',
       'legacy_grandfathered_missing',
       'legacy_grandfathered_ambiguous'
     ));
@@ -117,7 +116,7 @@ declare
   v_media public.moment_media%rowtype;
   v_tag public.photo_tags%rowtype;
   v_reservation public.media_upload_reservations%rowtype;
-  v_candidates uuid[];
+  v_candidate_count bigint := 0;
   v_storage_present boolean := false;
   v_expected_bytes bigint;
   v_expected_seconds integer;
@@ -240,51 +239,23 @@ begin
     v_expected_quota_class := 'optimized';
   end if;
 
-  select array_agg(reservation.id order by reservation.created_at)
-  into v_candidates
+  select count(*)
+  into v_candidate_count
   from public.media_upload_reservations reservation
-  where reservation.id in (
-    select candidate.id
-    from public.media_upload_reservations candidate
-    where candidate.family_id = target_family_id
-      and candidate.user_id = auth.uid()
-      and candidate.media_type = v_expected_media_type
-      and candidate.quota_class = v_expected_quota_class
-      and candidate.status in ('reserved', 'finalized')
-      and candidate.canonical_media_id is null
-      and candidate.transport is null
-      and candidate.reserved_bytes = v_expected_bytes
-      and candidate.reserved_seconds = v_expected_seconds
-      and candidate.created_at >= v_media.created_at - interval '5 minutes'
-      and candidate.created_at <= v_media.updated_at + interval '5 minutes'
-    order by candidate.created_at
-    limit 2
-  );
-
-  if cardinality(v_candidates) = 1 then
-    update public.media_upload_reservations as reservation
-    set canonical_media_id = p_canonical_media_id,
-        transport = p_transport,
-        accounting_resolution = 'legacy_adopted'
-    where reservation.id = v_candidates[1]
-      and reservation.canonical_media_id is null
-      and reservation.transport is null
-    returning reservation.* into v_reservation;
-
-    if found then
-      return query select
-        v_reservation.id,
-        v_reservation.status,
-        v_reservation.canonical_media_id,
-        v_reservation.transport,
-        v_storage_present,
-        v_reservation.accounting_resolution;
-      return;
-    end if;
-  end if;
+  where reservation.family_id = target_family_id
+    and reservation.user_id = auth.uid()
+    and reservation.media_type = v_expected_media_type
+    and reservation.quota_class = v_expected_quota_class
+    and reservation.status in ('reserved', 'finalized')
+    and reservation.canonical_media_id is null
+    and reservation.transport is null
+    and reservation.reserved_bytes = v_expected_bytes
+    and reservation.reserved_seconds = v_expected_seconds
+    and reservation.created_at >= v_media.created_at - interval '5 minutes'
+    and reservation.created_at <= v_media.updated_at + interval '5 minutes';
 
   v_accounting_resolution := case
-    when coalesce(cardinality(v_candidates), 0) = 0 then 'legacy_grandfathered_missing'
+    when v_candidate_count = 0 then 'legacy_grandfathered_missing'
     else 'legacy_grandfathered_ambiguous'
   end;
 

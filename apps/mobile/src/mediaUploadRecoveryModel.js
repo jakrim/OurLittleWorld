@@ -278,10 +278,11 @@ export function legacyRemoteAssetIdentityFromRows({
   tags = [],
   media = null,
 }) {
+  const recoverableStates = new Set(['pending', 'uploading', 'ready', 'failed']);
   const matches = tags.filter((row) => row?.asset_id === localAssetId
     && row.family_id === familyId
     && row.asset_owner_user_id === ownerUserId
-    && row.upload_status === 'ready');
+    && recoverableStates.has(row.upload_status));
   if (matches.length !== 1) return null;
   const tag = matches[0];
   if (
@@ -292,13 +293,55 @@ export function legacyRemoteAssetIdentityFromRows({
     || media.family_id !== familyId
     || media.owner_user_id !== ownerUserId
     || media.local_identifier !== tag.asset_id
-    || media.upload_status !== 'ready'
+    || !recoverableStates.has(media.upload_status)
   ) return null;
   return {
     remoteAssetKey: tag.asset_id,
     momentId: tag.moment_id,
     mediaId: tag.moment_media_id,
   };
+}
+
+export function assertLegacyQueuedKeepResolved({ sourceJob, existingIdentity, legacyIdentity }) {
+  if (sourceJob && !existingIdentity && !legacyIdentity) {
+    throw new Error('Legacy queued Keep has no verifiable canonical target');
+  }
+  return legacyIdentity;
+}
+
+export async function canonicalizeUploadJob({ sourceJob, canonicalJobId, rekey }) {
+  if (!canonicalJobId) throw new Error('Canonical upload job identity is required');
+  if (sourceJob?.id && sourceJob.id !== canonicalJobId) {
+    if (!rekey) throw new Error('Legacy upload job re-key is required');
+    await rekey({ sourceJobId: sourceJob.id, canonicalJobId });
+  }
+  return canonicalJobId;
+}
+
+export function assertCanonicalVideoPublication({
+  tagRow,
+  mediaRow,
+  familyId,
+  ownerUserId,
+  remoteAssetKey,
+  momentId,
+  mediaId,
+}) {
+  const tagPublished = tagRow?.family_id === familyId
+    && tagRow.asset_owner_user_id === ownerUserId
+    && tagRow.asset_id === remoteAssetKey
+    && tagRow.moment_id === momentId
+    && tagRow.moment_media_id === mediaId
+    && tagRow.upload_status === 'ready';
+  const mediaPublished = mediaRow?.id === mediaId
+    && mediaRow.family_id === familyId
+    && mediaRow.owner_user_id === ownerUserId
+    && mediaRow.moment_id === momentId
+    && mediaRow.upload_status === 'ready';
+  if (!tagPublished || !mediaPublished) {
+    throw new Error('Canonical video publication was not confirmed');
+  }
+  return { tagRow, mediaRow };
 }
 
 function posterResultFromRemoteRows(existingMedia, existingTag) {
