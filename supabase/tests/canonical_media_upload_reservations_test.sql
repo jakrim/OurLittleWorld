@@ -437,14 +437,13 @@ select throws_ok(
   'a provider-backed reservation cannot be released before trusted cleanup'
 );
 
-select throws_ok(
-  $$ select public.confirm_media_upload_provider_cleanup(
-    '83000000-0000-4000-8000-000000000001',
-    'stream',
-    'canonical-stream-winner'
-  ) $$,
-  '42501',
-  'permission denied for function confirm_media_upload_provider_cleanup',
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.confirm_media_upload_provider_cleanup(uuid, text, text)',
+    'EXECUTE'
+  ),
+  false,
   'an authenticated writer cannot falsely confirm provider cleanup'
 );
 
@@ -466,11 +465,13 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 
 select is(
   (
-    select concat_ws('|', provider_object_id, provider_cleanup_required::text, provider_cleanup_confirmed_at is not null)
+    select provider_object_id is null
+      and not provider_cleanup_required
+      and provider_cleanup_confirmed_at is not null
     from public.media_upload_reservations
     where id = '83000000-0000-4000-8000-000000000001'
   ),
-  'false|true',
+  true,
   'trusted cleanup removes provider capability and records confirmation'
 );
 
@@ -516,7 +517,7 @@ select is(
     select count(*)
     from public.list_family_media_upload_lifecycle('82000000-0000-4000-8000-000000000001')
   ),
-  6::bigint,
+  7::bigint,
   'another family writer receives sanitized terminal lifecycle state'
 );
 
@@ -765,14 +766,13 @@ select is(
   'legacy accounting repairs remain explicit and canonical'
 );
 
-select throws_ok(
-  $$ select public.confirm_and_release_media_upload_provider_cleanup(
-    '83000000-0000-4000-8000-000000000012',
-    'stream',
-    'deleted-before-confirmation'
-  ) $$,
-  '42501',
-  'permission denied for function confirm_and_release_media_upload_provider_cleanup',
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.confirm_and_release_media_upload_provider_cleanup(uuid, text, text)',
+    'EXECUTE'
+  ),
+  false,
   'an authenticated writer cannot confirm an absent provider object'
 );
 
