@@ -674,7 +674,16 @@ export default function TonightScreen() {
       const info = await getAssetDetails(activeItem.assetId, { downloadFromNetwork: true });
       const localUri = info?.localUri || info?.uri;
       if (!localUri) throw new Error(info?.downloadError || 'The original is still waiting in iCloud.');
-      restoreCandidateMedia({ familyId: family.id, userId: user.id, assetId: activeItem.assetId, localUri });
+      if (activeItem.mediaType === 'video' && info?.mediaType !== 'video') {
+        throw new Error('Photos did not return the original video.');
+      }
+      restoreCandidateMedia({
+        familyId: family.id,
+        userId: user.id,
+        assetId: activeItem.assetId,
+        localUri,
+        previewUri: activeItem.previewUri,
+      });
       load();
     } catch (availabilityError) {
       setError(parentError(availabilityError, 'The original is still unavailable. Open Photos once, then try again.'));

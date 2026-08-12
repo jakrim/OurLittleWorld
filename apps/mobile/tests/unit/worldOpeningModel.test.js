@@ -52,6 +52,8 @@ test('a posterless playback-only video yields to the next truthful visual', () =
   const opening = selectWorldOpening([
     {
       key: 'playback-only',
+      thumbUrl: 'https://playback.test/video.m3u8',
+      videoCount: 1,
       moment: { media: [{ media_type: 'video', fullUrl: 'https://playback.test/video.m3u8' }] },
     },
     {

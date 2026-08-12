@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 7;
+export const MEDIA_DB_SCHEMA_VERSION = 8;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -244,6 +244,60 @@ export const CANONICAL_KEEP_RESUME_MIGRATION_SQL = `
   alter table local_asset_mappings add column provider_upload_json text;
 `;
 
+export const LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL = `
+  alter table discovery_candidates add column source_recovery_required integer not null default 0
+    check (source_recovery_required in (0, 1));
+
+  update nightly_review_enrichment
+    set parent_interacted = 1
+    where parent_interacted = 0 and (
+      selected_asset_id is not null
+      or draft_voice_uri is not null
+      or draft_favorite = 1
+      or draft_reaction_code is not null
+      or retry_id is not null
+      or canonical_moment_id is not null
+      or canonical_voice_note_id is not null
+      or canonical_voice_object_id is not null
+      or media_commit_state <> 'idle'
+      or text_commit_state <> 'idle'
+      or voice_commit_state <> 'idle'
+      or reaction_commit_state <> 'idle'
+      or collection_commit_state <> 'idle'
+      or temp_cleanup_state <> 'idle'
+    );
+
+  update discovery_candidates
+    set local_uri = null,
+        availability = 'unavailable',
+        lifecycle_state = 'unavailable',
+        source_recovery_required = 1,
+        unavailable_reason = 'Reconnect this video to its original in Photos before reviewing it.'
+    where media_type = 'video'
+      and local_uri is not null
+      and preview_uri is not null
+      and local_uri = preview_uri
+      and availability = 'available'
+      and lifecycle_state in ('discovered', 'eligible', 'queued', 'shown');
+
+  update nightly_review_items
+    set item_state = 'unavailable',
+        last_error_code = 'asset_unavailable',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    where item_state in ('queued', 'shown')
+      and exists (
+        select 1
+        from discovery_candidates c
+        left join nightly_review_enrichment e
+          on e.session_id = nightly_review_items.session_id
+          and e.position = nightly_review_items.position
+        where c.family_id = nightly_review_items.family_id
+          and c.user_id = nightly_review_items.user_id
+          and c.asset_id = coalesce(e.selected_asset_id, nightly_review_items.asset_id)
+          and c.source_recovery_required = 1
+      );
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -255,6 +309,7 @@ export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'last_seen_scan_key',
   'last_seen_at',
   'unavailable_code',
+  'source_recovery_required',
 ]);
 
 export const MEDIA_DB_REQUIRED_ENRICHMENT_COLUMNS = Object.freeze([
@@ -376,6 +431,16 @@ export function applyMediaDbMigrations(database) {
       });
     } catch (error) {
       throw new Error(`Local canonical Keep recovery migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
+  if (currentVersion < 8) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL);
+        database.execSync('pragma user_version = 8;');
+      });
+    } catch (error) {
+      throw new Error(`Local legacy Tonight recovery migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
   assertCandidateLedgerSchema(database);

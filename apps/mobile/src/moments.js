@@ -356,7 +356,7 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
   let streamUid = null;
   try {
     if (useStream) {
-      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
+      const upload = await createStreamUpload({ familyId, mediaId, durationSec, sourceBytes });
       reservationId = upload.reservationId;
       streamUid = upload.uid;
       await uploadToStream({

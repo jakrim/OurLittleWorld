@@ -31,7 +31,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
   queue and owns the private discovery-candidate ledger plus nightly review sessions.
   `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations (current
-  schema version 7);
+  schema version 8);
   `candidateLedgerStore.js` scopes every row by family and parent and never imports a
   remote or analytics transport. Server state is Supabase via `rituals.js`,
   `moments.js`, `photoSync.js`.

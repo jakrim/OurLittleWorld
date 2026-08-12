@@ -11,8 +11,9 @@ export function selectWorldOpening(records = [], membersById = {}) {
 
 function worldVisualRecord(record, membersById) {
   const media = record?.moment?.media || [];
-  const first = media.find((item) => worldImageUri(item, record?.thumbUrl)) || null;
-  const mediaUri = worldImageUri(first, record?.thumbUrl);
+  const first = media.find((item) => worldImageUri(item)) || null;
+  const hasVideo = media.some((item) => item?.media_type === 'video') || Number(record?.videoCount || 0) > 0;
+  const mediaUri = worldImageUri(first) || (!hasVideo ? record?.thumbUrl || null : null);
   if (!record || !mediaUri) return null;
   const authorId = record.moment?.author_user_id
     || record.photo?.asset_owner_user_id
@@ -27,10 +28,10 @@ function worldVisualRecord(record, membersById) {
   };
 }
 
-function worldImageUri(media, recordThumbUrl) {
-  if (!media) return recordThumbUrl || null;
-  if (media.media_type === 'video') return media.posterUrl || media.thumbUrl || recordThumbUrl || null;
-  return media.thumbUrl || media.fullUrl || media.posterUrl || recordThumbUrl || null;
+function worldImageUri(media) {
+  if (!media) return null;
+  if (media.media_type === 'video') return media.posterUrl || media.thumbUrl || null;
+  return media.thumbUrl || media.fullUrl || media.posterUrl || null;
 }
 
 function safeDate(value) {

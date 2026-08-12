@@ -39,6 +39,40 @@ test('Today falls back to the newest renderable kept memory with grounded author
   assert.equal(home.capturedAt.toISOString(), '2026-07-01T12:00:00.000Z');
 });
 
+test('image-only Today uses video posters and never playable video URLs', () => {
+  const tonight = selectPhotoFirstHome({
+    tonightSession: {
+      items: [{
+        state: 'shown',
+        mediaType: 'video',
+        localUri: 'file://private-source.mov',
+        previewUri: 'file://private-poster.jpg',
+      }],
+    },
+  });
+  assert.equal(tonight.mediaUri, 'file://private-poster.jpg');
+
+  const kept = selectPhotoFirstHome({
+    sharedPhotos: [{
+      media_type: 'video',
+      fullUrl: 'https://playback.test/video.m3u8',
+      thumbUrl: 'https://images.test/video.jpg',
+    }],
+  });
+  assert.equal(kept.mediaUri, 'https://images.test/video.jpg');
+});
+
+test('a previewless Tonight video yields to a truthful kept visual', () => {
+  const home = selectPhotoFirstHome({
+    tonightSession: {
+      items: [{ state: 'unavailable', mediaType: 'video', localUri: 'file://private-source.mov' }],
+    },
+    sharedPhotos: [{ media_type: 'image', fullUrl: 'https://images.test/kept.jpg' }],
+  });
+  assert.equal(home.kind, 'kept');
+  assert.equal(home.mediaUri, 'https://images.test/kept.jpg');
+});
+
 test('photo-first Today occupies at least half of a small or large first viewport', () => {
   assert.equal(photoFirstHomeMediaHeight(667), 374);
   assert.equal(photoFirstHomeMediaHeight(844), 473);

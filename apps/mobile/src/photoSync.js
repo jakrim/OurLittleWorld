@@ -534,7 +534,13 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     if (useStream) {
       providerContext = await resumeCanonicalProviderUpload({
         context: providerContext,
-        prepare: () => createStreamUpload({ familyId, durationSec, sourceBytes }),
+        prepare: (current) => createStreamUpload({
+          familyId,
+          mediaId,
+          durationSec,
+          sourceBytes,
+          context: current,
+        }),
         persist: async (next) => mediaDb.recordRemoteProviderUpload({
           familyId,
           ownerUserId: userId,

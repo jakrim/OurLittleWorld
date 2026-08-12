@@ -37,15 +37,27 @@ export function assertCanonicalMediaIdentity(existing, expected) {
 
 export async function resumeCanonicalProviderUpload({ context = null, prepare, persist, upload }) {
   let current = normalizedProviderContext(context);
-  if (['uploaded', 'finalized'].includes(current?.state) && current.uid) return current;
-  if (!current?.uid || !current?.uploadURL) {
-    const prepared = await prepare();
-    current = normalizedProviderContext({ ...prepared, state: 'prepared' });
-    if (!current?.uid || !current?.uploadURL) throw new Error('Provider upload identity is incomplete');
+  if (current?.state === 'finalized' && current.uid) return current;
+
+  const prepared = normalizedProviderContext(await prepare(current));
+  current = mergeProviderContext(current, prepared);
+  if (!current?.uid || !current?.reservationId) throw new Error('Provider upload identity is incomplete');
+  if (current.state === 'uploaded') {
     await persist(current);
+    return current;
   }
+  if (current.state === 'uploading' && !current.uploadURL) {
+    await persist(current);
+    throw new Error('Provider upload acceptance is still being confirmed');
+  }
+  if (!current.uploadURL) throw new Error('Provider upload URL is unavailable');
+
+  current = { ...current, state: 'prepared' };
+  await persist(current);
+  current = { ...current, state: 'uploading' };
+  await persist(current);
   await upload(current);
-  current = { ...current, state: 'uploaded' };
+  current = { ...current, uploadURL: null, state: 'uploaded' };
   await persist(current);
   return current;
 }
@@ -66,7 +78,18 @@ function normalizedProviderContext(value) {
     uid: value.uid || null,
     uploadURL: value.uploadURL || null,
     reservationId: value.reservationId || null,
-    state: ['prepared', 'uploaded', 'finalized'].includes(value.state) ? value.state : 'prepared',
+    state: ['prepared', 'uploading', 'uploaded', 'finalized'].includes(value.state) ? value.state : 'prepared',
+  };
+}
+
+function mergeProviderContext(current, prepared) {
+  if (!prepared) return current;
+  const sameProvider = current?.uid && current.uid === prepared.uid;
+  return {
+    ...prepared,
+    uploadURL: prepared.state === 'uploaded'
+      ? null
+      : prepared.uploadURL || (sameProvider ? current.uploadURL : null),
   };
 }
 

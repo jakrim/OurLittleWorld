@@ -12,6 +12,7 @@ import {
   CANONICAL_KEEP_RESUME_MIGRATION_SQL,
   CANDIDATE_LEDGER_MIGRATION_SQL,
   FIRST_YEAR_CATCHUP_MIGRATION_SQL,
+  LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL,
   PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL,
   applyMediaDbMigrations,
   assertCandidateLedgerSchema,
@@ -218,6 +219,77 @@ test('version 6 distinguishes parent interaction and persists provider retry ide
   });
 });
 
+test('version 7 preserves legacy parent work and makes frame-only videos recoverable', () => {
+  withDatabase((dbPath) => {
+    migrateV7(dbPath);
+    for (const assetId of [
+      'asset-defaults',
+      'asset-selected',
+      'asset-alternate',
+      'asset-voice',
+      'asset-favorite',
+      'asset-reaction',
+      'asset-committed',
+    ]) {
+      run(dbPath, candidateInsert({ familyId: 'family-a', userId: 'parent-a', assetId, state: 'shown' }));
+    }
+    run(dbPath, `
+      insert into discovery_candidates (
+        family_id,user_id,asset_id,media_type,local_uri,preview_uri,availability,
+        scorer_version,lifecycle_state,first_seen_at,last_analyzed_at
+      ) values
+        ('family-a','parent-a','legacy-video','video','file://sample.jpg','file://sample.jpg','available',
+         'curated-ledger-v1','shown','2026-08-11','2026-08-11'),
+        ('family-a','parent-a','playable-video','video','file://source.mov','file://poster.jpg','available',
+         'curated-ledger-v1','shown','2026-08-11','2026-08-11');
+      insert into nightly_review_sessions (
+        session_id,family_id,user_id,local_day,timezone,seed,status,generation_version,model_version,
+        current_position,item_count,created_at,updated_at,is_continuation
+      ) values (
+        'session-legacy','family-a','parent-a','2026-08-11','America/New_York','seed','active',
+        'nightly-queue-v2','curated-ledger-v1',0,8,'2026-08-11','2026-08-11',0
+      );
+      insert into nightly_review_items (
+        session_id,position,family_id,user_id,asset_id,reason_code,item_state,commit_state,updated_at
+      ) values
+        ('session-legacy',0,'family-a','parent-a','asset-defaults','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',1,'family-a','parent-a','asset-selected','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',2,'family-a','parent-a','asset-voice','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',3,'family-a','parent-a','asset-favorite','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',4,'family-a','parent-a','asset-reaction','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',5,'family-a','parent-a','asset-committed','best_day','shown','idle','2026-08-11'),
+        ('session-legacy',6,'family-a','parent-a','legacy-video','clear_video','shown','idle','2026-08-11'),
+        ('session-legacy',7,'family-a','parent-a','playable-video','clear_video','shown','idle','2026-08-11');
+      insert into nightly_review_enrichment (
+        session_id,position,family_id,user_id,selected_asset_id,draft_voice_uri,draft_favorite,
+        draft_reaction_code,media_commit_state,draft_collection_keys_json,parent_interacted,updated_at
+      ) values
+        ('session-legacy',0,'family-a','parent-a',null,null,0,null,'idle','["media:photos"]',0,'2026-08-11'),
+        ('session-legacy',1,'family-a','parent-a','asset-alternate',null,0,null,'idle',null,0,'2026-08-11'),
+        ('session-legacy',2,'family-a','parent-a',null,'file://voice.m4a',0,null,'idle',null,0,'2026-08-11'),
+        ('session-legacy',3,'family-a','parent-a',null,null,1,null,'idle',null,0,'2026-08-11'),
+        ('session-legacy',4,'family-a','parent-a',null,null,0,'spark','idle',null,0,'2026-08-11'),
+        ('session-legacy',5,'family-a','parent-a',null,null,0,null,'saved',null,0,'2026-08-11'),
+        ('session-legacy',6,'family-a','parent-a',null,null,0,null,'idle',null,0,'2026-08-11');
+    `);
+
+    run(dbPath, `begin immediate; ${LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL} pragma user_version = 8; commit;`);
+
+    assert.equal(query(dbPath, `select parent_interacted from nightly_review_enrichment
+      where session_id='session-legacy' and position=0;`), '0');
+    for (const position of [1, 2, 3, 4, 5]) {
+      assert.equal(query(dbPath, `select parent_interacted from nightly_review_enrichment
+        where session_id='session-legacy' and position=${position};`), '1');
+    }
+    assert.equal(query(dbPath, `select cast(local_uri is null as text) || '|' || preview_uri || '|' || availability || '|' || source_recovery_required
+      from discovery_candidates where asset_id='legacy-video';`), '1|file://sample.jpg|unavailable|1');
+    assert.equal(query(dbPath, `select item_state || '|' || last_error_code from nightly_review_items
+      where session_id='session-legacy' and position=6;`), 'unavailable|asset_unavailable');
+    assert.equal(query(dbPath, `select local_uri || '|' || preview_uri || '|' || availability || '|' || source_recovery_required
+      from discovery_candidates where asset_id='playable-video';`), 'file://source.mov|file://poster.jpg|available|0');
+  });
+});
+
 test('upgrade preserves the current production local tables and their rows', () => {
   withDatabase((dbPath) => {
     run(dbPath, `
@@ -326,6 +398,7 @@ test('partial corrupt migration is diagnosable instead of silently accepted', ()
       'last_seen_scan_key',
       'last_seen_at',
       'unavailable_code',
+      'source_recovery_required',
     ]);
   });
 });
@@ -460,7 +533,7 @@ test('5,000 kept-media identity mappings remain bounded and use the remote looku
 function migrate(dbPath) {
   if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} ${LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
@@ -497,6 +570,11 @@ function migrateV5(dbPath) {
 function migrateV6(dbPath) {
   migrateV5(dbPath);
   run(dbPath, `begin immediate; ${TONIGHT_CONTINUATION_MIGRATION_SQL} pragma user_version = 6; commit;`);
+}
+
+function migrateV7(dbPath) {
+  migrateV6(dbPath);
+  run(dbPath, `begin immediate; ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} pragma user_version = 7; commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {

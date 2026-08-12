@@ -2,13 +2,14 @@ export function selectPhotoFirstHome({ tonightSession, sharedPhotos = [], member
   const tonightItem = (tonightSession?.items || []).find((item) => (
     ['queued', 'shown', 'unavailable'].includes(item?.state)
   ));
-  if (tonightItem?.localUri || tonightItem?.previewUri) {
+  const tonightUri = imageOnlyTonightUri(tonightItem);
+  if (tonightUri) {
     const remaining = (tonightSession.items || []).filter((item) => (
       ['queued', 'shown', 'unavailable'].includes(item?.state)
     )).length;
     return {
       kind: 'tonight',
-      mediaUri: tonightItem.localUri || tonightItem.previewUri,
+      mediaUri: tonightUri,
       mediaType: tonightItem.mediaType || 'image',
       capturedAt: numberDate(tonightItem.captureTimeMs),
       momentId: null,
@@ -18,11 +19,11 @@ export function selectPhotoFirstHome({ tonightSession, sharedPhotos = [], member
     };
   }
 
-  const kept = (sharedPhotos || []).find((item) => item?.thumbUrl || item?.fullUrl);
+  const kept = (sharedPhotos || []).find((item) => imageOnlyKeptUri(item));
   if (kept) {
     return {
       kind: 'kept',
-      mediaUri: kept.fullUrl || kept.thumbUrl,
+      mediaUri: imageOnlyKeptUri(kept),
       mediaType: kept.media_type || kept.mediaType || 'image',
       capturedAt: safeDate(kept.creation_time || kept.captured_at || kept.tagged_at || kept.created_at),
       momentId: kept.moment_id || kept.momentId || null,
@@ -42,6 +43,19 @@ export function selectPhotoFirstHome({ tonightSession, sharedPhotos = [], member
     remaining: 0,
     reasonCode: null,
   };
+}
+
+function imageOnlyTonightUri(item) {
+  if (!item) return null;
+  if (item.mediaType === 'video') return item.previewUri || null;
+  return item.localUri || item.previewUri || null;
+}
+
+function imageOnlyKeptUri(item) {
+  if (!item) return null;
+  const mediaType = item.media_type || item.mediaType || 'image';
+  if (mediaType === 'video') return item.posterUrl || item.thumbUrl || null;
+  return item.thumbUrl || item.fullUrl || item.posterUrl || null;
 }
 
 export function photoFirstHomeMediaHeight(viewportHeight) {

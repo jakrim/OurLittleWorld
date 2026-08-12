@@ -251,6 +251,7 @@ export function restoreCandidateMedia({ familyId, userId, assetId, localUri, pre
     database.runSync(
       `update discovery_candidates set availability = 'available', local_uri = ?,
          preview_uri = coalesce(?, preview_uri, ?),
+         source_recovery_required = 0,
          lifecycle_state = case when lifecycle_state = 'unavailable' then 'shown' else lifecycle_state end,
          unavailable_reason = null, unavailable_code = null, last_analyzed_at = ?
        where family_id = ? and user_id = ? and asset_id = ?`,
@@ -1046,6 +1047,7 @@ function hydrateSession(database, session) {
        coalesce(sc.capture_quality, c.capture_quality) as capture_quality,
        coalesce(sc.video_presence_ratio, c.video_presence_ratio) as video_presence_ratio,
        coalesce(sc.unavailable_reason, c.unavailable_reason) as unavailable_reason,
+       coalesce(sc.source_recovery_required, c.source_recovery_required) as source_recovery_required,
        c.event_cluster_key, c.cluster_member_count,
        e.draft_voice_uri, e.draft_voice_duration_sec, e.draft_voice_mime_type,
        e.draft_voice_waveform_json, e.draft_favorite, e.draft_reaction_code,
@@ -1157,7 +1159,9 @@ function mapSessionItem(row) {
     tempCleanupState: row.temp_cleanup_state || 'idle',
     lastErrorCode: row.last_error_code || null,
     mediaType: row.media_type || 'image',
-    localUri: row.media_type === 'video' ? row.local_uri || null : row.local_uri || row.preview_uri || null,
+    localUri: row.media_type === 'video'
+      ? (Number(row.source_recovery_required || 0) === 1 ? null : row.local_uri || null)
+      : row.local_uri || row.preview_uri || null,
     previewUri: row.preview_uri || row.local_uri || null,
     availability: row.availability || 'available',
     captureTimeMs: Number(row.capture_time_ms || 0) || null,
@@ -1166,6 +1170,7 @@ function mapSessionItem(row) {
     width: Number(row.width || 0) || null,
     height: Number(row.height || 0) || null,
     unavailableReason: row.unavailable_reason || null,
+    sourceRecoveryRequired: Number(row.source_recovery_required || 0) === 1,
   };
 }
 
@@ -1287,8 +1292,8 @@ function upsertCandidate(database, familyId, userId, candidate) {
        video_sampled_frames, video_matched_frames, visual_fingerprint_json, identity_evidence_json,
        event_cluster_key, representative_asset_id, cluster_member_count, scorer_version,
        selection_reason_code, lifecycle_state, scan_key, first_seen_at, last_analyzed_at, unavailable_reason,
-       last_seen_scan_key, last_seen_at, unavailable_code
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       last_seen_scan_key, last_seen_at, unavailable_code, source_recovery_required
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(family_id, user_id, asset_id) do update set
        media_type = excluded.media_type, local_uri = coalesce(excluded.local_uri, discovery_candidates.local_uri),
        preview_uri = coalesce(excluded.preview_uri, discovery_candidates.preview_uri), availability = excluded.availability,
@@ -1310,7 +1315,12 @@ function upsertCandidate(database, familyId, userId, candidate) {
          then discovery_candidates.lifecycle_state else excluded.lifecycle_state end,
        scan_key = excluded.scan_key, last_analyzed_at = excluded.last_analyzed_at,
        last_seen_scan_key = excluded.last_seen_scan_key, last_seen_at = excluded.last_seen_at,
-       unavailable_reason = excluded.unavailable_reason, unavailable_code = excluded.unavailable_code`,
+       unavailable_reason = excluded.unavailable_reason, unavailable_code = excluded.unavailable_code,
+       source_recovery_required = case
+         when excluded.media_type = 'video' and excluded.local_uri is not null
+           and (excluded.preview_uri is null or excluded.local_uri <> excluded.preview_uri) then 0
+         else discovery_candidates.source_recovery_required
+       end`,
     [familyId, userId, candidate.assetId, candidate.mediaType, candidate.localUri, candidate.previewUri,
       candidate.availability, candidate.captureTimeMs, candidate.localDay, candidate.captureTimezone,
       candidate.width, candidate.height,
@@ -1321,7 +1331,7 @@ function upsertCandidate(database, familyId, userId, candidate) {
       candidate.representativeAssetId, candidate.clusterMemberCount, candidate.scorerVersion,
       candidate.selectionReasonCode, candidate.lifecycleState, candidate.scanKey, candidate.firstSeenAt,
       candidate.lastAnalyzedAt, candidate.unavailableReason, candidate.lastSeenScanKey,
-      candidate.lastSeenAt, candidate.unavailableCode || null],
+      candidate.lastSeenAt, candidate.unavailableCode || null, 0],
   );
 }
 
