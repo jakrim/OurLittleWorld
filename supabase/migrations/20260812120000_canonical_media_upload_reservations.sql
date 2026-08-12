@@ -301,6 +301,137 @@ revoke all on function public.reconcile_legacy_canonical_media_upload(uuid, uuid
 grant execute on function public.reconcile_legacy_canonical_media_upload(uuid, uuid, text, text)
   to authenticated;
 
+create or replace function public.reconcile_legacy_canonical_image_upload(
+  target_family_id uuid,
+  p_canonical_media_id uuid,
+  p_full_storage_path text,
+  p_thumb_storage_path text
+)
+returns table (
+  reservation_id uuid,
+  status text,
+  canonical_media_id uuid,
+  transport text,
+  storage_present boolean,
+  accounting_resolution text
+)
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_media public.moment_media%rowtype;
+  v_tag public.photo_tags%rowtype;
+  v_reservation public.media_upload_reservations%rowtype;
+  v_candidate_count bigint := 0;
+  v_storage_present boolean := false;
+  v_expected_bytes bigint;
+  v_accounting_resolution text;
+begin
+  perform public.authorize_canonical_media_upload(target_family_id);
+
+  perform pg_advisory_xact_lock(hashtextextended(
+    target_family_id::text || ':' || auth.uid()::text || ':' || p_canonical_media_id::text || ':image',
+    0
+  ));
+
+  select * into v_media
+  from public.moment_media
+  where id = p_canonical_media_id
+    and family_id = target_family_id
+    and owner_user_id = auth.uid()
+    and media_type = 'image'
+    and (storage_provider is null or storage_provider = 'supabase')
+    and full_object is not null
+    and thumb_object is not null;
+  if not found then return; end if;
+
+  if p_full_storage_path <> (target_family_id::text || '/full/' || v_media.full_object::text || '.jpg')
+    or p_thumb_storage_path <> (target_family_id::text || '/thumb/' || v_media.thumb_object::text || '.jpg') then
+    raise exception 'Canonical image storage identity is inconsistent.';
+  end if;
+
+  select exists (
+    select 1 from storage.objects object
+    where object.bucket_id = 'family-photos' and object.name = p_full_storage_path
+  ) and exists (
+    select 1 from storage.objects object
+    where object.bucket_id = 'family-photos' and object.name = p_thumb_storage_path
+  ) into v_storage_present;
+
+  select * into v_tag
+  from public.photo_tags
+  where family_id = target_family_id
+    and asset_owner_user_id = auth.uid()
+    and moment_id = v_media.moment_id
+    and moment_media_id = v_media.id
+    and (
+      (storage_object = v_media.full_object and thumb_object = v_media.thumb_object)
+      or (storage_object is null and thumb_object is null)
+    )
+  limit 1;
+  if not found then return; end if;
+
+  select * into v_reservation
+  from public.media_upload_reservations reservation
+  where reservation.family_id = target_family_id
+    and reservation.user_id = auth.uid()
+    and reservation.canonical_media_id = p_canonical_media_id
+    and reservation.transport = 'image'
+    and reservation.status in ('reserved', 'finalized')
+  order by reservation.created_at asc
+  limit 1
+  for update;
+  if found then
+    return query select v_reservation.id, v_reservation.status, v_reservation.canonical_media_id,
+      v_reservation.transport, v_storage_present, v_reservation.accounting_resolution;
+    return;
+  end if;
+
+  if v_media.upload_status not in ('uploading', 'failed', 'ready')
+    or v_tag.upload_status not in ('uploading', 'failed', 'ready')
+    or not v_storage_present then
+    return;
+  end if;
+
+  v_expected_bytes := greatest(coalesce(v_media.source_bytes, 0), coalesce(v_media.optimized_bytes, 0));
+  select count(*) into v_candidate_count
+  from public.media_upload_reservations reservation
+  where reservation.family_id = target_family_id
+    and reservation.user_id = auth.uid()
+    and reservation.media_type = 'image'
+    and reservation.quota_class = coalesce(v_media.quota_class, 'optimized')
+    and reservation.status in ('reserved', 'finalized')
+    and reservation.canonical_media_id is null
+    and reservation.transport is null
+    and reservation.reserved_bytes = v_expected_bytes
+    and reservation.reserved_seconds = 0
+    and reservation.created_at >= v_media.created_at - interval '5 minutes'
+    and reservation.created_at <= v_media.updated_at + interval '5 minutes';
+
+  v_accounting_resolution := case
+    when v_candidate_count = 0 then 'legacy_grandfathered_missing'
+    else 'legacy_grandfathered_ambiguous'
+  end;
+  insert into public.media_upload_reservations (
+    family_id, user_id, media_type, quota_class, reserved_bytes, reserved_seconds,
+    status, expires_at, canonical_media_id, transport, accounting_resolution
+  ) values (
+    target_family_id, auth.uid(), 'image', coalesce(v_media.quota_class, 'optimized'), 0, 0,
+    'finalized', now(), p_canonical_media_id, 'image', v_accounting_resolution
+  ) returning * into v_reservation;
+
+  return query select v_reservation.id, v_reservation.status, v_reservation.canonical_media_id,
+    v_reservation.transport, v_storage_present, v_reservation.accounting_resolution;
+end
+$$;
+
+revoke all on function public.reconcile_legacy_canonical_image_upload(uuid, uuid, text, text)
+  from public, anon;
+grant execute on function public.reconcile_legacy_canonical_image_upload(uuid, uuid, text, text)
+  to authenticated;
+
 create or replace function public.reserve_canonical_media_upload(
   target_family_id uuid,
   p_canonical_media_id uuid,

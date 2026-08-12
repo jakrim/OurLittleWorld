@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
-select plan(42);
+select plan(44);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -345,6 +345,75 @@ select is(
   ),
   'unlinked|unlinked',
   'same-sized historical quota evidence is not attributed without an immutable link'
+);
+
+insert into public.moments (id, family_id, author_user_id, captured_at, shared_with) values (
+  '85000000-0000-4000-8000-000000000005',
+  '82000000-0000-4000-8000-000000000001',
+  '81000000-0000-4000-8000-000000000001',
+  now(),
+  '[]'::jsonb
+);
+
+insert into public.moment_media (
+  id, moment_id, family_id, owner_user_id, media_type, full_object, thumb_object,
+  upload_status, source_bytes, optimized_bytes, quota_class, created_at, updated_at
+) values (
+  '84000000-0000-4000-8000-000000000013',
+  '85000000-0000-4000-8000-000000000005',
+  '82000000-0000-4000-8000-000000000001',
+  '81000000-0000-4000-8000-000000000001',
+  'image', '86000000-0000-4000-8000-000000000005', '86000000-0000-4000-8000-000000000006',
+  'uploading', 400, 400, 'optimized', now(), now()
+);
+
+insert into public.photo_tags (
+  family_id, asset_owner_user_id, asset_id, tagged_by_user_id, upload_status, moment_id, moment_media_id
+) values (
+  '82000000-0000-4000-8000-000000000001',
+  '81000000-0000-4000-8000-000000000001',
+  '88000000-0000-4000-8000-000000000005',
+  '81000000-0000-4000-8000-000000000001', 'uploading',
+  '85000000-0000-4000-8000-000000000005', '84000000-0000-4000-8000-000000000013'
+);
+
+insert into storage.objects (id, bucket_id, name, owner_id) values
+  (
+    '87000000-0000-4000-8000-000000000005', 'family-photos',
+    '82000000-0000-4000-8000-000000000001/full/86000000-0000-4000-8000-000000000005.jpg',
+    '81000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '87000000-0000-4000-8000-000000000006', 'family-photos',
+    '82000000-0000-4000-8000-000000000001/thumb/86000000-0000-4000-8000-000000000006.jpg',
+    '81000000-0000-4000-8000-000000000001'
+  );
+
+select is(
+  (
+    select status || '|' || storage_present::text || '|' || accounting_resolution
+    from public.reconcile_legacy_canonical_image_upload(
+      '82000000-0000-4000-8000-000000000001',
+      '84000000-0000-4000-8000-000000000013',
+      '82000000-0000-4000-8000-000000000001/full/86000000-0000-4000-8000-000000000005.jpg',
+      '82000000-0000-4000-8000-000000000001/thumb/86000000-0000-4000-8000-000000000006.jpg'
+    )
+  ),
+  'finalized|true|legacy_grandfathered_missing',
+  'verified legacy image objects gain one zero-charge canonical accounting marker'
+);
+
+select is(
+  (
+    select count(*)
+    from public.media_upload_reservations
+    where canonical_media_id = '84000000-0000-4000-8000-000000000013'
+      and transport = 'image'
+      and reserved_bytes = 0
+      and reserved_seconds = 0
+  ),
+  1::bigint,
+  'legacy image replay cannot create a second quota reservation'
 );
 
 select is(

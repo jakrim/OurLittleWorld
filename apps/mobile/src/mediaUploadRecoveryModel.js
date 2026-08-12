@@ -95,6 +95,66 @@ export function canonicalImageKeepRecovery({ existingMedia, existingTag, momentI
   };
 }
 
+export function legacyImageRowsMatch({ existingMedia, existingTag, momentId, mediaId, fullObjectId, thumbObjectId }) {
+  const recoverableStates = new Set(['uploading', 'failed', 'ready']);
+  const mediaMatches = existingMedia?.id === mediaId
+    && existingMedia.moment_id === momentId
+    && existingMedia.media_type === 'image'
+    && existingMedia.full_object === fullObjectId
+    && existingMedia.thumb_object === thumbObjectId
+    && (!existingMedia.storage_provider || existingMedia.storage_provider === 'supabase')
+    && recoverableStates.has(existingMedia.upload_status);
+  const tagMatches = existingTag?.moment_id === momentId
+    && existingTag.moment_media_id === mediaId
+    && (
+      (existingTag.storage_object === fullObjectId && existingTag.thumb_object === thumbObjectId)
+      || (!existingTag.storage_object && !existingTag.thumb_object)
+    )
+    && recoverableStates.has(existingTag.upload_status);
+  return mediaMatches && tagMatches;
+}
+
+export async function reconcileLegacyImageUpload({
+  context = null,
+  existingMedia,
+  existingTag,
+  momentId,
+  mediaId,
+  fullObjectId,
+  thumbObjectId,
+  readReservation,
+  persist,
+}) {
+  if (context || !readReservation || !persist || !legacyImageRowsMatch({
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    fullObjectId,
+    thumbObjectId,
+  })) return null;
+
+  const reservation = await readReservation(mediaId);
+  const reservationId = reservation?.reservation_id || reservation?.id || null;
+  if (
+    !reservationId
+    || reservation?.canonical_media_id !== mediaId
+    || reservation?.transport !== 'image'
+    || !reservation?.storage_present
+    || !['reserved', 'finalized'].includes(reservation?.status)
+  ) {
+    throw new Error('Legacy image Keep cannot prove its canonical upload state');
+  }
+  const next = {
+    kind: 'image',
+    reservationId,
+    state: reservation.status === 'finalized' ? 'finalized' : 'uploaded',
+    result: null,
+  };
+  await persist(next);
+  return next;
+}
+
 export function canonicalVideoKeepComplete({ existingMedia, existingTag, momentId, mediaId, requireStream, providerPublished = false }) {
   const playable = requireStream
     ? !!existingMedia?.stream_uid && providerPublished

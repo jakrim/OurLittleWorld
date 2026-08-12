@@ -25,9 +25,11 @@ import {
   canonicalImageKeepRecovery,
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
+  legacyImageRowsMatch,
   legacyDirectVideoRowsMatch,
   legacyPosterVideoRowsMatch,
   legacyRemoteAssetIdentityFromRows,
+  reconcileLegacyImageUpload,
   reconcileLegacyDirectVideoUpload,
   reconcileLegacyPosterVideoUpload,
   resumeCanonicalObjectUpload,
@@ -611,26 +613,60 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
     return { fullId, thumbId, momentId, mediaId };
   }
 
+  const persistTransfer = async (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  let transferContext = remoteIdentity.providerUpload;
+  if (!transferContext && legacyImageRowsMatch({
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    fullObjectId: fullId,
+    thumbObjectId: thumbId,
+  })) {
+    transferContext = await reconcileLegacyImageUpload({
+      existingMedia,
+      existingTag,
+      momentId,
+      mediaId,
+      fullObjectId: fullId,
+      thumbObjectId: thumbId,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_image_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_full_storage_path: fullPath,
+          p_thumb_storage_path: thumbPath,
+        });
+        if (error) throw error;
+        return (Array.isArray(data) ? data[0] : data) || null;
+      },
+      persist: persistTransfer,
+    });
+  }
+
   let full = null;
   let thumb = null;
   if (recovery.remoteReady) {
     await resumeCanonicalObjectUpload({ complete: true });
   } else {
-    full = await resize(localUri, FULL_MAX_DIM, FULL_QUALITY);
-    thumb = await resize(full.uri, THUMB_MAX_DIM, THUMB_QUALITY);
-    const [fullBuf, thumbBuf] = await Promise.all([
-      readAsArrayBuffer(full.uri),
-      readAsArrayBuffer(thumb.uri),
-    ]);
-    const derivativeBytes = (fullBuf.byteLength || 0) + (thumbBuf.byteLength || 0);
-    const persistTransfer = async (next) => mediaDb.recordRemoteProviderUpload({
-      familyId,
-      ownerUserId: userId,
-      localAssetId: assetId,
-      providerUpload: next,
-    });
+    let fullBuf = null;
+    let thumbBuf = null;
+    if (transferContext?.state !== 'finalized') {
+      full = await resize(localUri, FULL_MAX_DIM, FULL_QUALITY);
+      thumb = await resize(full.uri, THUMB_MAX_DIM, THUMB_QUALITY);
+      [fullBuf, thumbBuf] = await Promise.all([
+        readAsArrayBuffer(full.uri),
+        readAsArrayBuffer(thumb.uri),
+      ]);
+    }
+    const derivativeBytes = (fullBuf?.byteLength || 0) + (thumbBuf?.byteLength || 0);
     await resumeCanonicalObjectUpload({
-      context: remoteIdentity.providerUpload,
+      context: transferContext,
       reserve: () => reserveMediaUpload({
         familyId,
         mediaType: 'image',
@@ -641,6 +677,7 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
       }),
       persist: persistTransfer,
       upload: async () => {
+        if (!fullBuf || !thumbBuf) throw new Error('Canonical image upload source is unavailable');
         const opts = { contentType: 'image/jpeg', upsert: true };
         const [fullRes, thumbRes] = await Promise.all([
           supabase.storage.from(BUCKET).upload(fullPath, fullBuf, opts),

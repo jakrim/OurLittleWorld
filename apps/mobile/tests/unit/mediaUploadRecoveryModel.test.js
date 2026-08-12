@@ -11,9 +11,11 @@ import {
   canonicalizeUploadJob,
   confirmMediaUploadFinalized,
   legacyDirectVideoRowsMatch,
+  legacyImageRowsMatch,
   legacyPosterVideoRowsMatch,
   legacyRemoteAssetIdentityFromRows,
   reconcileLegacyDirectVideoUpload,
+  reconcileLegacyImageUpload,
   reconcileLegacyPosterVideoUpload,
   resumeCanonicalObjectUpload,
 } from '../../src/mediaUploadRecoveryModel.js';
@@ -154,6 +156,81 @@ test('a ready canonical image repairs a partial tag without another upload', asy
   assert.equal(recovery.mediaReady, true);
   assert.equal(recovery.tagReady, false);
   assert.equal(result.reused, true);
+});
+
+test('legacy uploaded image rows adopt verified storage without another reservation', async () => {
+  let persisted = null;
+  const input = {
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'image',
+      full_object: 'full-1',
+      thumb_object: 'thumb-1',
+      upload_status: 'uploading',
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      upload_status: 'uploading',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+    thumbObjectId: 'thumb-1',
+  };
+  assert.equal(legacyImageRowsMatch(input), true);
+  const context = await reconcileLegacyImageUpload({
+    ...input,
+    readReservation: async () => ({
+      reservation_id: 'legacy-image-reservation',
+      status: 'finalized',
+      canonical_media_id: 'media-1',
+      transport: 'image',
+      storage_present: true,
+    }),
+    persist: async (next) => { persisted = next; },
+  });
+  const resumed = await resumeCanonicalObjectUpload({
+    context,
+    reserve: async () => { throw new Error('must not reserve'); },
+    upload: async () => { throw new Error('must not upload'); },
+    finalize: async () => { throw new Error('must not finalize'); },
+    persist: async () => { throw new Error('must not persist twice'); },
+  });
+
+  assert.equal(context.reservationId, 'legacy-image-reservation');
+  assert.equal(context.state, 'finalized');
+  assert.deepEqual(persisted, context);
+  assert.equal(resumed.state, 'finalized');
+});
+
+test('legacy image rows fail closed when verified storage is absent', async () => {
+  const input = {
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'image',
+      full_object: 'full-1',
+      thumb_object: 'thumb-1',
+      upload_status: 'failed',
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      upload_status: 'failed',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+    thumbObjectId: 'thumb-1',
+  };
+
+  await assert.rejects(reconcileLegacyImageUpload({
+    ...input,
+    readReservation: async () => null,
+    persist: async () => { throw new Error('must not persist'); },
+  }), /cannot prove/);
 });
 
 test('a ready Stream row remains incomplete until quota finalization persists', () => {
