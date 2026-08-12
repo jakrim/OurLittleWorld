@@ -14,6 +14,38 @@ export type CanonicalProviderClaim = {
   uid: string;
 };
 
+export async function reconcileAbsentProviderCleanup({
+  canonicalMediaId,
+  familyId,
+  userId,
+  providerUid,
+  reservation,
+  video,
+  confirmAndRelease,
+}: {
+  canonicalMediaId: string;
+  familyId: string;
+  userId: string;
+  providerUid: string;
+  reservation: Record<string, any> | null;
+  video: StreamVideo | null;
+  confirmAndRelease: (reservationId: string, providerUid: string) => Promise<void>;
+}) {
+  if (video) return false;
+  const valid = !!reservation?.id
+    && reservation.family_id === familyId
+    && reservation.user_id === userId
+    && reservation.canonical_media_id === canonicalMediaId
+    && reservation.transport === 'video-stream'
+    && reservation.status === 'reserved'
+    && reservation.provider === 'stream'
+    && reservation.provider_object_id === providerUid
+    && reservation.provider_cleanup_required === true;
+  if (!valid) return false;
+  await confirmAndRelease(reservation.id, providerUid);
+  return true;
+}
+
 export async function authorizeCanonicalProviderAccess<T>({
   authorize,
   accessProvider,

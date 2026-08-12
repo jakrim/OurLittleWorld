@@ -476,6 +476,16 @@ export function listPendingUploadJobs(familyId, { maxAttempts = 5 } = {}) {
   );
 }
 
+export function hasPendingUploadJob({ familyId, localAssetId }) {
+  if (!familyId || !localAssetId) return false;
+  return !!getDb().getFirstSync(
+    `select id from upload_jobs
+     where family_id = ? and local_asset_id = ? and status in ('queued', 'failed')
+     limit 1`,
+    [familyId, localAssetId],
+  );
+}
+
 // ─── Signed URL variant cache ────────────────────────────────────────────────
 
 export function getCachedVariantUrl(mediaId, variant) {

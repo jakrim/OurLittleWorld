@@ -3,7 +3,14 @@ alter table public.media_upload_reservations
   add column if not exists transport text
     check (transport is null or transport in ('image', 'video-stream', 'video-direct', 'video-poster')),
   add column if not exists provider_cleanup_required boolean not null default false,
-  add column if not exists provider_cleanup_confirmed_at timestamptz;
+  add column if not exists provider_cleanup_confirmed_at timestamptz,
+  add column if not exists accounting_resolution text not null default 'canonical'
+    check (accounting_resolution in (
+      'canonical',
+      'legacy_adopted',
+      'legacy_grandfathered_missing',
+      'legacy_grandfathered_ambiguous'
+    ));
 
 update public.media_upload_reservations
 set provider_cleanup_required = true
@@ -98,7 +105,8 @@ returns table (
   status text,
   canonical_media_id uuid,
   transport text,
-  storage_present boolean
+  storage_present boolean,
+  accounting_resolution text
 )
 language plpgsql
 volatile
@@ -113,8 +121,11 @@ declare
   v_storage_present boolean := false;
   v_expected_bytes bigint;
   v_expected_seconds integer;
+  v_expected_media_type text;
+  v_expected_quota_class text;
+  v_accounting_resolution text;
 begin
-  if p_transport <> 'video-direct' then
+  if p_transport not in ('video-direct', 'video-poster') then
     raise exception 'Unsupported legacy upload transport.';
   end if;
   perform public.authorize_canonical_media_upload(target_family_id);
@@ -130,18 +141,33 @@ begin
     and family_id = target_family_id
     and owner_user_id = auth.uid()
     and media_type = 'video'
-    and full_object is not null
     and stream_uid is null
-    and storage_provider = 'supabase';
+    and storage_provider = 'supabase'
+    and (
+      (p_transport = 'video-direct' and full_object is not null)
+      or (p_transport = 'video-poster' and full_object is null and poster_object is not null)
+    );
 
   if not found then return; end if;
   if nullif(trim(p_storage_path), '') is null
     or split_part(p_storage_path, '/', 1) <> target_family_id::text
-    or p_storage_path not like (
-      target_family_id::text || '/moments/' || v_media.moment_id::text
-      || '/video/' || v_media.full_object::text || '.%'
+    or not (
+      (
+        p_transport = 'video-direct'
+        and p_storage_path like (
+          target_family_id::text || '/moments/' || v_media.moment_id::text
+          || '/video/' || v_media.full_object::text || '.%'
+        )
+      )
+      or (
+        p_transport = 'video-poster'
+        and p_storage_path = (
+          target_family_id::text || '/moments/' || v_media.moment_id::text
+          || '/video-poster/' || v_media.poster_object::text || '.jpg'
+        )
+      )
     ) then
-    raise exception 'Canonical direct video storage identity is inconsistent.';
+    raise exception 'Canonical video storage identity is inconsistent.';
   end if;
 
   select exists (
@@ -157,7 +183,14 @@ begin
     and asset_owner_user_id = auth.uid()
     and moment_id = v_media.moment_id
     and moment_media_id = v_media.id
-    and storage_object = v_media.full_object
+    and (
+      (p_transport = 'video-direct' and storage_object = v_media.full_object)
+      or (
+        p_transport = 'video-poster'
+        and storage_object is null
+        and thumb_object = v_media.poster_object
+      )
+    )
   limit 1;
 
   if not found then return; end if;
@@ -179,7 +212,8 @@ begin
       v_reservation.status,
       v_reservation.canonical_media_id,
       v_reservation.transport,
-      v_storage_present;
+      v_storage_present,
+      v_reservation.accounting_resolution;
     return;
   end if;
 
@@ -193,10 +227,18 @@ begin
     coalesce(v_media.source_bytes, 0),
     coalesce(v_media.optimized_bytes, 0)
   );
-  v_expected_seconds := greatest(
-    coalesce(v_media.playback_seconds, 0),
-    coalesce(round(v_media.duration_sec)::integer, 0)
-  );
+  if p_transport = 'video-direct' then
+    v_expected_seconds := greatest(
+      coalesce(v_media.playback_seconds, 0),
+      coalesce(round(v_media.duration_sec)::integer, 0)
+    );
+    v_expected_media_type := 'video';
+    v_expected_quota_class := coalesce(nullif(v_media.quota_class, 'poster_only'), 'optimized');
+  else
+    v_expected_seconds := 0;
+    v_expected_media_type := 'image';
+    v_expected_quota_class := 'optimized';
+  end if;
 
   select array_agg(reservation.id order by reservation.created_at)
   into v_candidates
@@ -206,9 +248,9 @@ begin
     from public.media_upload_reservations candidate
     where candidate.family_id = target_family_id
       and candidate.user_id = auth.uid()
-      and candidate.media_type = 'video'
-      and candidate.quota_class = v_media.quota_class
-      and candidate.status = 'finalized'
+      and candidate.media_type = v_expected_media_type
+      and candidate.quota_class = v_expected_quota_class
+      and candidate.status in ('reserved', 'finalized')
       and candidate.canonical_media_id is null
       and candidate.transport is null
       and candidate.reserved_bytes = v_expected_bytes
@@ -219,24 +261,67 @@ begin
     limit 2
   );
 
-  if cardinality(v_candidates) <> 1 then return; end if;
+  if cardinality(v_candidates) = 1 then
+    update public.media_upload_reservations as reservation
+    set canonical_media_id = p_canonical_media_id,
+        transport = p_transport,
+        accounting_resolution = 'legacy_adopted'
+    where reservation.id = v_candidates[1]
+      and reservation.canonical_media_id is null
+      and reservation.transport is null
+    returning reservation.* into v_reservation;
 
-  update public.media_upload_reservations as reservation
-  set canonical_media_id = p_canonical_media_id,
-      transport = p_transport
-  where reservation.id = v_candidates[1]
-    and reservation.canonical_media_id is null
-    and reservation.transport is null
-  returning reservation.* into v_reservation;
+    if found then
+      return query select
+        v_reservation.id,
+        v_reservation.status,
+        v_reservation.canonical_media_id,
+        v_reservation.transport,
+        v_storage_present,
+        v_reservation.accounting_resolution;
+      return;
+    end if;
+  end if;
 
-  if not found then return; end if;
+  v_accounting_resolution := case
+    when coalesce(cardinality(v_candidates), 0) = 0 then 'legacy_grandfathered_missing'
+    else 'legacy_grandfathered_ambiguous'
+  end;
+
+  insert into public.media_upload_reservations (
+    family_id,
+    user_id,
+    media_type,
+    quota_class,
+    reserved_bytes,
+    reserved_seconds,
+    status,
+    expires_at,
+    canonical_media_id,
+    transport,
+    accounting_resolution
+  ) values (
+    target_family_id,
+    auth.uid(),
+    v_expected_media_type,
+    v_expected_quota_class,
+    0,
+    0,
+    'finalized',
+    now(),
+    p_canonical_media_id,
+    p_transport,
+    v_accounting_resolution
+  )
+  returning * into v_reservation;
 
   return query select
     v_reservation.id,
     v_reservation.status,
     v_reservation.canonical_media_id,
     v_reservation.transport,
-    v_storage_present;
+    v_storage_present,
+    v_reservation.accounting_resolution;
 end
 $$;
 
@@ -515,6 +600,55 @@ $$;
 revoke all on function public.confirm_media_upload_provider_cleanup(uuid, text, text)
   from public, anon, authenticated;
 grant execute on function public.confirm_media_upload_provider_cleanup(uuid, text, text)
+  to service_role;
+
+create or replace function public.confirm_and_release_media_upload_provider_cleanup(
+  p_reservation_id uuid,
+  p_provider text,
+  p_provider_object_id text
+)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_reservation public.media_upload_reservations%rowtype;
+begin
+  if auth.role() <> 'service_role' then
+    raise exception 'Provider cleanup confirmation requires a trusted service.';
+  end if;
+
+  select * into v_reservation
+  from public.media_upload_reservations
+  where id = p_reservation_id
+  for update;
+
+  if not found then
+    raise exception 'reservation not found';
+  end if;
+  if v_reservation.status not in ('reserved', 'released', 'expired') then
+    raise exception 'reservation does not require provider cleanup';
+  end if;
+  if v_reservation.provider is distinct from p_provider
+    or v_reservation.provider_object_id is distinct from nullif(trim(p_provider_object_id), '') then
+    raise exception 'provider cleanup identity does not match';
+  end if;
+
+  update public.media_upload_reservations
+  set status = 'released',
+      provider = null,
+      provider_object_id = null,
+      provider_cleanup_required = false,
+      provider_cleanup_confirmed_at = now()
+  where id = p_reservation_id;
+end
+$$;
+
+revoke all on function public.confirm_and_release_media_upload_provider_cleanup(uuid, text, text)
+  from public, anon, authenticated;
+grant execute on function public.confirm_and_release_media_upload_provider_cleanup(uuid, text, text)
   to service_role;
 
 create or replace function public.release_media_upload(p_reservation_id uuid)

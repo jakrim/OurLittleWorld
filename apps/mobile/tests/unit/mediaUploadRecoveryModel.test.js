@@ -8,7 +8,10 @@ import {
   canonicalVideoKeepComplete,
   confirmMediaUploadFinalized,
   legacyDirectVideoRowsMatch,
+  legacyPosterVideoRowsMatch,
+  legacyRemoteAssetIdentityFromRows,
   reconcileLegacyDirectVideoUpload,
+  reconcileLegacyPosterVideoUpload,
   resumeCanonicalObjectUpload,
 } from '../../src/mediaUploadRecoveryModel.js';
 
@@ -314,12 +317,12 @@ test('a legacy ready direct video adopts its finalized reservation without anoth
     sourceBytes: 1200,
     durationSec: 12,
     readReservation: async () => ({
-      id: 'legacy-finalized-reservation',
+      reservation_id: 'legacy-finalized-reservation',
       status: 'finalized',
       canonical_media_id: 'media-1',
       transport: 'video-direct',
+      storage_present: true,
     }),
-    hasStorageObject: async () => true,
     persist: async (next) => { persisted = next; },
   });
   const resumed = await resumeCanonicalObjectUpload({
@@ -363,12 +366,12 @@ test('a legacy partial direct video resumes its exact canonical reservation', as
     mediaId: 'media-1',
     fullObjectId: 'full-1',
     readReservation: async () => ({
-      id: 'reservation-1',
+      reservation_id: 'reservation-1',
       status: 'reserved',
       canonical_media_id: 'media-1',
       transport: 'video-direct',
+      storage_present: false,
     }),
-    hasStorageObject: async () => false,
     persist: async (next) => { persisted = next; },
   });
   const resumed = await resumeCanonicalObjectUpload({
@@ -389,8 +392,8 @@ test('a legacy partial direct video resumes its exact canonical reservation', as
   assert.equal(resumed.state, 'published');
 });
 
-test('legacy ready rows without an attributable quota reservation do not bypass reservation', async () => {
-  let persisted = false;
+test('legacy ready rows adopt an explicit grandfather reservation without another upload', async () => {
+  let persisted = null;
   const context = await reconcileLegacyDirectVideoUpload({
     existingMedia: {
       id: 'media-1',
@@ -411,13 +414,20 @@ test('legacy ready rows without an attributable quota reservation do not bypass 
     momentId: 'moment-1',
     mediaId: 'media-1',
     fullObjectId: 'full-1',
-    readReservation: async () => null,
-    hasStorageObject: async () => { throw new Error('must not trust an unattributed object'); },
-    persist: async () => { persisted = true; },
+    readReservation: async () => ({
+      reservation_id: 'grandfather-reservation',
+      status: 'finalized',
+      canonical_media_id: 'media-1',
+      transport: 'video-direct',
+      storage_present: true,
+      accounting_resolution: 'legacy_grandfathered_missing',
+    }),
+    persist: async (next) => { persisted = next; },
   });
 
-  assert.equal(context, null);
-  assert.equal(persisted, false);
+  assert.equal(context.state, 'published');
+  assert.equal(context.reservationId, 'grandfather-reservation');
+  assert.equal(persisted.state, 'published');
 });
 
 test('legacy direct-video reconciliation requires exact canonical remote rows', () => {
@@ -449,4 +459,96 @@ test('legacy direct-video reconciliation requires exact canonical remote rows', 
     ...input,
     existingMedia: { ...input.existingMedia, storage_provider: 'stream' },
   }), false);
+});
+
+test('legacy ready poster-only video adopts its verified canonical object', async () => {
+  let persisted = null;
+  const existingMedia = {
+    id: 'media-1',
+    moment_id: 'moment-1',
+    media_type: 'video',
+    full_object: null,
+    poster_object: 'poster-1',
+    storage_provider: 'supabase',
+    upload_status: 'ready',
+    metadata: { posterOnly: true },
+  };
+  const existingTag = {
+    moment_id: 'moment-1',
+    moment_media_id: 'media-1',
+    storage_object: null,
+    thumb_object: 'poster-1',
+    upload_status: 'ready',
+  };
+  assert.equal(legacyPosterVideoRowsMatch({
+    existingMedia,
+    existingTag,
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    posterObjectId: 'poster-1',
+  }), true);
+
+  const context = await reconcileLegacyPosterVideoUpload({
+    existingMedia,
+    existingTag,
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    posterObjectId: 'poster-1',
+    readReservation: async () => ({
+      reservation_id: 'grandfather-poster-reservation',
+      status: 'finalized',
+      canonical_media_id: 'media-1',
+      transport: 'video-poster',
+      storage_present: true,
+      accounting_resolution: 'legacy_grandfathered_missing',
+    }),
+    persist: async (next) => { persisted = next; },
+  });
+
+  assert.equal(context.state, 'published');
+  assert.equal(context.kind, 'video-poster');
+  assert.equal(context.reservationId, 'grandfather-poster-reservation');
+  assert.equal(context.result.posterObject, 'poster-1');
+  assert.equal(persisted.state, 'published');
+});
+
+test('queued pre-mapping Keep adopts only one authorized ready legacy target', () => {
+  const scope = {
+    familyId: 'family-1',
+    ownerUserId: 'parent-1',
+    localAssetId: 'legacy-photos-id',
+  };
+  const tag = {
+    family_id: 'family-1',
+    asset_owner_user_id: 'parent-1',
+    asset_id: 'legacy-photos-id',
+    moment_id: 'moment-1',
+    moment_media_id: 'media-1',
+    upload_status: 'ready',
+  };
+  const media = {
+    id: 'media-1',
+    moment_id: 'moment-1',
+    family_id: 'family-1',
+    owner_user_id: 'parent-1',
+    local_identifier: 'legacy-photos-id',
+    upload_status: 'ready',
+  };
+
+  assert.deepEqual(legacyRemoteAssetIdentityFromRows({ ...scope, tags: [tag], media }), {
+    remoteAssetKey: 'legacy-photos-id',
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+  });
+  assert.equal(legacyRemoteAssetIdentityFromRows({ ...scope, tags: [tag, tag], media }), null);
+  assert.equal(legacyRemoteAssetIdentityFromRows({
+    ...scope,
+    tags: [{ ...tag, asset_owner_user_id: 'another-parent' }],
+    media,
+  }), null);
+  assert.equal(legacyRemoteAssetIdentityFromRows({
+    ...scope,
+    tags: [{ ...tag, upload_status: 'failed' }],
+    media,
+  }), null);
 });

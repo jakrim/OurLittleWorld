@@ -23,7 +23,10 @@ import {
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
   legacyDirectVideoRowsMatch,
+  legacyPosterVideoRowsMatch,
+  legacyRemoteAssetIdentityFromRows,
   reconcileLegacyDirectVideoUpload,
+  reconcileLegacyPosterVideoUpload,
   resumeCanonicalObjectUpload,
 } from './mediaUploadRecoveryModel.js';
 import {
@@ -423,13 +426,21 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   // The Photos identifier is a private device key. Only the opaque mapping is
   // allowed to cross the shared archive boundary, and it must exist before the
   // first retryable remote write.
+  const existingIdentity = mediaDb.getRemoteAssetIdentity({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+  });
+  const legacyIdentity = !existingIdentity && mediaDb.hasPendingUploadJob({ familyId, localAssetId: assetId })
+    ? await readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId: assetId })
+    : null;
   const remoteIdentity = mediaDb.getOrCreateRemoteAssetIdentity({
     familyId,
     ownerUserId: userId,
     localAssetId: assetId,
-    proposedRemoteKey: uuid(),
-    proposedMomentId: uuid(),
-    proposedMediaId: uuid(),
+    proposedRemoteKey: legacyIdentity?.remoteAssetKey || uuid(),
+    proposedMomentId: legacyIdentity?.momentId || uuid(),
+    proposedMediaId: legacyIdentity?.mediaId || uuid(),
   });
   const { remoteAssetKey } = remoteIdentity;
 
@@ -481,6 +492,41 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
     safeCache(() => mediaDb.markUploadJob(jobId, isMediaPolicyError(err) ? 'done' : 'failed', String(err?.message || err)));
     throw err;
   }
+}
+
+async function readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId }) {
+  const pageSize = 500;
+  const tags = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('photo_tags')
+      .select('family_id, asset_owner_user_id, asset_id, moment_id, moment_media_id, upload_status')
+      .eq('family_id', familyId)
+      .eq('asset_owner_user_id', userId)
+      .eq('upload_status', 'ready')
+      .order('asset_id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    tags.push(...(data || []));
+    if ((data || []).length < pageSize) break;
+  }
+  const matchingTags = tags.filter((row) => row?.asset_id === localAssetId);
+  if (matchingTags.length !== 1 || !matchingTags[0]?.moment_media_id) return null;
+  const { data: media, error: mediaError } = await supabase
+    .from('moment_media')
+    .select('id, moment_id, family_id, owner_user_id, local_identifier, upload_status')
+    .eq('id', matchingTags[0].moment_media_id)
+    .eq('family_id', familyId)
+    .eq('owner_user_id', userId)
+    .maybeSingle();
+  if (mediaError) throw mediaError;
+  return legacyRemoteAssetIdentityFromRows({
+    familyId,
+    ownerUserId: userId,
+    localAssetId,
+    tags: matchingTags,
+    media,
+  });
 }
 
 async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, info, match, source }) {
@@ -924,14 +970,48 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
   const { momentId, mediaId } = canonical;
   const posterId = canonical.providerIdentity.posterObjectId;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
+  const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  let transferContext = remoteIdentity.providerUpload;
+  if (!transferContext && legacyPosterVideoRowsMatch({
+    existingMedia: canonical.existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    posterObjectId: posterId,
+  })) {
+    transferContext = await reconcileLegacyPosterVideoUpload({
+      context: transferContext,
+      existingMedia: canonical.existingMedia,
+      existingTag: canonical.existingTag,
+      momentId,
+      mediaId,
+      posterObjectId: posterId,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_media_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_transport: 'video-poster',
+          p_storage_path: posterPath,
+        });
+        if (error) throw error;
+        return (Array.isArray(data) ? data[0] : data) || null;
+      },
+      persist: persistTransfer,
+    });
+  }
 
   if (canonicalPosterKeepComplete({
     existingMedia: canonical.existingMedia,
     existingTag: canonical.existingTag,
     momentId,
     mediaId,
-    transferPublished: remoteIdentity.providerUpload?.kind === 'video-poster'
-      && remoteIdentity.providerUpload.state === 'published',
+    transferPublished: transferContext?.kind === 'video-poster'
+      && transferContext.state === 'published',
   })) {
     return { posterId: canonical.existingMedia.poster_object, posterOnly: true, momentId, mediaId };
   }
@@ -1009,15 +1089,9 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
     mediaId,
   });
 
-  const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
-    familyId,
-    ownerUserId: userId,
-    localAssetId: assetId,
-    providerUpload: next,
-  });
   const transfer = await resumeCanonicalObjectUpload({
     kind: 'video-poster',
-    context: remoteIdentity.providerUpload,
+    context: transferContext,
     reserve: () => reserveMediaUpload({
       familyId,
       mediaType: 'image',

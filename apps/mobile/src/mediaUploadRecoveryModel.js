@@ -134,40 +134,103 @@ export async function reconcileLegacyDirectVideoUpload({
   hasStorageObject,
   persist,
 }) {
-  if (context || !readReservation || !hasStorageObject || !persist) return null;
-  if (!legacyDirectVideoRowsMatch({
+  return reconcileLegacyCanonicalObjectUpload({
+    kind: 'video-direct',
+    context,
     existingMedia,
     existingTag,
     momentId,
     mediaId,
-    fullObjectId,
-  })) return null;
+    objectId: fullObjectId,
+    rowsMatch: legacyDirectVideoRowsMatch({
+      existingMedia,
+      existingTag,
+      momentId,
+      mediaId,
+      fullObjectId,
+    }),
+    readReservation,
+    hasStorageObject,
+    persist,
+  });
+}
+
+export async function reconcileLegacyPosterVideoUpload({
+  context = null,
+  existingMedia,
+  existingTag,
+  momentId,
+  mediaId,
+  posterObjectId,
+  readReservation,
+  hasStorageObject,
+  persist,
+}) {
+  return reconcileLegacyCanonicalObjectUpload({
+    kind: 'video-poster',
+    context,
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    objectId: posterObjectId,
+    rowsMatch: legacyPosterVideoRowsMatch({
+      existingMedia,
+      existingTag,
+      momentId,
+      mediaId,
+      posterObjectId,
+    }),
+    readReservation,
+    hasStorageObject,
+    persist,
+  });
+}
+
+async function reconcileLegacyCanonicalObjectUpload({
+  kind,
+  context,
+  existingMedia,
+  existingTag,
+  momentId,
+  mediaId,
+  objectId,
+  rowsMatch,
+  readReservation,
+  hasStorageObject,
+  persist,
+}) {
+  if (context || !readReservation || !persist || !rowsMatch || !objectId) return null;
 
   const reservation = await readReservation(mediaId);
   if (!reservation) return null;
+  const reservationId = reservation.reservation_id || reservation.id || null;
   if (
-    reservation.canonical_media_id !== mediaId
-    || reservation.transport !== 'video-direct'
+    !reservationId
+    || reservation.canonical_media_id !== mediaId
+    || reservation.transport !== kind
     || !['reserved', 'finalized'].includes(reservation.status)
   ) {
-    throw new Error('Canonical direct video reservation evidence is inconsistent');
+    throw new Error('Canonical video reservation evidence is inconsistent');
   }
 
-  const storageObjectPresent = await hasStorageObject();
+  const storageObjectPresent = typeof reservation.storage_present === 'boolean'
+    ? reservation.storage_present
+    : await hasStorageObject?.();
   const result = posterResultFromRemoteRows(existingMedia, existingTag);
   let next = null;
   if (reservation.status === 'reserved') {
     next = {
-      kind: 'video-direct',
-      reservationId: reservation.id,
+      kind,
+      reservationId,
       state: storageObjectPresent ? 'uploaded' : 'reserved',
       result,
     };
   } else if (reservation.status === 'finalized') {
-    if (!storageObjectPresent) throw new Error('Canonical direct video object is missing');
+    if (!storageObjectPresent) throw new Error('Canonical video object is missing');
     next = {
-      kind: 'video-direct',
-      reservationId: reservation.id,
+      kind,
+      reservationId,
       state: existingMedia.upload_status === 'ready' && existingTag.upload_status === 'ready'
         ? 'published'
         : 'finalized',
@@ -191,6 +254,51 @@ export function legacyDirectVideoRowsMatch({ existingMedia, existingTag, momentI
     && existingTag.moment_media_id === mediaId
     && existingTag.storage_object === fullObjectId;
   return mediaMatches && tagMatches;
+}
+
+export function legacyPosterVideoRowsMatch({ existingMedia, existingTag, momentId, mediaId, posterObjectId }) {
+  const mediaMatches = existingMedia?.id === mediaId
+    && existingMedia.moment_id === momentId
+    && existingMedia.media_type === 'video'
+    && !existingMedia.full_object
+    && existingMedia.poster_object === posterObjectId
+    && existingMedia.storage_provider === 'supabase'
+    && !existingMedia.stream_uid;
+  const tagMatches = existingTag?.moment_id === momentId
+    && existingTag.moment_media_id === mediaId
+    && !existingTag.storage_object
+    && existingTag.thumb_object === posterObjectId;
+  return mediaMatches && tagMatches;
+}
+
+export function legacyRemoteAssetIdentityFromRows({
+  familyId,
+  ownerUserId,
+  localAssetId,
+  tags = [],
+  media = null,
+}) {
+  const matches = tags.filter((row) => row?.asset_id === localAssetId
+    && row.family_id === familyId
+    && row.asset_owner_user_id === ownerUserId
+    && row.upload_status === 'ready');
+  if (matches.length !== 1) return null;
+  const tag = matches[0];
+  if (
+    !tag.moment_id
+    || !tag.moment_media_id
+    || media?.id !== tag.moment_media_id
+    || media.moment_id !== tag.moment_id
+    || media.family_id !== familyId
+    || media.owner_user_id !== ownerUserId
+    || media.local_identifier !== tag.asset_id
+    || media.upload_status !== 'ready'
+  ) return null;
+  return {
+    remoteAssetKey: tag.asset_id,
+    momentId: tag.moment_id,
+    mediaId: tag.moment_media_id,
+  };
 }
 
 function posterResultFromRemoteRows(existingMedia, existingTag) {

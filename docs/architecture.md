@@ -260,7 +260,11 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   misattributing it.
   Local SQLite upload jobs and the current writer's incomplete `photo_tags` rows retry
   silently with a five-minute cooldown when Our World opens. Only a parent-safe retry
-  card remains if automatic recovery cannot finish.
+  card remains if automatic recovery cannot finish. Verified ready legacy video and
+  poster objects adopt one attributable reservation or an auditable zero-charge
+  grandfather marker, so missing or ambiguous historical accounting cannot trigger a
+  second upload. A queued Keep that predates its local opaque mapping may read and adopt
+  one exact owner-scoped ready legacy target; it never rewrites remote identifiers.
 - **Places/scenes:** `visionSceneLabeler.js` clusters by rounded lat/lon and infers
   time-of-day/keyword scene labels.
 

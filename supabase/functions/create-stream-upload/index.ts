@@ -15,6 +15,7 @@ import {
   canonicalStreamUploadUrl,
   claimCanonicalProviderIdentity,
   legacyStreamRetryDisposition,
+  reconcileAbsentProviderCleanup,
   streamVideoDisposition,
   type StreamVideo,
 } from './model.ts';
@@ -28,7 +29,7 @@ Deno.serve(async (req) => {
     const body = await readJson(req);
     const familyId = String(body.familyId || body.family_id || '').trim();
     const canonicalMediaId = canonicalStreamCreator(body.canonicalMediaId || body.canonical_media_id);
-    const providerUid = String(body.providerUid || body.provider_uid || '').trim() || null;
+    let providerUid = String(body.providerUid || body.provider_uid || '').trim() || null;
     const providerReservationId = canonicalStreamCreator(body.reservationId || body.reservation_id);
     const providerState = ['prepared', 'uploading', 'uploaded'].includes(String(body.providerState || ''))
       ? String(body.providerState)
@@ -57,6 +58,33 @@ Deno.serve(async (req) => {
         };
       },
     });
+    const canonicalReservation = await readReservationByCanonical({
+      canonicalMediaId,
+      familyId,
+      userId: user.id,
+      token,
+    });
+    if (!providerUid && canonicalReservation?.provider === 'stream') {
+      providerUid = canonicalReservation.provider_object_id || null;
+    }
+    if (providerUid && !videos.some((video) => video.uid === providerUid)) {
+      const attachedReservation = canonicalReservation?.provider_object_id === providerUid
+        ? canonicalReservation
+        : null;
+      if (attachedReservation) {
+        const attachedVideo = await getStreamVideo({ accountId, apiToken, uid: providerUid });
+        const released = await reconcileAbsentProviderCleanup({
+          canonicalMediaId,
+          familyId,
+          userId: user.id,
+          providerUid,
+          reservation: attachedReservation,
+          video: attachedVideo,
+          confirmAndRelease: (reservationId, uid) => releaseReservation(reservationId, uid),
+        });
+        if (released) providerUid = null;
+      }
+    }
     if (providerUid && !videos.some((video) => video.uid === providerUid)) {
       const [reservation, media] = await Promise.all([
         providerReservationId
@@ -109,7 +137,7 @@ Deno.serve(async (req) => {
         throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
       }
       await deleteStreamVideo({ accountId, apiToken, uid: providerUid });
-      await releaseReservation(disposition.reservationId, providerUid, token);
+      await releaseReservation(disposition.reservationId, providerUid);
     }
     if (videos.length) {
       let selected = videos.find((video) => video.uid === providerUid) || videos[0];
@@ -168,7 +196,7 @@ Deno.serve(async (req) => {
         }
         await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
         if (duplicateDisposition.reservationId !== selectedDisposition.reservationId) {
-          await releaseReservation(duplicateDisposition.reservationId, duplicate.uid, token);
+          await releaseReservation(duplicateDisposition.reservationId, duplicate.uid);
         }
       }
 
@@ -200,7 +228,7 @@ Deno.serve(async (req) => {
       }
 
       await deleteStreamVideo({ accountId, apiToken, uid: selected.uid });
-      await releaseReservation(selectedDisposition.reservationId, selected.uid, token);
+      await releaseReservation(selectedDisposition.reservationId, selected.uid);
     }
 
     const reservation = await rpc('reserve_canonical_media_upload', {
@@ -338,7 +366,7 @@ async function readReservation({ reservationId, familyId, userId, token }: {
     id: `eq.${reservationId}`,
     family_id: `eq.${familyId}`,
     user_id: `eq.${userId}`,
-    select: 'id,family_id,user_id,status,provider,provider_object_id,canonical_media_id,transport',
+    select: 'id,family_id,user_id,status,provider,provider_object_id,provider_cleanup_required,canonical_media_id,transport',
     limit: '1',
   });
   const rows = await supabaseRequest(`/rest/v1/media_upload_reservations?${query}`, {
@@ -352,6 +380,28 @@ async function readReservation({ reservationId, familyId, userId, token }: {
   return reservation;
 }
 
+async function readReservationByCanonical({ canonicalMediaId, familyId, userId, token }: {
+  canonicalMediaId: string;
+  familyId: string;
+  userId: string;
+  token: string;
+}) {
+  const query = new URLSearchParams({
+    canonical_media_id: `eq.${canonicalMediaId}`,
+    transport: 'eq.video-stream',
+    family_id: `eq.${familyId}`,
+    user_id: `eq.${userId}`,
+    status: 'in.(reserved,finalized)',
+    select: 'id,family_id,user_id,status,provider,provider_object_id,provider_cleanup_required,canonical_media_id,transport',
+    limit: '2',
+  });
+  const rows = await supabaseRequest(`/rest/v1/media_upload_reservations?${query}`, {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+  }, token);
+  return Array.isArray(rows) && rows.length === 1 ? rows[0] : null;
+}
+
 async function readReservationByProvider({ providerUid, familyId, userId, token }: {
   providerUid: string;
   familyId: string;
@@ -363,7 +413,7 @@ async function readReservationByProvider({ providerUid, familyId, userId, token 
     provider_object_id: `eq.${providerUid}`,
     family_id: `eq.${familyId}`,
     user_id: `eq.${userId}`,
-    select: 'id,family_id,user_id,status,provider,provider_object_id,canonical_media_id,transport',
+    select: 'id,family_id,user_id,status,provider,provider_object_id,provider_cleanup_required,canonical_media_id,transport',
     limit: '2',
   });
   const rows = await supabaseRequest(`/rest/v1/media_upload_reservations?${query}`, {
@@ -451,7 +501,7 @@ async function removeCanonicalDuplicates({
     }
     await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
     if (disposition.reservationId !== selectedReservationId) {
-      await releaseReservation(disposition.reservationId, duplicate.uid, token);
+      await releaseReservation(disposition.reservationId, duplicate.uid);
     }
   }
 }
@@ -502,11 +552,11 @@ async function deleteStreamVideo({ accountId, apiToken, uid }: {
   }
 }
 
-async function releaseReservation(reservationId: string | null, providerObjectId: string, token: string) {
+async function releaseReservation(reservationId: string | null, providerObjectId: string) {
   if (!reservationId) return;
   const supabaseUrl = requiredEnv('SUPABASE_URL');
   const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/confirm_media_upload_provider_cleanup`, {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/confirm_and_release_media_upload_provider_cleanup`, {
     method: 'POST',
     headers: {
       apikey: serviceRoleKey,
@@ -522,5 +572,4 @@ async function releaseReservation(reservationId: string | null, providerObjectId
   if (!response.ok) {
     throw new HttpError(502, 'The prior Stream upload cleanup could not be recorded safely.');
   }
-  await rpc('release_media_upload', { p_reservation_id: reservationId }, token);
 }
