@@ -22,6 +22,8 @@ import {
   canonicalImageKeepRecovery,
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
+  legacyDirectVideoRowsMatch,
+  reconcileLegacyDirectVideoUpload,
   resumeCanonicalObjectUpload,
 } from './mediaUploadRecoveryModel.js';
 import {
@@ -302,7 +304,7 @@ async function prepareCanonicalKeep({ familyId, userId, remoteIdentity, captured
 
   const { data: existingMedia, error: existingMediaError } = await supabase
     .from('moment_media')
-    .select('id, moment_id, family_id, owner_user_id, local_identifier, media_type, full_object, thumb_object, poster_object, stream_uid, width, height, upload_status, metadata')
+    .select('id, moment_id, family_id, owner_user_id, local_identifier, media_type, full_object, thumb_object, poster_object, stream_uid, width, height, upload_status, metadata, storage_provider, source_bytes, optimized_bytes, playback_seconds')
     .eq('id', mediaId)
     .maybeSingle();
   if (existingMediaError) throw existingMediaError;
@@ -637,7 +639,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   const { remoteAssetKey, momentId: mappedMomentId, mediaId: mappedMediaId } = remoteIdentity;
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
   const sourceBytes = fileSizeOf(info.localUri || info.uri);
-  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
 
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
@@ -676,10 +677,49 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   let streamUid = existingMedia?.stream_uid || remoteIdentity.providerUpload?.uid || null;
   let providerContext = remoteIdentity.providerUpload
     || (existingMedia?.stream_uid ? { uid: existingMedia.stream_uid, state: 'uploaded' } : null);
+  const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  if (!useStream && !providerContext && legacyDirectVideoRowsMatch({
+    existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    fullObjectId: fullId,
+  })) {
+    let storageObjectPresent = false;
+    providerContext = await reconcileLegacyDirectVideoUpload({
+      context: providerContext,
+      existingMedia,
+      existingTag: canonical.existingTag,
+      momentId,
+      mediaId,
+      fullObjectId: fullId,
+      sourceBytes,
+      durationSec,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_media_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_transport: 'video-direct',
+          p_storage_path: fullPath,
+        });
+        if (error) throw error;
+        const row = Array.isArray(data) ? data[0] : data;
+        storageObjectPresent = !!row?.storage_present;
+        return row || null;
+      },
+      hasStorageObject: async () => storageObjectPresent,
+      persist: persistTransfer,
+    });
+  }
   const providerPublished = remoteIdentity.providerUpload?.state === 'published'
     && remoteIdentity.providerUpload.uid === existingMedia?.stream_uid;
-  const directPublished = remoteIdentity.providerUpload?.kind === 'video-direct'
-    && remoteIdentity.providerUpload.state === 'published';
+  const directPublished = providerContext?.kind === 'video-direct'
+    && providerContext.state === 'published';
 
   if (canonicalVideoKeepComplete({
     existingMedia,
@@ -697,6 +737,8 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
       mediaId,
     };
   }
+
+  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
 
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {
@@ -753,12 +795,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   });
 
   try {
-    const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
-      familyId,
-      ownerUserId: userId,
-      localAssetId: assetId,
-      providerUpload: next,
-    });
     const publish = (current) => publishVideoReadyRows({
       familyId,
       userId,
@@ -810,7 +846,7 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
       const poster = await prepareVideoPoster({ info, match, posterPath, posterId });
       providerContext = await resumeCanonicalObjectUpload({
         kind: 'video-direct',
-        context: remoteIdentity.providerUpload,
+        context: providerContext,
         reserve: () => reserveMediaUpload({
           familyId,
           mediaType: 'video',

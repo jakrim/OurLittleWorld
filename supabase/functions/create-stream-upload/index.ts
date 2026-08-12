@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
         throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
       }
       await deleteStreamVideo({ accountId, apiToken, uid: providerUid });
-      await releaseReservation(disposition.reservationId, token);
+      await releaseReservation(disposition.reservationId, providerUid, token);
     }
     if (videos.length) {
       let selected = videos.find((video) => video.uid === providerUid) || videos[0];
@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
         }
         await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
         if (duplicateDisposition.reservationId !== selectedDisposition.reservationId) {
-          await releaseReservation(duplicateDisposition.reservationId, token);
+          await releaseReservation(duplicateDisposition.reservationId, duplicate.uid, token);
         }
       }
 
@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
       }
 
       await deleteStreamVideo({ accountId, apiToken, uid: selected.uid });
-      await releaseReservation(selectedDisposition.reservationId, token);
+      await releaseReservation(selectedDisposition.reservationId, selected.uid, token);
     }
 
     const reservation = await rpc('reserve_canonical_media_upload', {
@@ -451,7 +451,7 @@ async function removeCanonicalDuplicates({
     }
     await deleteStreamVideo({ accountId, apiToken, uid: duplicate.uid });
     if (disposition.reservationId !== selectedReservationId) {
-      await releaseReservation(disposition.reservationId, token);
+      await releaseReservation(disposition.reservationId, duplicate.uid, token);
     }
   }
 }
@@ -502,7 +502,25 @@ async function deleteStreamVideo({ accountId, apiToken, uid }: {
   }
 }
 
-async function releaseReservation(reservationId: string | null, token: string) {
+async function releaseReservation(reservationId: string | null, providerObjectId: string, token: string) {
   if (!reservationId) return;
+  const supabaseUrl = requiredEnv('SUPABASE_URL');
+  const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/confirm_media_upload_provider_cleanup`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      p_reservation_id: reservationId,
+      p_provider: 'stream',
+      p_provider_object_id: providerObjectId,
+    }),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, 'The prior Stream upload cleanup could not be recorded safely.');
+  }
   await rpc('release_media_upload', { p_reservation_id: reservationId }, token);
 }

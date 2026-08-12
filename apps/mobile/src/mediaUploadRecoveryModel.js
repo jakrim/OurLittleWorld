@@ -123,8 +123,87 @@ export function canonicalPosterKeepComplete({ existingMedia, existingTag, moment
     && transferPublished;
 }
 
+export async function reconcileLegacyDirectVideoUpload({
+  context = null,
+  existingMedia,
+  existingTag,
+  momentId,
+  mediaId,
+  fullObjectId,
+  readReservation,
+  hasStorageObject,
+  persist,
+}) {
+  if (context || !readReservation || !hasStorageObject || !persist) return null;
+  if (!legacyDirectVideoRowsMatch({
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    fullObjectId,
+  })) return null;
+
+  const reservation = await readReservation(mediaId);
+  if (!reservation) return null;
+  if (
+    reservation.canonical_media_id !== mediaId
+    || reservation.transport !== 'video-direct'
+    || !['reserved', 'finalized'].includes(reservation.status)
+  ) {
+    throw new Error('Canonical direct video reservation evidence is inconsistent');
+  }
+
+  const storageObjectPresent = await hasStorageObject();
+  const result = posterResultFromRemoteRows(existingMedia, existingTag);
+  let next = null;
+  if (reservation.status === 'reserved') {
+    next = {
+      kind: 'video-direct',
+      reservationId: reservation.id,
+      state: storageObjectPresent ? 'uploaded' : 'reserved',
+      result,
+    };
+  } else if (reservation.status === 'finalized') {
+    if (!storageObjectPresent) throw new Error('Canonical direct video object is missing');
+    next = {
+      kind: 'video-direct',
+      reservationId: reservation.id,
+      state: existingMedia.upload_status === 'ready' && existingTag.upload_status === 'ready'
+        ? 'published'
+        : 'finalized',
+      result,
+    };
+  }
+
+  if (!next) return null;
+  await persist(next);
+  return next;
+}
+
+export function legacyDirectVideoRowsMatch({ existingMedia, existingTag, momentId, mediaId, fullObjectId }) {
+  const mediaMatches = existingMedia?.id === mediaId
+    && existingMedia.moment_id === momentId
+    && existingMedia.media_type === 'video'
+    && existingMedia.full_object === fullObjectId
+    && existingMedia.storage_provider === 'supabase'
+    && !existingMedia.stream_uid;
+  const tagMatches = existingTag?.moment_id === momentId
+    && existingTag.moment_media_id === mediaId
+    && existingTag.storage_object === fullObjectId;
+  return mediaMatches && tagMatches;
+}
+
+function posterResultFromRemoteRows(existingMedia, existingTag) {
+  const posterObject = existingMedia?.poster_object || existingTag?.thumb_object || null;
+  return {
+    posterObject,
+    posterMetadata: existingMedia?.metadata || {},
+  };
+}
+
 function normalizeObjectContext(value, kind) {
-  if (!value || value.kind !== kind || !value.reservationId) return null;
+  if (!value || value.kind !== kind) return null;
+  if (!value.reservationId) return null;
   return {
     kind,
     reservationId: value.reservationId,

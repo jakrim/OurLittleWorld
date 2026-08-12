@@ -7,6 +7,8 @@ import {
   canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
   confirmMediaUploadFinalized,
+  legacyDirectVideoRowsMatch,
+  reconcileLegacyDirectVideoUpload,
   resumeCanonicalObjectUpload,
 } from '../../src/mediaUploadRecoveryModel.js';
 
@@ -281,4 +283,170 @@ test('poster-only completion requires the same published transfer', () => {
   };
   assert.equal(canonicalPosterKeepComplete({ ...input, transferPublished: false }), false);
   assert.equal(canonicalPosterKeepComplete({ ...input, transferPublished: true }), true);
+});
+
+test('a legacy ready direct video adopts its finalized reservation without another charge', async () => {
+  let persisted = null;
+  const context = await reconcileLegacyDirectVideoUpload({
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'video',
+      full_object: 'full-1',
+      poster_object: 'poster-1',
+      storage_provider: 'supabase',
+      upload_status: 'ready',
+      source_bytes: 1200,
+      optimized_bytes: 1200,
+      playback_seconds: 12,
+      metadata: { posterPath: 'family/poster.jpg' },
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      storage_object: 'full-1',
+      thumb_object: 'poster-1',
+      upload_status: 'ready',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+    sourceBytes: 1200,
+    durationSec: 12,
+    readReservation: async () => ({
+      id: 'legacy-finalized-reservation',
+      status: 'finalized',
+      canonical_media_id: 'media-1',
+      transport: 'video-direct',
+    }),
+    hasStorageObject: async () => true,
+    persist: async (next) => { persisted = next; },
+  });
+  const resumed = await resumeCanonicalObjectUpload({
+    kind: 'video-direct',
+    context,
+    reserve: async () => { throw new Error('must not reserve'); },
+    upload: async () => { throw new Error('must not upload'); },
+    finalize: async () => { throw new Error('must not finalize'); },
+    persist: async () => { throw new Error('must not persist twice'); },
+    publish: async () => { throw new Error('must not publish twice'); },
+  });
+
+  assert.equal(context.state, 'published');
+  assert.equal(context.reservationId, 'legacy-finalized-reservation');
+  assert.equal(context.result.posterObject, 'poster-1');
+  assert.equal(persisted.state, 'published');
+  assert.equal(resumed.state, 'published');
+});
+
+test('a legacy partial direct video resumes its exact canonical reservation', async () => {
+  let persisted = null;
+  let uploads = 0;
+  let finalizations = 0;
+  let publications = 0;
+  const context = await reconcileLegacyDirectVideoUpload({
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'video',
+      full_object: 'full-1',
+      storage_provider: 'supabase',
+      upload_status: 'failed',
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      storage_object: 'full-1',
+      upload_status: 'failed',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+    readReservation: async () => ({
+      id: 'reservation-1',
+      status: 'reserved',
+      canonical_media_id: 'media-1',
+      transport: 'video-direct',
+    }),
+    hasStorageObject: async () => false,
+    persist: async (next) => { persisted = next; },
+  });
+  const resumed = await resumeCanonicalObjectUpload({
+    kind: 'video-direct',
+    context,
+    reserve: async () => { throw new Error('must not reserve again'); },
+    persist: async (next) => { persisted = next; },
+    upload: async () => { uploads += 1; },
+    finalize: async () => { finalizations += 1; },
+    publish: async () => { publications += 1; },
+  });
+
+  assert.equal(context.reservationId, 'reservation-1');
+  assert.equal(uploads, 1);
+  assert.equal(finalizations, 1);
+  assert.equal(publications, 1);
+  assert.equal(persisted.state, 'published');
+  assert.equal(resumed.state, 'published');
+});
+
+test('legacy ready rows without an attributable quota reservation do not bypass reservation', async () => {
+  let persisted = false;
+  const context = await reconcileLegacyDirectVideoUpload({
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'video',
+      full_object: 'full-1',
+      storage_provider: 'supabase',
+      upload_status: 'ready',
+      source_bytes: 1200,
+      playback_seconds: 12,
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      storage_object: 'full-1',
+      upload_status: 'ready',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+    readReservation: async () => null,
+    hasStorageObject: async () => { throw new Error('must not trust an unattributed object'); },
+    persist: async () => { persisted = true; },
+  });
+
+  assert.equal(context, null);
+  assert.equal(persisted, false);
+});
+
+test('legacy direct-video reconciliation requires exact canonical remote rows', () => {
+  const input = {
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'video',
+      full_object: 'full-1',
+      storage_provider: 'supabase',
+      stream_uid: null,
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      storage_object: 'full-1',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+    fullObjectId: 'full-1',
+  };
+
+  assert.equal(legacyDirectVideoRowsMatch(input), true);
+  assert.equal(legacyDirectVideoRowsMatch({
+    ...input,
+    existingTag: { ...input.existingTag, storage_object: 'other-object' },
+  }), false);
+  assert.equal(legacyDirectVideoRowsMatch({
+    ...input,
+    existingMedia: { ...input.existingMedia, storage_provider: 'stream' },
+  }), false);
 });
