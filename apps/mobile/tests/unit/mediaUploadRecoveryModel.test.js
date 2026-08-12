@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   canonicalImageKeepComplete,
   canonicalImageKeepRecovery,
+  canonicalPosterKeepComplete,
   canonicalVideoKeepComplete,
   confirmMediaUploadFinalized,
   resumeCanonicalObjectUpload,
@@ -166,6 +167,118 @@ test('a ready Stream row remains incomplete until quota finalization persists', 
     requireStream: true,
   };
 
-  assert.equal(canonicalVideoKeepComplete({ ...input, providerFinalized: false }), false);
-  assert.equal(canonicalVideoKeepComplete({ ...input, providerFinalized: true }), true);
+  assert.equal(canonicalVideoKeepComplete({ ...input, providerPublished: false }), false);
+  assert.equal(canonicalVideoKeepComplete({ ...input, providerPublished: true }), true);
+});
+
+for (const kind of ['video-direct', 'video-poster']) {
+  test(`${kind} recovers the same canonical reservation after an unpersisted response`, async () => {
+    let persisted = null;
+    let createdReservation = null;
+    let reserveCalls = 0;
+    let failReservedPersist = true;
+    const run = () => resumeCanonicalObjectUpload({
+      kind,
+      context: persisted,
+      reserve: async () => {
+        reserveCalls += 1;
+        createdReservation ||= `${kind}-canonical-reservation`;
+        return createdReservation;
+      },
+      persist: async (next) => {
+        if (next.state === 'reserved' && failReservedPersist) {
+          failReservedPersist = false;
+          throw new Error('process ended before reservation response persisted');
+        }
+        persisted = next;
+      },
+      upload: async () => ({ posterObject: `${kind}-poster` }),
+      finalize: async () => {},
+      publish: async () => {},
+    });
+
+    await assert.rejects(run, /reservation response persisted/);
+    const replayed = await run();
+
+    assert.equal(reserveCalls, 2);
+    assert.equal(createdReservation, `${kind}-canonical-reservation`);
+    assert.equal(replayed.reservationId, createdReservation);
+    assert.equal(replayed.state, 'published');
+  });
+
+  test(`${kind} replays one reservation and publishes only after confirmed finalization`, async () => {
+    let persisted = null;
+    let reservations = 0;
+    let uploads = 0;
+    let finalizations = 0;
+    let publications = 0;
+    let finalized = false;
+    let failFinalizedPersist = true;
+    const events = [];
+    const run = () => resumeCanonicalObjectUpload({
+      kind,
+      context: persisted,
+      reserve: async () => {
+        reservations += 1;
+        return `${kind}-reservation`;
+      },
+      persist: async (next) => {
+        if (next.state === 'finalized' && failFinalizedPersist) {
+          failFinalizedPersist = false;
+          throw new Error('process ended after quota confirmation');
+        }
+        persisted = next;
+      },
+      upload: async () => {
+        uploads += 1;
+        return { posterObject: `${kind}-poster` };
+      },
+      finalize: async () => {
+        finalizations += 1;
+        finalized = true;
+        events.push('finalized');
+      },
+      publish: async (current) => {
+        assert.equal(finalized, true);
+        assert.equal(current.reservationId, `${kind}-reservation`);
+        publications += 1;
+        events.push('published');
+      },
+      abandon: async () => {},
+    });
+
+    await assert.rejects(run, /quota confirmation/);
+    assert.equal(publications, 0);
+    const replayed = await run();
+
+    assert.equal(reservations, 1);
+    assert.equal(uploads, 1);
+    assert.equal(finalizations, 2);
+    assert.equal(publications, 1);
+    assert.deepEqual(events.slice(-2), ['finalized', 'published']);
+    assert.equal(replayed.state, 'published');
+    assert.equal(replayed.result.posterObject, `${kind}-poster`);
+  });
+}
+
+test('poster-only completion requires the same published transfer', () => {
+  const input = {
+    existingMedia: {
+      id: 'media-1',
+      moment_id: 'moment-1',
+      media_type: 'video',
+      upload_status: 'ready',
+      poster_object: 'poster-1',
+    },
+    existingTag: {
+      moment_id: 'moment-1',
+      moment_media_id: 'media-1',
+      upload_status: 'ready',
+      thumb_object: 'poster-1',
+    },
+    momentId: 'moment-1',
+    mediaId: 'media-1',
+  };
+  assert.equal(canonicalPosterKeepComplete({ ...input, transferPublished: false }), false);
+  assert.equal(canonicalPosterKeepComplete({ ...input, transferPublished: true }), true);
 });

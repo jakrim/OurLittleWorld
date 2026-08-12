@@ -157,6 +157,37 @@ test('provider finalization only becomes terminal after confirmation persists', 
   assert.equal(replayed.state, 'finalized');
 });
 
+test('Stream publication waits for quota confirmation and resumes after process death', async () => {
+  let persisted = { uid: 'stream-1', reservationId: 'reservation-1', state: 'uploaded' };
+  let remoteFinalized = false;
+  let publishCalls = 0;
+  let failFinalizedPersist = true;
+  const run = () => finalizeCanonicalProviderUpload({
+    context: persisted,
+    finalize: async () => { remoteFinalized = true; },
+    persist: async (next) => {
+      if (next.state === 'finalized' && failFinalizedPersist) {
+        failFinalizedPersist = false;
+        throw new Error('process ended after Stream quota confirmation');
+      }
+      persisted = next;
+    },
+    publish: async () => {
+      assert.equal(remoteFinalized, true);
+      publishCalls += 1;
+    },
+  });
+
+  await assert.rejects(run, /quota confirmation/);
+  assert.equal(publishCalls, 0);
+  const replayed = await run();
+
+  assert.equal(publishCalls, 1);
+  assert.equal(replayed.uid, 'stream-1');
+  assert.equal(replayed.reservationId, 'reservation-1');
+  assert.equal(replayed.state, 'published');
+});
+
 test('canonical identity checks refuse unrelated moment and media rows', async () => {
   await assert.rejects(() => ensureCanonicalMoment({
     expected: { id: 'moment-1', family_id: 'family-a', author_user_id: 'parent-a' },

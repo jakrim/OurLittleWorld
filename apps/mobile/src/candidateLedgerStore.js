@@ -14,6 +14,7 @@ import {
 } from './nightlyQueueModel';
 import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
 import { isNightlySessionContinuation } from './nightlySessionModel.js';
+import { canAbandonTonightKeep } from './tonightKeepBoundaryModel.js';
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
@@ -701,7 +702,8 @@ export function selectTonightBurstAlternate({ sessionId, familyId, userId, posit
   const database = getMediaDatabase();
   const stamp = new Date().toISOString();
   database.withTransactionSync(() => {
-    assertMutableItem(database, { sessionId, familyId, userId, position });
+    const current = assertMutableItem(database, { sessionId, familyId, userId, position });
+    discardAbandonableUpload(database, { familyId, userId, item: current });
     ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
     database.runSync(
       `update nightly_review_enrichment set selected_asset_id = ?, retry_id = null,
@@ -833,9 +835,10 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
     upsertCandidate(database, familyId, userId, candidate);
     const current = scopedItem(database, { sessionId, familyId, userId, position });
     if (!current || ['kept', 'skipped'].includes(current.item_state)) throw new Error('This Tonight card is already finished');
-    if (['saving', 'failed'].includes(current.commit_state) && current.last_error_code !== 'asset_unavailable') {
+    if (!canAbandonTonightKeep(current)) {
       throw new Error('Finish retrying this Keep before choosing another memory');
     }
+    discardAbandonableUpload(database, { familyId, userId, item: current });
     discardedVoiceUri = scopedEnrichment(database, {
       sessionId, familyId, userId, position,
     })?.draft_voice_uri || null;
@@ -879,12 +882,12 @@ function finishDecision({ sessionId, familyId, userId, position, decision }) {
     if (!item) throw new Error('Tonight memory is no longer available');
     if (item.item_state === decision) return;
     if (['kept', 'skipped'].includes(item.item_state)) throw new Error('This Tonight memory already has a decision');
-    if (decision === 'skipped' && ['saving', 'failed'].includes(item.commit_state)
-      && item.last_error_code !== 'asset_unavailable') {
+    if (decision === 'skipped' && !canAbandonTonightKeep(item)) {
       throw new Error('Finish retrying this Keep before skipping the memory');
     }
     const enrichment = scopedEnrichment(database, { sessionId, familyId, userId, position });
     const decidedAssetId = enrichment?.selected_asset_id || item.asset_id;
+    if (decision === 'skipped') discardAbandonableUpload(database, { familyId, userId, item });
     if (decidedAssetId !== item.asset_id) {
       database.runSync(
         `update discovery_candidates set lifecycle_state = 'superseded', superseded_by_asset_id = ?, decided_at = ?
@@ -1054,12 +1057,15 @@ function hydrateSession(database, session) {
        e.retry_id, e.canonical_moment_id, e.canonical_voice_note_id,
        e.canonical_voice_object_id, e.media_commit_state, e.text_commit_state,
        e.voice_commit_state, e.reaction_commit_state, e.draft_collection_keys_json,
-       e.collection_commit_state, e.temp_cleanup_state, e.parent_interacted
+       e.collection_commit_state, e.temp_cleanup_state, e.parent_interacted,
+       coalesce(lm.canonical_side_effect_started, 0) as canonical_side_effect_started
      from nightly_review_items i
      join discovery_candidates c on c.family_id = i.family_id and c.user_id = i.user_id and c.asset_id = i.asset_id
      left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
      left join discovery_candidates sc on sc.family_id = i.family_id and sc.user_id = i.user_id
        and sc.asset_id = e.selected_asset_id
+     left join local_asset_mappings lm on lm.family_id = i.family_id and lm.owner_user_id = i.user_id
+       and lm.asset_id = coalesce(e.selected_asset_id, i.asset_id)
      where i.session_id = ? order by i.position asc`,
     [session.session_id],
   );
@@ -1082,9 +1088,13 @@ function hydrateSession(database, session) {
 
 function scopedItem(database, { sessionId, familyId, userId, position }) {
   return database.getFirstSync(
-    `select i.*, s.item_count, e.selected_asset_id from nightly_review_items i
+    `select i.*, s.item_count, e.selected_asset_id, e.canonical_moment_id,
+       coalesce(lm.canonical_side_effect_started, 0) as canonical_side_effect_started
+     from nightly_review_items i
      join nightly_review_sessions s on s.session_id = i.session_id
      left join nightly_review_enrichment e on e.session_id = i.session_id and e.position = i.position
+     left join local_asset_mappings lm on lm.family_id = i.family_id and lm.owner_user_id = i.user_id
+       and lm.asset_id = coalesce(e.selected_asset_id, i.asset_id)
      where i.session_id = ? and i.position = ? and i.family_id = ? and i.user_id = ?`,
     [sessionId, position, familyId, userId],
   );
@@ -1112,10 +1122,27 @@ function assertMutableItem(database, scope) {
   const item = scopedItem(database, scope);
   if (!item) throw new Error('Tonight memory is no longer available');
   if (['kept', 'skipped'].includes(item.item_state)) throw new Error('This Tonight memory is already finished');
-  if (['saving', 'failed'].includes(item.commit_state) && item.last_error_code !== 'asset_unavailable') {
+  if (!canAbandonTonightKeep(item)) {
     throw new Error('Finish retrying this Keep before changing its context');
   }
   return item;
+}
+
+function discardAbandonableUpload(database, { familyId, userId, item }) {
+  if (!canAbandonTonightKeep(item)) return;
+  if (!['saving', 'failed'].includes(item.commit_state) || item.last_error_code !== 'asset_unavailable') return;
+  const assetId = item.selected_asset_id || item.asset_id;
+  if (!assetId) return;
+  database.runSync(
+    'delete from upload_jobs where family_id = ? and local_asset_id = ?',
+    [familyId, assetId],
+  );
+  database.runSync(
+    `delete from local_asset_mappings
+     where family_id = ? and owner_user_id = ? and asset_id = ?
+       and canonical_side_effect_started = 0`,
+    [familyId, userId, assetId],
+  );
 }
 
 function readTonightItem({ sessionId, familyId, userId, position }) {
@@ -1147,6 +1174,7 @@ function mapSessionItem(row) {
     parentInteracted: Number(row.parent_interacted || 0) === 1,
     retryId: row.retry_id || null,
     canonicalMomentId: row.canonical_moment_id || null,
+    canonicalSideEffectStarted: Number(row.canonical_side_effect_started || 0) === 1,
     canonicalVoiceNoteId: row.canonical_voice_note_id || null,
     canonicalVoiceObjectId: row.canonical_voice_object_id || null,
     commitSteps: {

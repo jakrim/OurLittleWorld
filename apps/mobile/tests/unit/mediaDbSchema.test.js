@@ -10,6 +10,7 @@ import { CANDIDATE_BATCH_SIZE } from '../../src/candidateLedgerModel.js';
 
 import {
   CANONICAL_KEEP_RESUME_MIGRATION_SQL,
+  CANONICAL_SIDE_EFFECT_MIGRATION_SQL,
   CANDIDATE_LEDGER_MIGRATION_SQL,
   FIRST_YEAR_CATCHUP_MIGRATION_SQL,
   LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL,
@@ -128,7 +129,9 @@ test('version 3 upgrades to a private local-to-shared media identity map without
       from local_asset_mappings;`), 'PH-PRIVATE/L0/001|11111111-1111-4111-8111-111111111111|moment-1');
     const columns = query(dbPath, 'pragma table_info(local_asset_mappings);')
       .split('\n').filter(Boolean).map((line) => line.split('|')[1]);
-    for (const required of MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS.filter((name) => name !== 'provider_upload_json')) {
+    for (const required of MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS.filter(
+      (name) => !['provider_upload_json', 'canonical_side_effect_started'].includes(name),
+    )) {
       assert.ok(columns.includes(required));
     }
   });
@@ -287,6 +290,38 @@ test('version 7 preserves legacy parent work and makes frame-only videos recover
       where session_id='session-legacy' and position=6;`), 'unavailable|asset_unavailable');
     assert.equal(query(dbPath, `select local_uri || '|' || preview_uri || '|' || availability || '|' || source_recovery_required
       from discovery_candidates where asset_id='playable-video';`), 'file://source.mov|file://poster.jpg|available|0');
+  });
+});
+
+test('version 8 persists the canonical side-effect boundary across process reopen', () => {
+  withDatabase((dbPath) => {
+    migrateV8(dbPath);
+    run(dbPath, `insert into local_asset_mappings (
+      family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,
+      provider_upload_json,updated_at
+    ) values (
+      'family-a','parent-a','private-asset','media-1','2026-08-12',
+      '11111111-1111-4111-8111-111111111111','moment-1',null,'2026-08-12'
+    );`);
+    run(dbPath, `insert into local_asset_mappings (
+      family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,
+      provider_upload_json,updated_at
+    ) values (
+      'family-a','parent-a','provider-asset','media-2','2026-08-12',
+      '22222222-2222-4222-8222-222222222222','moment-2',
+      '{"uid":"stream-1","reservationId":"reservation-1","state":"uploaded"}','2026-08-12'
+    );`);
+    run(dbPath, `begin immediate; ${CANONICAL_SIDE_EFFECT_MIGRATION_SQL} pragma user_version = 9; commit;`);
+
+    assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
+      where asset_id='private-asset';`), '0');
+    assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
+      where asset_id='provider-asset';`), '1');
+    run(dbPath, `update local_asset_mappings set canonical_side_effect_started=1
+      where asset_id='private-asset';`);
+    assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
+      where asset_id='private-asset';`), '1');
+    assert.equal(query(dbPath, 'pragma user_version;'), '9');
   });
 });
 
@@ -533,7 +568,7 @@ test('5,000 kept-media identity mappings remain bounded and use the remote looku
 function migrate(dbPath) {
   if (query(dbPath, 'pragma user_version;') === String(MEDIA_DB_SCHEMA_VERSION)) return;
   migrateV1(dbPath);
-  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} ${LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
+  run(dbPath, `begin immediate; ${TONIGHT_ENRICHMENT_MIGRATION_SQL} ${FIRST_YEAR_CATCHUP_MIGRATION_SQL} ${PRIVATE_REMOTE_MEDIA_IDENTITY_MIGRATION_SQL} ${TONIGHT_COLLECTION_DRAFT_MIGRATION_SQL} ${TONIGHT_CONTINUATION_MIGRATION_SQL} ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} ${LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL} ${CANONICAL_SIDE_EFFECT_MIGRATION_SQL} pragma user_version = ${MEDIA_DB_SCHEMA_VERSION}; commit;`);
 }
 
 function migrateV1(dbPath) {
@@ -575,6 +610,11 @@ function migrateV6(dbPath) {
 function migrateV7(dbPath) {
   migrateV6(dbPath);
   run(dbPath, `begin immediate; ${CANONICAL_KEEP_RESUME_MIGRATION_SQL} pragma user_version = 7; commit;`);
+}
+
+function migrateV8(dbPath) {
+  migrateV7(dbPath);
+  run(dbPath, `begin immediate; ${LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL} pragma user_version = 8; commit;`);
 }
 
 function candidateInsert({ familyId, userId, assetId, state }) {

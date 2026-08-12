@@ -55,6 +55,7 @@ import {
   startTonightContinuation,
   skipTonightItem,
 } from './candidateLedgerStore';
+import { tonightKeepNeedsRetry } from './tonightKeepBoundaryModel.js';
 import { parentReasonLabel } from './nightlyQueueModel';
 import { getAssetDetails, getLibraryPermissionStatus } from './photos';
 import { commitTonightMemory } from './tonightCommit';
@@ -258,8 +259,7 @@ export default function TonightScreen() {
       || session.items.find((item) => ['queued', 'shown', 'unavailable'].includes(item.state))
       || null;
   }, [session]);
-  const keepNeedsRetry = ['saving', 'failed'].includes(activeItem?.commitState)
-    && activeItem?.lastErrorCode !== 'asset_unavailable';
+  const keepNeedsRetry = tonightKeepNeedsRetry(activeItem);
   const activePosition = activeItem?.position;
   const activeDraftText = activeItem?.draftText || '';
   const collectionSuggestions = useMemo(

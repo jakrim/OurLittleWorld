@@ -70,15 +70,32 @@ export async function assertVideoWithinPlan({ familyId, durationSec, sourceBytes
  * infrastructure errors fail open (upload proceeds, server still counts
  * usage at finalize) so a flaky network can't brick saving memories.
  */
-export async function reserveMediaUpload({ familyId, mediaType, bytes, durationSec = 0, quotaClass = 'optimized', required = false }) {
+export async function reserveMediaUpload({
+  familyId,
+  mediaType,
+  bytes,
+  durationSec = 0,
+  quotaClass = 'optimized',
+  canonicalMediaId = null,
+  transport = null,
+  required = false,
+}) {
   try {
-    const { data, error } = await supabase.rpc('reserve_media_upload', {
+    const rpcName = canonicalMediaId && transport
+      ? 'reserve_canonical_media_upload'
+      : 'reserve_media_upload';
+    const params = {
       target_family_id: familyId,
       p_media_type: mediaType,
       p_bytes: Math.max(0, Math.round(bytes || 0)),
       p_duration_sec: Math.max(0, Math.round(durationSec || 0)),
       p_quota_class: quotaClass,
-    });
+      ...(canonicalMediaId && transport ? {
+        p_canonical_media_id: canonicalMediaId,
+        p_transport: transport,
+      } : {}),
+    };
+    const { data, error } = await supabase.rpc(rpcName, params);
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     if (!row) return null;

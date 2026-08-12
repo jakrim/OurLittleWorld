@@ -1,6 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert@1';
 
-import { canonicalStreamCreator, legacyStreamRetryDisposition, streamVideoDisposition } from './model.ts';
+import {
+  canonicalStreamCreator,
+  canonicalStreamUploadUrl,
+  legacyStreamRetryDisposition,
+  streamVideoDisposition,
+} from './model.ts';
 
 const mediaId = '11111111-1111-4111-8111-111111111111';
 const familyId = '22222222-2222-4222-8222-222222222222';
@@ -21,13 +26,14 @@ Deno.test('canonical Stream creator accepts only opaque remote media UUIDs', () 
   assertEquals(canonicalStreamCreator('photos://private-library-id'), null);
 });
 
-Deno.test('pending uploads reuse a persisted URL but replace an unpersisted URL', () => {
+Deno.test('pending uploads reuse their canonical provider identity after an unpersisted response', () => {
   const options = { canonicalMediaId: mediaId, familyId, nowMs: Date.parse('2026-08-12T17:00:00.000Z') };
   assertEquals(streamVideoDisposition(video('pendingupload'), {
     ...options,
     providerState: 'prepared',
   }).action, 'prepared');
-  assertEquals(streamVideoDisposition(video('pendingupload'), options).action, 'replace');
+  assertEquals(streamVideoDisposition(video('pendingupload'), options).action, 'prepared');
+  assertEquals(canonicalStreamUploadUrl('stream-1'), 'https://upload.videodelivery.net/stream-1');
 });
 
 Deno.test('an accepted upload is reconciled instead of reusing its one-time URL', () => {

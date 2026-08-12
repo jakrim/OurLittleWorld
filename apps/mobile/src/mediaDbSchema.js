@@ -1,4 +1,4 @@
-export const MEDIA_DB_SCHEMA_VERSION = 8;
+export const MEDIA_DB_SCHEMA_VERSION = 9;
 
 export const CANDIDATE_LEDGER_MIGRATION_SQL = `
   create table if not exists discovery_candidates (
@@ -298,6 +298,29 @@ export const LEGACY_PARENT_VIDEO_RECOVERY_MIGRATION_SQL = `
       );
 `;
 
+export const CANONICAL_SIDE_EFFECT_MIGRATION_SQL = `
+  alter table local_asset_mappings add column canonical_side_effect_started integer not null default 0
+    check (canonical_side_effect_started in (0, 1));
+
+  update local_asset_mappings
+  set canonical_side_effect_started = 1
+  where provider_upload_json is not null
+    or exists (
+      select 1
+      from nightly_review_items i
+      left join nightly_review_enrichment e
+        on e.session_id = i.session_id and e.position = i.position
+      where i.family_id = local_asset_mappings.family_id
+        and i.user_id = local_asset_mappings.owner_user_id
+        and coalesce(e.selected_asset_id, i.asset_id) = local_asset_mappings.asset_id
+        and (
+          e.canonical_moment_id is not null
+          or i.commit_state in ('saving', 'failed')
+          or e.media_commit_state in ('saving', 'saved', 'failed')
+        )
+    );
+`;
+
 export const MEDIA_DB_REQUIRED_CANDIDATE_COLUMNS = Object.freeze([
   'family_id',
   'user_id',
@@ -353,6 +376,7 @@ export const MEDIA_DB_REQUIRED_REMOTE_MAPPING_COLUMNS = Object.freeze([
   'remote_asset_key',
   'moment_id',
   'provider_upload_json',
+  'canonical_side_effect_started',
   'updated_at',
 ]);
 
@@ -441,6 +465,16 @@ export function applyMediaDbMigrations(database) {
       });
     } catch (error) {
       throw new Error(`Local legacy Tonight recovery migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
+    }
+  }
+  if (currentVersion < 9) {
+    try {
+      database.withTransactionSync(() => {
+        database.execSync(CANONICAL_SIDE_EFFECT_MIGRATION_SQL);
+        database.execSync('pragma user_version = 9;');
+      });
+    } catch (error) {
+      throw new Error(`Local canonical side-effect migration failed safely: ${error?.message || error}. Restart the app after freeing device storage.`);
     }
   }
   assertCandidateLedgerSchema(database);

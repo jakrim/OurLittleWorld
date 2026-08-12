@@ -14,6 +14,13 @@ export function canonicalStreamCreator(value: unknown) {
   return UUID_PATTERN.test(mediaId) ? mediaId.toLowerCase() : null;
 }
 
+export function canonicalStreamUploadUrl(value: unknown) {
+  const uid = String(value || '').trim();
+  return /^[a-z0-9_-]+$/i.test(uid)
+    ? `https://upload.videodelivery.net/${encodeURIComponent(uid)}`
+    : null;
+}
+
 export function streamVideoDisposition(video: StreamVideo, {
   canonicalMediaId,
   familyId,
@@ -110,5 +117,5 @@ function uploadStateDisposition(
   if (providerState === 'uploading' || providerState === 'uploaded') {
     return { action: 'uploading', reservationId };
   }
-  return { action: 'replace', reservationId };
+  return { action: 'prepared', reservationId };
 }

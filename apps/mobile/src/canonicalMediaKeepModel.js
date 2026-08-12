@@ -37,7 +37,7 @@ export function assertCanonicalMediaIdentity(existing, expected) {
 
 export async function resumeCanonicalProviderUpload({ context = null, prepare, persist, upload }) {
   let current = normalizedProviderContext(context);
-  if (current?.state === 'finalized' && current.uid) return current;
+  if (['finalized', 'published'].includes(current?.state) && current.uid) return current;
 
   const prepared = normalizedProviderContext(await prepare(current));
   current = mergeProviderContext(current, prepared);
@@ -62,16 +62,24 @@ export async function resumeCanonicalProviderUpload({ context = null, prepare, p
   return current;
 }
 
-export async function finalizeCanonicalProviderUpload({ context, finalize, persist }) {
-  const current = normalizedProviderContext(context);
+export async function finalizeCanonicalProviderUpload({ context, finalize, persist, publish }) {
+  let current = normalizedProviderContext(context);
   if (!current?.uid || !current?.reservationId) throw new Error('Provider upload identity is incomplete');
-  if (current.state === 'finalized') return current;
-  if (current.state !== 'uploaded') throw new Error('Provider upload is not ready to finalize');
+  if (current.state === 'published') return current;
+  if (current.state === 'uploaded') {
+    await finalize(current);
+    current = { ...current, uploadURL: null, state: 'finalized' };
+    await persist(current);
+  } else if (current.state !== 'finalized') {
+    throw new Error('Provider upload is not ready to finalize');
+  }
 
-  await finalize(current);
-  const finalized = { ...current, uploadURL: null, state: 'finalized' };
-  await persist(finalized);
-  return finalized;
+  if (publish) {
+    await publish(current);
+    current = { ...current, state: 'published' };
+    await persist(current);
+  }
+  return current;
 }
 
 function validateCanonicalMoment(existing, expected) {
@@ -90,7 +98,8 @@ function normalizedProviderContext(value) {
     uid: value.uid || null,
     uploadURL: value.uploadURL || null,
     reservationId: value.reservationId || null,
-    state: ['prepared', 'uploading', 'uploaded', 'finalized'].includes(value.state) ? value.state : 'prepared',
+    state: ['prepared', 'uploading', 'uploaded', 'finalized', 'published'].includes(value.state) ? value.state : 'prepared',
+    result: value.result ?? null,
   };
 }
 

@@ -31,7 +31,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `recognitionReferences`); SQLite (`mediaDb.js`) caches the media index and upload
   queue and owns the private discovery-candidate ledger plus nightly review sessions.
   `mediaDbSchema.js` applies restart-safe `pragma user_version` migrations (current
-  schema version 8);
+  schema version 9);
   `candidateLedgerStore.js` scopes every row by family and parent and never imports a
   remote or analytics transport. Server state is Supabase via `rituals.js`,
   `moments.js`, `photoSync.js`.
@@ -160,20 +160,23 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   ranked against family-union saved-day coverage in the family ritual timezone;
   completed primary sessions pace from three to five to seven cards, and an optional
   continuation is capped at three without counting as another evening or notification.
-  SQLite schema version 8 persists capture timezone, scan last-seen/availability
+  SQLite schema version 9 persists capture timezone, scan last-seen/availability
   provenance, unavailable reason, legacy-video recovery state, and a family-scoped
   saved-day fact cache in addition
   to ordered session items plus a separately constrained
   `nightly_review_enrichment` row for writer-scoped voice metadata, favorite/reaction,
   selected burst alternate, stable retry/canonical identities, per-step commit state,
-  and private-file cleanup state. Sessions persist `is_continuation` explicitly so
+  private-file cleanup state, canonical provider/quota replay state, and whether the
+  first canonical side effect has begun. Sessions persist `is_continuation` explicitly so
   revalidated and parent-requested continuations share pacing, analytics, and local
   notification suppression semantics. The item row retains the 280-character text draft.
   An unfinished session resumes until completed; one active
   session is enforced per family/parent, and a completed session suppresses another
   queue on the same local day. `/tonight` keeps through the canonical
   `Tags.setBaby`/`Memories.setMine` path and reuses canonical voice-note and reaction
-  services with stable identities across retries. A partial canonical write blocks
+  services with stable identities across retries. Quota reservations for image,
+  Stream, direct-video, and poster transports are idempotently keyed by canonical media identity
+  before any object becomes ready. A partial canonical write blocks
   Skip or replacement until resolved. Skips clean local drafts, unavailable iCloud
   originals remain recoverable, best-of-burst queries return at most 12 eligible
   members, the native picker remains available, and `/review` stays the advanced grid.
@@ -217,7 +220,7 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   summary/page views inherit writer-only RLS; active entitlement is required for
   correction RPCs, while Circle cannot enumerate the archive. The mobile reader pages
   at 60 memories and scans at most 5,000 lightweight IDs; canonical moments are then
-  hydrated in ordered bounded batches. SQLite schema version 8 keeps Tonight's
+  hydrated in ordered bounded batches. SQLite schema version 9 keeps Tonight's
   selected-by-default factual choices and collection commit state private until Keep,
   distinguishes automatic defaults from legacy parent-authored selections, voice,
   favorite, and reaction work, and marks sampled-frame-only legacy videos for private

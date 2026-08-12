@@ -262,7 +262,7 @@ export function getOrCreateRemoteAssetIdentity({
   if (!familyId || !ownerUserId || !localAssetId) throw new Error('Missing private media identity scope');
   const database = getDb();
   const existing = database.getFirstSync(
-    `select remote_asset_key, moment_id, media_id, provider_upload_json from local_asset_mappings
+    `select remote_asset_key, moment_id, media_id, provider_upload_json, canonical_side_effect_started from local_asset_mappings
      where family_id = ? and owner_user_id = ? and asset_id = ?`,
     [familyId, ownerUserId, localAssetId],
   );
@@ -290,7 +290,7 @@ export function getOrCreateRemoteAssetIdentity({
     ],
   );
   const row = database.getFirstSync(
-    `select remote_asset_key, moment_id, media_id, provider_upload_json from local_asset_mappings
+    `select remote_asset_key, moment_id, media_id, provider_upload_json, canonical_side_effect_started from local_asset_mappings
      where family_id = ? and owner_user_id = ? and asset_id = ?`,
     [familyId, ownerUserId, localAssetId],
   ) || existing || {};
@@ -299,6 +299,7 @@ export function getOrCreateRemoteAssetIdentity({
     momentId: row.moment_id || proposedMomentId,
     mediaId: row.media_id || proposedMediaId,
     providerUpload: parseProviderUpload(row.provider_upload_json),
+    canonicalSideEffectStarted: row.canonical_side_effect_started === 1,
   };
 }
 
@@ -359,6 +360,16 @@ export function recordRemoteProviderUpload({ familyId, ownerUserId, localAssetId
     `update local_asset_mappings set provider_upload_json = ?, updated_at = ?
      where family_id = ? and owner_user_id = ? and asset_id = ?`,
     [providerUpload ? JSON.stringify(providerUpload) : null, nowIso(), familyId, ownerUserId, localAssetId],
+  );
+}
+
+export function recordCanonicalSideEffectStarted({ familyId, ownerUserId, localAssetId }) {
+  if (!familyId || !ownerUserId || !localAssetId) throw new Error('Missing private canonical media scope');
+  getDb().runSync(
+    `update local_asset_mappings
+     set canonical_side_effect_started = 1, updated_at = ?
+     where family_id = ? and owner_user_id = ? and asset_id = ?`,
+    [nowIso(), familyId, ownerUserId, localAssetId],
   );
 }
 

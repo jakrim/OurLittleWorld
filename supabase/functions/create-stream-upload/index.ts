@@ -11,6 +11,7 @@ import {
 } from '../_shared/billing.ts';
 import {
   canonicalStreamCreator,
+  canonicalStreamUploadUrl,
   legacyStreamRetryDisposition,
   streamVideoDisposition,
   type StreamVideo,
@@ -76,6 +77,7 @@ Deno.serve(async (req) => {
           apiToken,
         });
         return json({
+          ...(disposition.action === 'prepared' ? { uploadURL: canonicalStreamUploadUrl(providerUid) } : {}),
           uid: providerUid,
           reservationId: disposition.reservationId,
           state: disposition.action,
@@ -139,6 +141,7 @@ Deno.serve(async (req) => {
       }
       if (selectedDisposition.action === 'prepared') {
         return json({
+          uploadURL: canonicalStreamUploadUrl(selected.uid),
           uid: selected.uid,
           reservationId: selectedDisposition.reservationId,
           state: 'prepared',
@@ -160,8 +163,10 @@ Deno.serve(async (req) => {
       await releaseReservation(selectedDisposition.reservationId, token);
     }
 
-    const reservation = await rpc('reserve_media_upload', {
+    const reservation = await rpc('reserve_canonical_media_upload', {
       target_family_id: familyId,
+      p_canonical_media_id: canonicalMediaId,
+      p_transport: 'video-stream',
       p_media_type: 'video',
       p_bytes: sourceBytes,
       p_duration_sec: durationSec,
@@ -395,5 +400,5 @@ async function deleteStreamVideo({ accountId, apiToken, uid }: {
 
 async function releaseReservation(reservationId: string | null, token: string) {
   if (!reservationId) return;
-  await rpc('release_media_upload', { p_reservation_id: reservationId }, token).catch(() => undefined);
+  await rpc('release_media_upload', { p_reservation_id: reservationId }, token);
 }

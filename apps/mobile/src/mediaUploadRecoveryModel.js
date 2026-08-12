@@ -21,20 +21,22 @@ export async function confirmMediaUploadFinalized({ reservationId, finalize, rea
 export async function resumeCanonicalObjectUpload({
   context = null,
   complete = false,
+  kind = 'image',
   reserve,
   persist,
   upload,
   finalize,
+  publish,
   abandon,
 }) {
-  if (complete) return { kind: 'image', state: 'finalized', reused: true };
-  let current = normalizeObjectContext(context);
-  if (current?.state === 'finalized') return current;
+  if (complete) return { kind, state: publish ? 'published' : 'finalized', reused: true };
+  let current = normalizeObjectContext(context, kind);
+  if (current?.state === 'published') return current;
 
   if (!current?.reservationId) {
     const reservationId = await reserve();
     if (!reservationId) throw new Error('Canonical media quota reservation is required');
-    current = { kind: 'image', reservationId, state: 'reserved' };
+    current = { kind, reservationId, state: 'reserved', result: null };
     try {
       await persist(current);
     } catch (error) {
@@ -44,13 +46,18 @@ export async function resumeCanonicalObjectUpload({
   }
 
   if (current.state === 'reserved') {
-    await upload(current);
-    current = { ...current, state: 'uploaded' };
+    const result = await upload(current);
+    current = { ...current, result: result ?? current.result, state: 'uploaded' };
     await persist(current);
   }
   if (current.state === 'uploaded') {
     await finalize(current);
     current = { ...current, state: 'finalized' };
+    await persist(current);
+  }
+  if (current.state === 'finalized' && publish) {
+    await publish(current);
+    current = { ...current, state: 'published' };
     await persist(current);
   }
   return current;
@@ -88,9 +95,9 @@ export function canonicalImageKeepRecovery({ existingMedia, existingTag, momentI
   };
 }
 
-export function canonicalVideoKeepComplete({ existingMedia, existingTag, momentId, mediaId, requireStream, providerFinalized = false }) {
+export function canonicalVideoKeepComplete({ existingMedia, existingTag, momentId, mediaId, requireStream, providerPublished = false }) {
   const playable = requireStream
-    ? !!existingMedia?.stream_uid && providerFinalized
+    ? !!existingMedia?.stream_uid && providerPublished
     : !!existingMedia?.full_object;
   return existingMedia?.media_type === 'video'
     && existingMedia.upload_status === 'ready'
@@ -99,14 +106,29 @@ export function canonicalVideoKeepComplete({ existingMedia, existingTag, momentI
     && playable
     && existingTag?.upload_status === 'ready'
     && existingTag.moment_id === momentId
-    && existingTag.moment_media_id === mediaId;
+    && existingTag.moment_media_id === mediaId
+    && providerPublished;
 }
 
-function normalizeObjectContext(value) {
-  if (!value || value.kind !== 'image' || !value.reservationId) return null;
+export function canonicalPosterKeepComplete({ existingMedia, existingTag, momentId, mediaId, transferPublished = false }) {
+  return existingMedia?.media_type === 'video'
+    && existingMedia.upload_status === 'ready'
+    && existingMedia.id === mediaId
+    && existingMedia.moment_id === momentId
+    && !!existingMedia.poster_object
+    && existingTag?.upload_status === 'ready'
+    && existingTag.moment_id === momentId
+    && existingTag.moment_media_id === mediaId
+    && existingTag.thumb_object === existingMedia.poster_object
+    && transferPublished;
+}
+
+function normalizeObjectContext(value, kind) {
+  if (!value || value.kind !== kind || !value.reservationId) return null;
   return {
-    kind: 'image',
+    kind,
     reservationId: value.reservationId,
-    state: ['reserved', 'uploaded', 'finalized'].includes(value.state) ? value.state : 'reserved',
+    state: ['reserved', 'uploaded', 'finalized', 'published'].includes(value.state) ? value.state : 'reserved',
+    result: value.result ?? null,
   };
 }
