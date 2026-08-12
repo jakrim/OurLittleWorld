@@ -10,6 +10,7 @@ import {
   supabaseRequest,
 } from '../_shared/billing.ts';
 import {
+  authorizeCanonicalProviderAccess,
   canonicalStreamCreator,
   canonicalStreamUploadUrl,
   claimCanonicalProviderIdentity,
@@ -37,9 +38,25 @@ Deno.serve(async (req) => {
     if (!familyId) throw new HttpError(400, 'Family is required.');
     if (!canonicalMediaId) throw new HttpError(400, 'Canonical media identity is required.');
 
-    const accountId = requiredEnv('CLOUDFLARE_ACCOUNT_ID');
-    const apiToken = requiredEnv('CLOUDFLARE_API_TOKEN');
-    const videos = await listCanonicalVideos({ accountId, apiToken, canonicalMediaId });
+    const { accountId, apiToken, videos } = await authorizeCanonicalProviderAccess({
+      authorize: () => rpc('authorize_canonical_media_upload', {
+        target_family_id: familyId,
+      }, token),
+      accessProvider: async () => {
+        const nextAccountId = requiredEnv('CLOUDFLARE_ACCOUNT_ID');
+        const nextApiToken = requiredEnv('CLOUDFLARE_API_TOKEN');
+        const nextVideos = await listCanonicalVideos({
+          accountId: nextAccountId,
+          apiToken: nextApiToken,
+          canonicalMediaId,
+        });
+        return {
+          accountId: nextAccountId,
+          apiToken: nextApiToken,
+          videos: nextVideos,
+        };
+      },
+    });
     if (providerUid && !videos.some((video) => video.uid === providerUid)) {
       const [reservation, media] = await Promise.all([
         providerReservationId
@@ -114,9 +131,10 @@ Deno.serve(async (req) => {
       if (attachedUid !== selected.uid) {
         const winningVideo = videos.find((video) => video.uid === attachedUid)
           || await getStreamVideo({ accountId, apiToken, uid: attachedUid });
-        const winningDisposition = winningVideo
-          ? streamVideoDisposition(winningVideo, { canonicalMediaId, familyId })
-          : { action: 'invalid' as const, reservationId: null };
+        if (!winningVideo) {
+          throw new HttpError(409, 'Canonical provider winner could not be reconciled safely.');
+        }
+        const winningDisposition = streamVideoDisposition(winningVideo, { canonicalMediaId, familyId });
         if (
           winningDisposition.action === 'invalid'
           || winningDisposition.reservationId !== reservation.id

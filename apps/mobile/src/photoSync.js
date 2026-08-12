@@ -7,8 +7,10 @@ import * as mediaDb from './mediaDb';
 import {
   assertCanonicalMediaIdentity,
   canonicalMediaProviderIdentity,
+  confirmCanonicalKeepPreparation,
   ensureCanonicalMoment,
   finalizeCanonicalProviderUpload,
+  reconcileCanonicalKeepSideEffect,
   resolveCanonicalPosterResult,
   resumeCanonicalProviderUpload,
 } from './canonicalMediaKeepModel.js';
@@ -320,6 +322,91 @@ async function prepareCanonicalKeep({ familyId, userId, remoteIdentity, captured
   };
 }
 
+export async function reconcileCanonicalKeepSideEffects({ familyId, ownerUserId, assetId }) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData?.user?.id;
+  if (!userId || userId !== ownerUserId) throw new Error('Canonical Keep reconciliation is not authorized');
+  if (!familyId || !assetId) throw new Error('Canonical Keep reconciliation scope is incomplete');
+
+  const identity = mediaDb.getRemoteAssetIdentity({
+    familyId,
+    ownerUserId,
+    localAssetId: assetId,
+  });
+  if (!identity) return false;
+  if (identity.canonicalSideEffectStarted) return true;
+
+  const readOne = async (query) => {
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || null;
+  };
+  const readReservation = async () => {
+    if (!identity.providerUpload?.reservationId && !identity.mediaId) return null;
+    let query = supabase
+      .from('media_upload_reservations')
+      .select('id, status, provider, provider_object_id, canonical_media_id, transport')
+      .eq('family_id', familyId)
+      .eq('user_id', userId)
+      .in('status', ['reserved', 'finalized']);
+    query = identity.providerUpload?.reservationId
+      ? query.eq('id', identity.providerUpload.reservationId)
+      : query.eq('canonical_media_id', identity.mediaId);
+    const { data, error } = await query.limit(1);
+    if (error) throw error;
+    return data?.[0] || null;
+  };
+
+  return reconcileCanonicalKeepSideEffect({
+    readMoment: () => identity.momentId
+      ? readOne(supabase
+        .from('moments')
+        .select('id')
+        .eq('id', identity.momentId)
+        .eq('family_id', familyId)
+        .eq('author_user_id', userId)
+        .maybeSingle())
+      : null,
+    readMedia: () => identity.mediaId
+      ? readOne(supabase
+        .from('moment_media')
+        .select('id')
+        .eq('id', identity.mediaId)
+        .eq('family_id', familyId)
+        .eq('owner_user_id', userId)
+        .maybeSingle())
+      : null,
+    readTag: () => identity.remoteAssetKey
+      ? readOne(supabase
+        .from('photo_tags')
+        .select('moment_id, moment_media_id')
+        .eq('family_id', familyId)
+        .eq('asset_owner_user_id', userId)
+        .eq('asset_id', identity.remoteAssetKey)
+        .maybeSingle())
+      : null,
+    readReservation,
+    markStarted: (evidence) => {
+      if (identity.remoteAssetKey && (evidence.tag?.moment_id || evidence.tag?.moment_media_id)) {
+        mediaDb.recordRemoteAssetTarget({
+          familyId,
+          ownerUserId: userId,
+          localAssetId: assetId,
+          remoteAssetKey: identity.remoteAssetKey,
+          momentId: evidence.tag?.moment_id || identity.momentId,
+          mediaId: evidence.tag?.moment_media_id || identity.mediaId,
+        });
+      }
+      mediaDb.recordCanonicalSideEffectStarted({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: assetId,
+      });
+    },
+  });
+}
+
 /**
  * Tags a photo and uploads thumb + full to Storage. Atomic from the user's
  * point of view: the tag row exists immediately (status='pending'), then
@@ -400,13 +487,19 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  mediaDb.recordCanonicalSideEffectStarted({ familyId, ownerUserId: userId, localAssetId: assetId });
-  const canonical = await prepareCanonicalKeep({
-    familyId,
-    userId,
-    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
-    capturedAt: creationTime || nowIso,
-    location,
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
   });
   const { momentId, mediaId, existingMedia, existingTag } = canonical;
   const fullId = canonical.providerIdentity.fullObjectId;
@@ -549,13 +642,19 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  mediaDb.recordCanonicalSideEffectStarted({ familyId, ownerUserId: userId, localAssetId: assetId });
-  const canonical = await prepareCanonicalKeep({
-    familyId,
-    userId,
-    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
-    capturedAt: creationTime || nowIso,
-    location,
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
   });
   const { momentId, mediaId, existingMedia } = canonical;
   const fullId = canonical.providerIdentity.fullObjectId;
@@ -772,13 +871,19 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
-  mediaDb.recordCanonicalSideEffectStarted({ familyId, ownerUserId: userId, localAssetId: assetId });
-  const canonical = await prepareCanonicalKeep({
-    familyId,
-    userId,
-    remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
-    capturedAt: creationTime || nowIso,
-    location,
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
   });
   const { momentId, mediaId } = canonical;
   const posterId = canonical.providerIdentity.posterObjectId;

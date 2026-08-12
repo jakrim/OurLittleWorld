@@ -14,7 +14,10 @@ import {
 } from './nightlyQueueModel';
 import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
 import { isNightlySessionContinuation } from './nightlySessionModel.js';
-import { canAbandonTonightKeep } from './tonightKeepBoundaryModel.js';
+import {
+  assertTonightKeepAbandonmentConfirmed,
+  canAbandonTonightKeep,
+} from './tonightKeepBoundaryModel.js';
 
 export const NIGHTLY_CANDIDATE_QUERY_LIMIT = 900;
 export const NIGHTLY_DRAFT_MAX_LENGTH = 280;
@@ -693,7 +696,14 @@ export function listTonightBurstAlternates({
   }));
 }
 
-export function selectTonightBurstAlternate({ sessionId, familyId, userId, position, assetId }) {
+export function selectTonightBurstAlternate({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  assetId,
+  remoteAbsenceConfirmed = false,
+}) {
   assertScope(familyId, userId);
   const allowed = listTonightBurstAlternates({ sessionId, familyId, userId, position });
   if (!allowed.some((candidate) => candidate.assetId === assetId)) {
@@ -703,6 +713,7 @@ export function selectTonightBurstAlternate({ sessionId, familyId, userId, posit
   const stamp = new Date().toISOString();
   database.withTransactionSync(() => {
     const current = assertMutableItem(database, { sessionId, familyId, userId, position });
+    assertTonightKeepAbandonmentConfirmed(current, remoteAbsenceConfirmed);
     discardAbandonableUpload(database, { familyId, userId, item: current });
     ensureEnrichmentRow(database, { sessionId, familyId, userId, position, stamp });
     database.runSync(
@@ -808,11 +819,32 @@ export function finishTonightKeep({ sessionId, familyId, userId, position }) {
   return finishDecision({ sessionId, familyId, userId, position, decision: 'kept' });
 }
 
-export function skipTonightItem({ sessionId, familyId, userId, position }) {
-  return finishDecision({ sessionId, familyId, userId, position, decision: 'skipped' });
+export function skipTonightItem({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  remoteAbsenceConfirmed = false,
+}) {
+  return finishDecision({
+    sessionId,
+    familyId,
+    userId,
+    position,
+    decision: 'skipped',
+    remoteAbsenceConfirmed,
+  });
 }
 
-export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, position, asset, now = new Date() }) {
+export function replaceTonightItemWithParentPick({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  asset,
+  now = new Date(),
+  remoteAbsenceConfirmed = false,
+}) {
   assertScope(familyId, userId);
   const assetId = asset?.assetId || asset?.asset_id;
   if (!assetId) throw new Error('The selected photo is missing its library identifier');
@@ -838,6 +870,7 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
     if (!canAbandonTonightKeep(current)) {
       throw new Error('Finish retrying this Keep before choosing another memory');
     }
+    assertTonightKeepAbandonmentConfirmed(current, remoteAbsenceConfirmed);
     discardAbandonableUpload(database, { familyId, userId, item: current });
     discardedVoiceUri = scopedEnrichment(database, {
       sessionId, familyId, userId, position,
@@ -872,7 +905,14 @@ export function replaceTonightItemWithParentPick({ sessionId, familyId, userId, 
   };
 }
 
-function finishDecision({ sessionId, familyId, userId, position, decision }) {
+function finishDecision({
+  sessionId,
+  familyId,
+  userId,
+  position,
+  decision,
+  remoteAbsenceConfirmed = false,
+}) {
   assertScope(familyId, userId);
   const database = getMediaDatabase();
   const stamp = new Date().toISOString();
@@ -884,6 +924,9 @@ function finishDecision({ sessionId, familyId, userId, position, decision }) {
     if (['kept', 'skipped'].includes(item.item_state)) throw new Error('This Tonight memory already has a decision');
     if (decision === 'skipped' && !canAbandonTonightKeep(item)) {
       throw new Error('Finish retrying this Keep before skipping the memory');
+    }
+    if (decision === 'skipped') {
+      assertTonightKeepAbandonmentConfirmed(item, remoteAbsenceConfirmed);
     }
     const enrichment = scopedEnrichment(database, { sessionId, familyId, userId, position });
     const decidedAssetId = enrichment?.selected_asset_id || item.asset_id;

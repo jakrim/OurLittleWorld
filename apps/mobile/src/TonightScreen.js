@@ -55,7 +55,10 @@ import {
   startTonightContinuation,
   skipTonightItem,
 } from './candidateLedgerStore';
-import { tonightKeepNeedsRetry } from './tonightKeepBoundaryModel.js';
+import {
+  tonightKeepNeedsRemoteReconciliation,
+  tonightKeepNeedsRetry,
+} from './tonightKeepBoundaryModel.js';
 import { parentReasonLabel } from './nightlyQueueModel';
 import { getAssetDetails, getLibraryPermissionStatus } from './photos';
 import { commitTonightMemory } from './tonightCommit';
@@ -78,6 +81,7 @@ import {
 } from './automaticCollectionModel';
 import { Body, Button, Caption, Eyebrow, Field, Hero, Screen, Spacer, space, useTheme } from './ui';
 import { listMomentArchive } from './moments';
+import { reconcileCanonicalKeepSideEffects } from './photoSync';
 import SharedMomentEnrichmentCard from './SharedMomentEnrichmentCard';
 import { composeGroundedMomentContext } from './groundedContextModel';
 import {
@@ -376,6 +380,28 @@ export default function TonightScreen() {
     setCatchup(getTonightCatchupSummary({ familyId: family.id, userId: user.id }));
   }, [activeItem?.position, entitlement, family, session, user?.id]);
 
+  const confirmRemoteAbsenceBeforeAbandon = useCallback(async () => {
+    if (!tonightKeepNeedsRemoteReconciliation(activeItem)) return true;
+    setBusy(true);
+    setError('');
+    try {
+      const sideEffectFound = await reconcileCanonicalKeepSideEffects({
+        familyId: family.id,
+        ownerUserId: user.id,
+        assetId: activeItem.assetId,
+      });
+      if (!sideEffectFound) return true;
+      setSession(readTonightSession({ familyId: family.id, userId: user.id }));
+      setError('This Keep already started. Restore the original in Photos, then retry Keep.');
+      return false;
+    } catch {
+      setError('We could not confirm whether this Keep started. Try again while connected.');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [activeItem, family?.id, user?.id]);
+
   const keepGoing = () => {
     if (busy || !family?.id || !user?.id) return;
     setBusy(true);
@@ -486,11 +512,14 @@ export default function TonightScreen() {
 
   const skip = async () => {
     if (!activeItem || busy || keepNeedsRetry || recording) return;
+    const remoteAbsenceConfirmed = await confirmRemoteAbsenceBeforeAbandon();
+    if (!remoteAbsenceConfirmed) return;
     const next = skipTonightItem({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
       position: activeItem.position,
+      remoteAbsenceConfirmed,
     });
     if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
     trackAnalyticsEvent(
@@ -503,6 +532,8 @@ export default function TonightScreen() {
 
   const chooseAnother = async () => {
     if (!activeItem || busy || keepNeedsRetry || recording) return;
+    const remoteAbsenceConfirmed = await confirmRemoteAbsenceBeforeAbandon();
+    if (!remoteAbsenceConfirmed) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: false,
@@ -527,19 +558,23 @@ export default function TonightScreen() {
       userId: user.id,
       position: activeItem.position,
       asset: picked,
+      remoteAbsenceConfirmed,
     });
     if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
     setSession(next);
   };
 
-  const selectBurstPhoto = (assetId) => {
+  const selectBurstPhoto = async (assetId) => {
     if (busy || keepNeedsRetry || recording) return;
+    const remoteAbsenceConfirmed = await confirmRemoteAbsenceBeforeAbandon();
+    if (!remoteAbsenceConfirmed) return;
     const next = selectTonightBurstAlternate({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
       position: activeItem.position,
       assetId,
+      remoteAbsenceConfirmed,
     });
     setSession(next);
   };

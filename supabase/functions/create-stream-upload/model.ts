@@ -14,6 +14,17 @@ export type CanonicalProviderClaim = {
   uid: string;
 };
 
+export async function authorizeCanonicalProviderAccess<T>({
+  authorize,
+  accessProvider,
+}: {
+  authorize: () => Promise<unknown>;
+  accessProvider: () => Promise<T>;
+}): Promise<T> {
+  await authorize();
+  return accessProvider();
+}
+
 export function canonicalStreamCreator(value: unknown) {
   const mediaId = String(value || '').trim();
   return UUID_PATTERN.test(mediaId) ? mediaId.toLowerCase() : null;

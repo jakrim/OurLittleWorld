@@ -303,6 +303,24 @@ export function getOrCreateRemoteAssetIdentity({
   };
 }
 
+export function getRemoteAssetIdentity({ familyId, ownerUserId, localAssetId }) {
+  if (!familyId || !ownerUserId || !localAssetId) return null;
+  const row = getDb().getFirstSync(
+    `select remote_asset_key, moment_id, media_id, provider_upload_json, canonical_side_effect_started
+     from local_asset_mappings
+     where family_id = ? and owner_user_id = ? and asset_id = ?`,
+    [familyId, ownerUserId, localAssetId],
+  );
+  if (!row) return null;
+  return {
+    remoteAssetKey: row.remote_asset_key || null,
+    momentId: row.moment_id || null,
+    mediaId: row.media_id || null,
+    providerUpload: parseProviderUpload(row.provider_upload_json),
+    canonicalSideEffectStarted: row.canonical_side_effect_started === 1,
+  };
+}
+
 export function resolveRemoteAssetKey({ familyId, ownerUserId, localAssetId }) {
   if (!familyId || !ownerUserId || !localAssetId) return null;
   return getDb().getFirstSync(

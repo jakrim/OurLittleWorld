@@ -1,6 +1,7 @@
-import { assertEquals } from 'jsr:@std/assert@1';
+import { assertEquals, assertRejects } from 'jsr:@std/assert@1';
 
 import {
+  authorizeCanonicalProviderAccess,
   canonicalStreamCreator,
   canonicalStreamUploadUrl,
   claimCanonicalProviderIdentity,
@@ -21,6 +22,24 @@ function video(state: string, overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+Deno.test('lapsed and Circle retries are denied before provider access', async () => {
+  for (const reason of ['lapsed', 'circle']) {
+    let providerReads = 0;
+    await assertRejects(
+      () => authorizeCanonicalProviderAccess({
+        authorize: async () => { throw new Error(`${reason} cannot upload`); },
+        accessProvider: async () => {
+          providerReads += 1;
+          return [];
+        },
+      }),
+      Error,
+      'cannot upload',
+    );
+    assertEquals(providerReads, 0);
+  }
+});
 
 Deno.test('canonical Stream creator accepts only opaque remote media UUIDs', () => {
   assertEquals(canonicalStreamCreator(mediaId.toUpperCase()), mediaId);

@@ -26,6 +26,31 @@ export async function ensureCanonicalMoment({ expected, read, insert }) {
   }
 }
 
+export async function confirmCanonicalKeepPreparation({ prepare, markStarted }) {
+  const canonical = await prepare();
+  await markStarted(canonical);
+  return canonical;
+}
+
+export async function reconcileCanonicalKeepSideEffect({
+  readMoment,
+  readMedia,
+  readTag,
+  readReservation,
+  markStarted,
+}) {
+  const [moment, media, tag, reservation] = await Promise.all([
+    readMoment(),
+    readMedia(),
+    readTag(),
+    readReservation(),
+  ]);
+  const evidence = { moment, media, tag, reservation };
+  const found = Object.values(evidence).some(Boolean);
+  if (found) await markStarted(evidence);
+  return found;
+}
+
 export function assertCanonicalMediaIdentity(existing, expected) {
   if (!existing) return null;
   const fields = ['id', 'moment_id', 'family_id', 'owner_user_id', 'local_identifier'];

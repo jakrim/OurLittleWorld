@@ -10,6 +10,18 @@ export function canAbandonTonightKeep(item = {}) {
   return errorCode === 'asset_unavailable' && !tonightKeepHasCanonicalSideEffect(item);
 }
 
+export function tonightKeepNeedsRemoteReconciliation(item = {}) {
+  if (!['saving', 'failed'].includes(item.commitState || item.commit_state)) return false;
+  const errorCode = item.lastErrorCode || item.last_error_code;
+  return errorCode === 'asset_unavailable' && !tonightKeepHasCanonicalSideEffect(item);
+}
+
+export function assertTonightKeepAbandonmentConfirmed(item = {}, remoteAbsenceConfirmed = false) {
+  if (tonightKeepNeedsRemoteReconciliation(item) && remoteAbsenceConfirmed !== true) {
+    throw new Error('Confirm this Keep has no shared side effects before abandoning it');
+  }
+}
+
 export function tonightKeepNeedsRetry(item = {}) {
   return ['saving', 'failed'].includes(item.commitState || item.commit_state)
     && !canAbandonTonightKeep(item);

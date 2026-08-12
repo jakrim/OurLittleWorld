@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertTonightKeepAbandonmentConfirmed,
   canAbandonTonightKeep,
+  tonightKeepNeedsRemoteReconciliation,
   tonightKeepNeedsRetry,
 } from '../../src/tonightKeepBoundaryModel.js';
 
@@ -14,6 +16,12 @@ test('an unavailable Photos asset can be abandoned before its first canonical si
   };
   assert.equal(canAbandonTonightKeep(item), true);
   assert.equal(tonightKeepNeedsRetry(item), false);
+  assert.equal(tonightKeepNeedsRemoteReconciliation(item), true);
+  assert.throws(
+    () => assertTonightKeepAbandonmentConfirmed(item),
+    /Confirm this Keep has no shared side effects/,
+  );
+  assert.doesNotThrow(() => assertTonightKeepAbandonmentConfirmed(item, true));
 });
 
 test('an unavailable Photos asset remains locked after a canonical side effect', () => {

@@ -4,11 +4,51 @@ import test from 'node:test';
 import {
   assertCanonicalMediaIdentity,
   canonicalMediaProviderIdentity,
+  confirmCanonicalKeepPreparation,
   ensureCanonicalMoment,
   finalizeCanonicalProviderUpload,
+  reconcileCanonicalKeepSideEffect,
   resolveCanonicalPosterResult,
   resumeCanonicalProviderUpload,
 } from '../../src/canonicalMediaKeepModel.js';
+
+test('canonical side effects are marked only after prepare confirms durability', async () => {
+  let marks = 0;
+  await assert.rejects(() => confirmCanonicalKeepPreparation({
+    prepare: async () => { throw new Error('transient read failure'); },
+    markStarted: async () => { marks += 1; },
+  }), /transient read failure/);
+  assert.equal(marks, 0);
+
+  const prepared = await confirmCanonicalKeepPreparation({
+    prepare: async () => ({ momentId: 'moment-1' }),
+    markStarted: async () => { marks += 1; },
+  });
+  assert.deepEqual(prepared, { momentId: 'moment-1' });
+  assert.equal(marks, 1);
+});
+
+test('legacy process death reconciles a remote moment before abandonment', async () => {
+  let marks = 0;
+  const found = await reconcileCanonicalKeepSideEffect({
+    readMoment: async () => ({ id: 'moment-1' }),
+    readMedia: async () => null,
+    readTag: async () => null,
+    readReservation: async () => null,
+    markStarted: async () => { marks += 1; },
+  });
+  assert.equal(found, true);
+  assert.equal(marks, 1);
+
+  await assert.rejects(() => reconcileCanonicalKeepSideEffect({
+    readMoment: async () => { throw new Error('remote state unavailable'); },
+    readMedia: async () => null,
+    readTag: async () => null,
+    readReservation: async () => null,
+    markStarted: async () => { marks += 1; },
+  }), /remote state unavailable/);
+  assert.equal(marks, 1);
+});
 
 test('a partial moment write resumes the same canonical row', async () => {
   const rows = new Map();
