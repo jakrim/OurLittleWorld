@@ -3,6 +3,7 @@ import { assertEquals } from 'jsr:@std/assert@1';
 import {
   canonicalStreamCreator,
   canonicalStreamUploadUrl,
+  claimCanonicalProviderIdentity,
   legacyStreamRetryDisposition,
   streamVideoDisposition,
 } from './model.ts';
@@ -36,10 +37,35 @@ Deno.test('pending uploads reuse their canonical provider identity after an unpe
   assertEquals(canonicalStreamUploadUrl('stream-1'), 'https://upload.videodelivery.net/stream-1');
 });
 
-Deno.test('an accepted upload is reconciled instead of reusing its one-time URL', () => {
+Deno.test('process death before the Stream POST resumes the unexpired one-time URL', () => {
   const options = { canonicalMediaId: mediaId, familyId, providerState: 'uploading' };
   assertEquals(streamVideoDisposition(video('queued'), options).action, 'uploaded');
-  assertEquals(streamVideoDisposition(video('pendingupload'), options).action, 'uploading');
+  assertEquals(streamVideoDisposition(video('pendingupload'), options).action, 'prepared');
+  assertEquals(canonicalStreamUploadUrl('stream-1'), 'https://upload.videodelivery.net/stream-1');
+});
+
+Deno.test('concurrent provider preparation exposes only the canonical winner', async () => {
+  let winner: string | null = null;
+  const cleaned: string[] = [];
+  const claim = async (uid: string) => {
+    await Promise.resolve();
+    winner ||= uid;
+    return {
+      claimed: winner === uid,
+      winning_provider_object_id: winner,
+    };
+  };
+  const cleanup = async (uid: string) => { cleaned.push(uid); };
+
+  const results = await Promise.all([
+    claimCanonicalProviderIdentity({ candidateUid: 'stream-a', claim, cleanup }),
+    claimCanonicalProviderIdentity({ candidateUid: 'stream-b', claim, cleanup }),
+  ]);
+  if (!winner) throw new Error('canonical provider winner was not selected');
+
+  assertEquals(results.map((result) => result.uid), [winner, winner]);
+  assertEquals(results.filter((result) => result.claimed).length, 1);
+  assertEquals(cleaned, [winner === 'stream-a' ? 'stream-b' : 'stream-a']);
 });
 
 Deno.test('provider records must match canonical family scope', () => {

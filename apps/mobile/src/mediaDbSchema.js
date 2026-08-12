@@ -315,8 +315,7 @@ export const CANONICAL_SIDE_EFFECT_MIGRATION_SQL = `
         and coalesce(e.selected_asset_id, i.asset_id) = local_asset_mappings.asset_id
         and (
           e.canonical_moment_id is not null
-          or i.commit_state in ('saving', 'failed')
-          or e.media_commit_state in ('saving', 'saved', 'failed')
+          or e.media_commit_state = 'saved'
         )
     );
 `;

@@ -9,6 +9,11 @@ export type StreamVideoDisposition =
   | { action: 'invalid'; reservationId: null }
   | { action: 'uploaded' | 'replace' | 'uploading' | 'prepared'; reservationId: string };
 
+export type CanonicalProviderClaim = {
+  claimed: boolean;
+  uid: string;
+};
+
 export function canonicalStreamCreator(value: unknown) {
   const mediaId = String(value || '').trim();
   return UUID_PATTERN.test(mediaId) ? mediaId.toLowerCase() : null;
@@ -19,6 +24,27 @@ export function canonicalStreamUploadUrl(value: unknown) {
   return /^[a-z0-9_-]+$/i.test(uid)
     ? `https://upload.videodelivery.net/${encodeURIComponent(uid)}`
     : null;
+}
+
+export async function claimCanonicalProviderIdentity({
+  candidateUid,
+  claim,
+  cleanup,
+}: {
+  candidateUid: string;
+  claim: (uid: string) => Promise<Record<string, any> | Record<string, any>[]>;
+  cleanup: (uid: string) => Promise<void>;
+}): Promise<CanonicalProviderClaim> {
+  const candidate = String(candidateUid || '').trim();
+  if (!candidate) throw new Error('Canonical provider candidate is required.');
+  const response = await claim(candidate);
+  const row = Array.isArray(response) ? response[0] : response;
+  const winner = String(row?.winning_provider_object_id || '').trim();
+  if (!winner) throw new Error('Canonical provider claim was not confirmed.');
+  if (winner === candidate && row?.claimed === true) return { claimed: true, uid: winner };
+  if (winner === candidate) throw new Error('Canonical provider claim returned an inconsistent winner.');
+  await cleanup(candidate);
+  return { claimed: false, uid: winner };
 }
 
 export function streamVideoDisposition(video: StreamVideo, {
@@ -112,10 +138,6 @@ function uploadStateDisposition(
   const expiryMs = Date.parse(String(video?.uploadExpiry || ''));
   if (Number.isFinite(expiryMs) && expiryMs <= nowMs) {
     return { action: 'replace', reservationId };
-  }
-  if (providerState === 'prepared') return { action: 'prepared', reservationId };
-  if (providerState === 'uploading' || providerState === 'uploaded') {
-    return { action: 'uploading', reservationId };
   }
   return { action: 'prepared', reservationId };
 }

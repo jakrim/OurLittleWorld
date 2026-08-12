@@ -293,9 +293,33 @@ test('version 7 preserves legacy parent work and makes frame-only videos recover
   });
 });
 
-test('version 8 persists the canonical side-effect boundary across process reopen', () => {
+test('version 9 backfills only concrete canonical side effects', () => {
   withDatabase((dbPath) => {
     migrateV8(dbPath);
+    for (const assetId of ['private-asset', 'canonical-asset', 'saved-asset']) {
+      run(dbPath, candidateInsert({ familyId: 'family-a', userId: 'parent-a', assetId, state: 'shown' }));
+    }
+    run(dbPath, `
+      insert into nightly_review_sessions (
+        session_id,family_id,user_id,local_day,timezone,seed,status,generation_version,model_version,
+        current_position,item_count,created_at,updated_at,is_continuation
+      ) values (
+        'session-side-effects','family-a','parent-a','2026-08-12','America/New_York','seed','active',
+        'nightly-queue-v2','curated-ledger-v1',0,3,'2026-08-12','2026-08-12',0
+      );
+      insert into nightly_review_items (
+        session_id,position,family_id,user_id,asset_id,reason_code,item_state,commit_state,last_error_code,updated_at
+      ) values
+        ('session-side-effects',0,'family-a','parent-a','private-asset','best_day','shown','failed','asset_unavailable','2026-08-12'),
+        ('session-side-effects',1,'family-a','parent-a','canonical-asset','best_day','shown','failed','save_failed','2026-08-12'),
+        ('session-side-effects',2,'family-a','parent-a','saved-asset','best_day','shown','failed','save_failed','2026-08-12');
+      insert into nightly_review_enrichment (
+        session_id,position,family_id,user_id,canonical_moment_id,media_commit_state,updated_at
+      ) values
+        ('session-side-effects',0,'family-a','parent-a',null,'failed','2026-08-12'),
+        ('session-side-effects',1,'family-a','parent-a','remote-moment-1','failed','2026-08-12'),
+        ('session-side-effects',2,'family-a','parent-a',null,'saved','2026-08-12');
+    `);
     run(dbPath, `insert into local_asset_mappings (
       family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,
       provider_upload_json,updated_at
@@ -303,6 +327,14 @@ test('version 8 persists the canonical side-effect boundary across process reope
       'family-a','parent-a','private-asset','media-1','2026-08-12',
       '11111111-1111-4111-8111-111111111111','moment-1',null,'2026-08-12'
     );`);
+    run(dbPath, `insert into local_asset_mappings (
+      family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,
+      provider_upload_json,updated_at
+    ) values
+      ('family-a','parent-a','canonical-asset','media-3','2026-08-12',
+       '33333333-3333-4333-8333-333333333333','moment-3',null,'2026-08-12'),
+      ('family-a','parent-a','saved-asset','media-4','2026-08-12',
+       '44444444-4444-4444-8444-444444444444','moment-4',null,'2026-08-12');`);
     run(dbPath, `insert into local_asset_mappings (
       family_id,owner_user_id,asset_id,media_id,last_checked_at,remote_asset_key,moment_id,
       provider_upload_json,updated_at
@@ -317,6 +349,10 @@ test('version 8 persists the canonical side-effect boundary across process reope
       where asset_id='private-asset';`), '0');
     assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
       where asset_id='provider-asset';`), '1');
+    assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
+      where asset_id='canonical-asset';`), '1');
+    assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings
+      where asset_id='saved-asset';`), '1');
     run(dbPath, `update local_asset_mappings set canonical_side_effect_started=1
       where asset_id='private-asset';`);
     assert.equal(query(dbPath, `select canonical_side_effect_started from local_asset_mappings

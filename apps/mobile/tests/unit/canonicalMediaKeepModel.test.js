@@ -6,6 +6,7 @@ import {
   canonicalMediaProviderIdentity,
   ensureCanonicalMoment,
   finalizeCanonicalProviderUpload,
+  resolveCanonicalPosterResult,
   resumeCanonicalProviderUpload,
 } from '../../src/canonicalMediaKeepModel.js';
 
@@ -186,6 +187,88 @@ test('Stream publication waits for quota confirmation and resumes after process 
   assert.equal(replayed.uid, 'stream-1');
   assert.equal(replayed.reservationId, 'reservation-1');
   assert.equal(replayed.state, 'published');
+});
+
+test('Stream publication reuses a successful poster after process death', async () => {
+  let persisted = {
+    uid: 'stream-1',
+    reservationId: 'reservation-1',
+    state: 'finalized',
+    result: { posterObject: 'poster-1', posterMetadata: { posterSource: 'recognition-frame' } },
+  };
+  let posterUploads = 0;
+  let failPublishedPersist = true;
+  const published = [];
+  const run = async () => {
+    const posterResult = await resolveCanonicalPosterResult({
+      contextResult: persisted.result,
+      upload: async () => {
+        posterUploads += 1;
+        return { posterObject: null, posterMetadata: { posterStatus: 'failed' } };
+      },
+    });
+    return finalizeCanonicalProviderUpload({
+      context: { ...persisted, result: posterResult },
+      finalize: async () => {},
+      persist: async (next) => {
+        if (next.state === 'published' && failPublishedPersist) {
+          failPublishedPersist = false;
+          throw new Error('process ended after poster publication');
+        }
+        persisted = next;
+      },
+      publish: async (current) => { published.push(current.result.posterObject); },
+    });
+  };
+
+  await assert.rejects(run, /poster publication/);
+  const replayed = await run();
+
+  assert.equal(posterUploads, 0);
+  assert.deepEqual(published, ['poster-1', 'poster-1']);
+  assert.equal(replayed.result.posterObject, 'poster-1');
+  assert.equal(replayed.state, 'published');
+});
+
+test('ready remote poster wins over a later optional poster failure', async () => {
+  let posterUploads = 0;
+  const result = await resolveCanonicalPosterResult({
+    existingMedia: {
+      upload_status: 'ready',
+      poster_object: 'poster-ready',
+      metadata: { posterSource: 'generated-frame' },
+    },
+    upload: async () => {
+      posterUploads += 1;
+      return { posterObject: null };
+    },
+  });
+
+  assert.equal(posterUploads, 0);
+  assert.equal(result.posterObject, 'poster-ready');
+  assert.equal(result.posterMetadata.posterSource, 'generated-frame');
+});
+
+test('matching remote poster rows survive a late failed status write', async () => {
+  let posterUploads = 0;
+  const result = await resolveCanonicalPosterResult({
+    existingMedia: {
+      upload_status: 'failed',
+      poster_object: 'poster-published',
+      metadata: { posterSource: 'recognition-frame' },
+    },
+    existingTag: {
+      upload_status: 'failed',
+      thumb_object: 'poster-published',
+    },
+    upload: async () => {
+      posterUploads += 1;
+      return { posterObject: null };
+    },
+  });
+
+  assert.equal(posterUploads, 0);
+  assert.equal(result.posterObject, 'poster-published');
 });
 
 test('canonical identity checks refuse unrelated moment and media rows', async () => {

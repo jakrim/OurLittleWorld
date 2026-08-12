@@ -9,6 +9,7 @@ import {
   canonicalMediaProviderIdentity,
   ensureCanonicalMoment,
   finalizeCanonicalProviderUpload,
+  resolveCanonicalPosterResult,
   resumeCanonicalProviderUpload,
 } from './canonicalMediaKeepModel.js';
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
@@ -694,7 +695,12 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
         }),
       });
       streamUid = providerContext.uid;
-      const posterResult = await uploadVideoPoster({ info, match, posterPath, posterId });
+      const posterResult = await resolveCanonicalPosterResult({
+        contextResult: providerContext.result,
+        existingMedia,
+        existingTag: canonical.existingTag,
+        upload: () => uploadVideoPoster({ info, match, posterPath, posterId }),
+      });
       providerContext = await finalizeCanonicalProviderUpload({
         context: { ...providerContext, result: posterResult },
         finalize: (current) => finalizeMediaUpload(current.reservationId, { bytes: sourceBytes, durationSec }),

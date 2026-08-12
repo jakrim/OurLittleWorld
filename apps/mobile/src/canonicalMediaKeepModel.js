@@ -82,6 +82,42 @@ export async function finalizeCanonicalProviderUpload({ context, finalize, persi
   return current;
 }
 
+export async function resolveCanonicalPosterResult({
+  contextResult = null,
+  existingMedia = null,
+  existingTag = null,
+  upload,
+}) {
+  const contextPoster = contextResult?.posterObject || null;
+  if (contextPoster) return contextResult;
+  const readyMediaPoster = existingMedia?.upload_status === 'ready'
+    ? existingMedia.poster_object || null
+    : null;
+  const readyTagPoster = existingTag?.upload_status === 'ready'
+    ? existingTag.thumb_object || null
+    : null;
+  const publishedTagPoster = existingTag?.thumb_object || null;
+  const publishedMediaPoster = existingMedia?.metadata?.posterSource
+    ? existingMedia.poster_object || null
+    : null;
+  const matchedRemotePoster = existingMedia?.poster_object
+    && existingTag?.thumb_object === existingMedia.poster_object
+    ? existingMedia.poster_object
+    : null;
+  const existingPoster = matchedRemotePoster
+    || publishedTagPoster
+    || publishedMediaPoster
+    || readyMediaPoster
+    || readyTagPoster;
+  if (existingPoster) {
+    return {
+      posterObject: existingPoster,
+      posterMetadata: existingMedia?.metadata || {},
+    };
+  }
+  return upload();
+}
+
 function validateCanonicalMoment(existing, expected) {
   if (
     String(existing.family_id || '') !== String(expected.family_id)

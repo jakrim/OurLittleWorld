@@ -104,3 +104,71 @@ revoke all on function public.reserve_canonical_media_upload(uuid, uuid, text, t
   from public, anon;
 grant execute on function public.reserve_canonical_media_upload(uuid, uuid, text, text, bigint, integer, text)
   to authenticated;
+
+create or replace function public.claim_canonical_media_upload_provider_object(
+  p_reservation_id uuid,
+  p_provider text,
+  p_provider_object_id text
+)
+returns table (
+  claimed boolean,
+  winning_provider_object_id text
+)
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_reservation public.media_upload_reservations%rowtype;
+  v_candidate text := nullif(trim(p_provider_object_id), '');
+begin
+  if auth.uid() is null then
+    raise exception 'must be signed in';
+  end if;
+  if p_provider not in ('stream', 'r2') or v_candidate is null then
+    raise exception 'provider upload identity is invalid';
+  end if;
+
+  select * into v_reservation
+  from public.media_upload_reservations
+  where id = p_reservation_id
+  for update;
+
+  if not found or v_reservation.user_id is distinct from auth.uid() then
+    raise exception 'reservation not found';
+  end if;
+  if v_reservation.status <> 'reserved' then
+    raise exception 'reservation is no longer open';
+  end if;
+  if v_reservation.canonical_media_id is null then
+    raise exception 'reservation is not canonical';
+  end if;
+  if p_provider = 'stream' and v_reservation.transport <> 'video-stream' then
+    raise exception 'reservation transport does not match provider';
+  end if;
+  if not public.is_family_writer(v_reservation.family_id) then
+    raise exception 'Only a co-parent can attach provider media.';
+  end if;
+  if v_reservation.provider is not null and v_reservation.provider <> p_provider then
+    raise exception 'reservation belongs to another provider';
+  end if;
+
+  if v_reservation.provider_object_id is null then
+    update public.media_upload_reservations
+    set provider = p_provider,
+        provider_object_id = v_candidate
+    where id = p_reservation_id;
+    return query select true, v_candidate;
+    return;
+  end if;
+
+  return query select v_reservation.provider_object_id = v_candidate,
+    v_reservation.provider_object_id;
+end
+$$;
+
+revoke all on function public.claim_canonical_media_upload_provider_object(uuid, text, text)
+  from public, anon;
+grant execute on function public.claim_canonical_media_upload_provider_object(uuid, text, text)
+  to authenticated;
