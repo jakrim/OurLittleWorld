@@ -52,4 +52,3 @@ begin
   raise notice 'controlled_failure_groups=%', failure_groups;
 end
 $$;
-

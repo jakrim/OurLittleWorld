@@ -13,4 +13,3 @@ select public.record_marketing_signup(
   'olw_internal_qa_lifecycle_20260713',
   '2026-07-13'
 );
-

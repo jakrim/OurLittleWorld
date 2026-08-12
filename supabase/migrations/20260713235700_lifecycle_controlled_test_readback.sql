@@ -27,4 +27,3 @@ begin
     latest_dispatch.completed_at;
 end
 $$;
-

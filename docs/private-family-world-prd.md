@@ -33,15 +33,19 @@ intent. Parents remain the authors and final authority.
 
 ## Navigation Contract
 
-The primary navigation is:
+The primary memory loop is:
 
-1. **Today** — what needs light attention now: a prompt, photo review, recap, or one
-   useful suggestion.
-2. **Add** — an intention chooser, not a generic form: photos or a moment, note to each
-   other, voice note, or letter to baby. Firsts and photo review remain immediately
-   reachable.
+1. **Today** — a photo-first view of what needs light attention now. When strong
+   local candidates exist, it leads to Tonight; otherwise it remains honest about the
+   available next step.
+2. **Tonight** — a short parent-led review of up to seven strong candidates. Keep,
+   Skip, and Another are explicit decisions; weak candidates never pad the queue.
 3. **Our World** — the durable family space: timeline, photos, notes, voices, Firsts,
    and Letters. Search and export are utilities inside this space.
+
+**Add** remains a compact escape hatch, not a competing daily loop. Its intention
+chooser opens photos or a moment, a note to each other, a voice note, or a letter to
+baby. Firsts and photo review remain immediately reachable.
 
 The word `Book` must not be used as a top-level destination or as the default promise
 for saving an item. Existing internal `book*` models and analytics names may remain for
@@ -190,8 +194,8 @@ and fulfillment are not planned product commitments and must not shape daily cap
 
 ## Acceptance Criteria
 
-- A new parent can explain the Today → Add → Our World loop without seeing the word
-  Book in top-level navigation.
+- A new parent can explain the photo-first Today → Tonight → Our World loop without
+  seeing the word Book in top-level navigation; Add is visibly a compact escape hatch.
 - Add exposes photos/moment, parent note, voice note, and letter in one tap.
 - Text-only parent notes save without media and appear in the shared timeline.
 - Voice notes can stand alone and remain playable through the saved moment.

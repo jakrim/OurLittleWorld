@@ -11,11 +11,15 @@ are building with their baby: photos, videos, words to each other, voice notes,
 Firsts, and letters to their child. A printable book may be an output; it is not
 the organizing center of the daily product.
 
-- **Today** helps parents notice, capture, and review what matters, including a
-  calm Tonight review when strong private candidates exist.
-- **Add** begins with the parent's intention: media/moment, note, voice, or letter.
+- **Today** opens photo-first, helping parents notice what matters and leading to a
+  calm **Tonight** review only when strong private candidates exist.
+- **Tonight** is the short parent-led review: Keep, Skip, or Another decides what
+  enters the family record; no queue is padded to create a ritual.
 - **Our World** is the durable shared payoff: timeline, media, collections,
   Firsts, Letters, and family archive utilities.
+
+**Add** is a compact escape hatch, not a competing daily loop. It begins with the
+parent's intention—media/moment, note, voice, or letter.
 
 Do not create a second owner for these jobs. Search, places, export, and printing
 are utilities inside the family world, not competing daily loops.

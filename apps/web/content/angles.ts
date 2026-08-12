@@ -157,4 +157,3 @@ export const ourLittleWorldAngles: Record<string, OurLittleWorldAngle> = {
     ],
   },
 };
-

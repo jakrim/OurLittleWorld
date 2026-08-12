@@ -14,11 +14,13 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
 
 ## Mobile app conventions
 
-- **Product surfaces:** parent-facing navigation is `Today` → `Add` → `Our World`.
-  `Our World` contains the shared timeline, media, parent notes, voice notes, Firsts,
-  and Letters. Existing `book*` filenames, fields, and analytics values are retained
-  for compatibility; they are not a parent-facing information architecture. Print and
-  photo-book generation are secondary export utilities.
+- **Product surfaces:** the primary memory loop is photo-first `Today` → `Tonight` →
+  `Our World`. `Add` remains a compact escape hatch whose intention chooser starts a
+  moment, parent note, voice note, or letter. `Our World` contains the shared timeline,
+  media, parent notes, voice notes, Firsts, and Letters. Existing `book*` filenames,
+  fields, and analytics values are retained for compatibility; they are not a
+  parent-facing information architecture. Print and photo-book generation are
+  secondary export utilities.
 
 - **Screens:** `apps/mobile/app/*.jsx` are thin expo-router wrappers around
   `apps/mobile/src/*Screen.js` components. Protected routes wrap in `ProtectedRoute`.
@@ -169,7 +171,10 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   private-file cleanup state, canonical provider/quota replay state, and whether the
   first canonical side effect has begun. Sessions persist `is_continuation` explicitly so
   revalidated and parent-requested continuations share pacing, analytics, and local
-  notification suppression semantics. The item row retains the 280-character text draft.
+  notification suppression semantics. On resume, untouched idle cards are rechecked
+  against the current quality thresholds and withdrawn when they no longer qualify;
+  parent interaction or a started canonical write is never silently discarded. The item
+  row retains the 280-character text draft.
   An unfinished session resumes until completed; one active
   session is enforced per family/parent, and a completed session suppresses another
   queue on the same local day. `/tonight` keeps through the canonical
@@ -183,6 +188,8 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `tonightNotifications.js` schedules locally only for a real queue after writer,
   entitlement, preference, quiet-hour, timezone, duplicate, completion, and daily-cap
   checks; notification data is limited to coarse queue state/count/date and `/tonight`.
+  Scheduling is optional: a local notification failure leaves the valid local session
+  available to Today and Tonight.
   The remote `notify-event` cadence rejects `tonight_picks` even when a stored
   preference enables the category, because a server cannot prove the existence of a
   private device queue. This category is device-scheduled only.
@@ -210,7 +217,10 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   rich window for context-heavy timeline/search/export compatibility, obtains exact
   family media counts separately, and reads up to 5,000 lightweight day-index rows.
   The dedicated day list/detail is the full first-year browsing surface; collection-
-  backed search now uses family-owned factual collection membership.
+  backed search now uses family-owned factual collection membership. If a deployed
+  PostgREST relationship cache cannot serve an embedded archive/media relation, the
+  client retries the same family-scoped read without embeds and attaches its relations
+  locally; this is a read-only compatibility fallback, never a write bypass.
 - **Automatic collections:** migration `20260720220000` derives `collections` and
   `collection_memberships` only from canonical parent-kept moments and their saved
   facts. Trigger refresh covers capture date, media/voice type, author, confirmed

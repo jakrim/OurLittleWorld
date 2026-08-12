@@ -3,4 +3,3 @@
 -- ambiguity from the deployment readback.
 
 select public.dispatch_marketing_contact_sync();
-
