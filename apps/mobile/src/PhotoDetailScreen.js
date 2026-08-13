@@ -12,6 +12,7 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { ageAt, formatAge, getAssetDetails } from './photos';
 import { shareMemoryMoment } from './shareMoment';
+import { groundedMemoryAuthorLabel } from './groundedFamilyIdentityModel';
 
 /**
  * Single moment view. Renders the photo, baby's age at capture, the tag
@@ -152,11 +153,13 @@ export default function PhotoDetailScreen() {
       const memory = (note || '').trim()
         || (partnerMemories[0]?.note || '').trim()
         || '';
-      const memoryAuthor = memory && (note || '').trim()
-        ? (members[user?.id] || 'Jesse')
-        : memory
-          ? (members[partnerMemories[0]?.author_user_id] || 'Lauren')
-          : '';
+      const memoryAuthor = memory
+        ? groundedMemoryAuthorLabel({
+          authorUserId: (note || '').trim() ? user?.id : partnerMemories[0]?.author_user_id,
+          currentUserId: user?.id,
+          membersById: members,
+        })
+        : '';
       await shareMemoryMoment({
         sourceUri,
         babyName: family?.babyName || 'Our little one',

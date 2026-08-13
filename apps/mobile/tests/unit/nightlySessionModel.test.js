@@ -72,6 +72,8 @@ function strongCandidate(assetId, captureTimeMs, localDay) {
     localDay,
     identityScore: 0.95,
     captureQuality: 0.9,
+    faceSizeRatio: 0.12,
+    sharpness: 0.3,
     eventClusterKey: `cluster-${assetId}`,
     clusterMemberCount: 1,
   };

@@ -107,6 +107,25 @@ export async function finalizeCanonicalProviderUpload({ context, finalize, persi
   return current;
 }
 
+export async function confirmCanonicalProviderAcceptance({ context, reconcile, persist }) {
+  const current = normalizedProviderContext(context);
+  if (!current?.uid || !current?.reservationId || current.state !== 'uploaded') {
+    throw new Error('Provider upload is not ready for trusted confirmation');
+  }
+  const confirmed = normalizedProviderContext(await reconcile(current));
+  if (
+    !confirmed
+    || confirmed.uid !== current.uid
+    || confirmed.reservationId !== current.reservationId
+    || confirmed.state !== 'uploaded'
+  ) {
+    throw new Error('Provider upload acceptance was not confirmed');
+  }
+  const next = { ...current, uploadURL: null, state: 'uploaded' };
+  await persist(next);
+  return next;
+}
+
 export async function resolveCanonicalPosterResult({
   contextResult = null,
   existingMedia = null,

@@ -36,10 +36,10 @@ import {
   backfillPendingForOwner,
   deleteForTag,
   getUploadQueueStatus,
-  listSharedTagged,
+  listSharedTaggedWithLatestKeep,
   silentlyRepairUploadsForOwner,
 } from './photoSync';
-import { getFamilyArchiveCounts, listMomentArchive, listMomentDayArchive } from './moments';
+import { getFamilyArchiveCounts, getMomentDetail, listMomentArchive, listMomentDayArchive } from './moments';
 import { countLabel } from './plural';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { AUTO_SAVE_CORRECTION_COPY } from './autoSaveCorrectionModel';
@@ -51,7 +51,7 @@ import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './med
 import { useICloudRetryCount } from './iCloudRetryQueue';
 import { formatTagLabel } from './tagModel';
 import { DailyPrompts, Firsts, Letters } from './rituals';
-import { buildBookHomeModel } from './bookHomeModel';
+import { buildArchiveRecords, buildBookHomeModel } from './bookHomeModel';
 import { buildPrivateBookPreviewSharePayload } from './privateRecapShareModel';
 import { buildLibraryManualQaFixture } from './libraryManualQaFixtures';
 import { groupArchiveRecordsForPresentation } from './familyPhotoPresentationModel';
@@ -70,7 +70,8 @@ import { collectionKindLabel } from './automaticCollectionModel';
 import { listFamilyAnnotationExport } from './sharedEnrichment';
 import { trackAnalyticsEvent } from './analytics';
 import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
-import { selectWorldOpening } from './worldOpeningModel';
+import { prioritizeImmediateKeepForOpening, selectWorldOpening } from './worldOpeningModel';
+import { latestReadyTaggedRow } from './latestKeepVisibilityModel.js';
 
 const PRINT_DRAFT_COPY = 'Printing is an optional future extra. This export keeps the focus on your digital family record; any physical-book layout still needs separate planning and parent approval.';
 const TIMELINE_RENDER_LIMIT = 500;
@@ -93,6 +94,7 @@ export default function LibraryScreen() {
   const [segment, setSegment] = useState(() => normalizeLibrarySegment(params.segment) || 'photos');
   const [scrollResetKey, setScrollResetKey] = useState(0);
   const [shared, setShared] = useState([]);
+  const [latestKeptOpening, setLatestKeptOpening] = useState(null);
   const [moments, setMoments] = useState([]);
   const [dailyArchiveRecords, setDailyArchiveRecords] = useState([]);
   const [archiveCounts, setArchiveCounts] = useState(null);
@@ -185,7 +187,7 @@ export default function LibraryScreen() {
       countRows,
       collectionRows,
     ] = await Promise.all([
-      listSharedTagged(family.id, { limit: 90 }).catch(() => []),
+      listSharedTaggedWithLatestKeep(family.id, { limit: 90 }).catch(() => []),
       Tags.all(family.id).catch(() => ({})),
       listMomentArchive(family.id, { limit: LIBRARY_RICH_ARCHIVE_LIMIT }).catch(() => []),
       Firsts.list(family.id).catch(() => []),
@@ -201,7 +203,15 @@ export default function LibraryScreen() {
       getFamilyArchiveCounts(family.id).catch(() => null),
       listAutomaticCollections(family.id).catch(() => []),
     ]);
+    const latestTagged = latestReadyTaggedRow(sharedRows);
+    const latestMoment = latestTagged?.moment_id
+      ? momentRows.find((moment) => moment.id === latestTagged.moment_id)
+        || await getMomentDetail({ familyId: family.id, momentId: latestTagged.moment_id }).catch(() => null)
+      : null;
     setShared(sharedRows);
+    setLatestKeptOpening(latestTagged
+      ? { photo: latestTagged, moment: latestMoment }
+      : null);
     setMoments(momentRows);
     setFirsts(firstRows);
     setLetters(letterRows);
@@ -299,6 +309,14 @@ export default function LibraryScreen() {
     exportLimitations: EXPORT_PREVIEW_LIMITATIONS,
     lapsedSubscriptionPolicy: null,
   }), [effectiveFirsts, effectiveLetters, effectiveMoments, effectivePromptResponses, effectiveShared, effectiveUploadQueue, family?.babyBirthday]);
+  const latestKeptOpeningRecord = useMemo(() => buildArchiveRecords({
+    moments: latestKeptOpening?.moment ? [latestKeptOpening.moment] : [],
+    sharedPhotos: latestKeptOpening?.moment ? [] : [latestKeptOpening?.photo].filter(Boolean),
+  })[0] || null, [latestKeptOpening]);
+  const worldOpeningRecords = useMemo(
+    () => prioritizeImmediateKeepForOpening(bookHome.records, latestKeptOpeningRecord),
+    [bookHome.records, latestKeptOpeningRecord],
+  );
   const archiveRecords = bookHome.records;
   const collectionHome = useMemo(() => buildBookHomeModel({
     moments: collectionMoments,
@@ -613,6 +631,7 @@ export default function LibraryScreen() {
           childName={family?.babyName}
           childBirthday={family?.babyBirthday}
           model={bookHome}
+          openingRecords={worldOpeningRecords}
           canWrite={canManageLibrary}
           onDiscover={canManageLibrary ? () => router.push('/timeline') : null}
           onOpen={openArchiveRecord}
@@ -943,8 +962,8 @@ function libraryTileSizeForWidth(width) {
   return Math.max(68, Math.floor((boundedWidth - (space.xs * (columns - 1))) / columns));
 }
 
-function BookHome({ childName, childBirthday, model, canWrite, onDiscover, onOpen, membersById, theme }) {
-  const opening = selectWorldOpening(model?.records || [], membersById);
+function BookHome({ childName, childBirthday, model, openingRecords, canWrite, onDiscover, onOpen, membersById, theme }) {
+  const opening = selectWorldOpening(openingRecords || model?.records || [], membersById);
   const primary = opening.primary;
   const age = primary?.capturedAt && childBirthday
     ? formatAge(ageAt(childBirthday, primary.capturedAt.getTime()))

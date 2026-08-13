@@ -8,9 +8,11 @@ import {
 } from './candidateLedgerModel';
 import {
   buildNightlyQueue,
+  NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR,
   NIGHTLY_QUEUE_GENERATION_VERSION,
   NIGHTLY_QUEUE_IDENTITY_FLOOR,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
+  NIGHTLY_QUEUE_SHARPNESS_FLOOR,
   shouldWithdrawStaleNightlyItem,
 } from './nightlyQueueModel';
 import { localDayInTimeZone, recommendedNightlySize } from './firstYearCatchupModel';
@@ -902,7 +904,7 @@ export function replaceTonightItemWithParentPick({
     mediaType: asset.type === 'video' || asset.mediaType === 'video' ? 'video' : 'image',
     localUri: asset.uri,
     uri: asset.uri,
-    creationTime: asset.creationTime || now.getTime(),
+    creationTime: asset.creationTime || null,
     duration: asset.duration,
     width: asset.width,
     height: asset.height,
@@ -1059,6 +1061,16 @@ function listEligibleCandidates(database, familyId, userId) {
        from discovery_candidates c
        where c.family_id = ? and c.user_id = ? and c.lifecycle_state = 'eligible' and c.availability = 'available'
          and (c.representative_asset_id is null or c.representative_asset_id = c.asset_id)
+         and (
+           c.selection_reason_code = 'parent_pick'
+           or (
+             c.identity_score >= ? and c.face_size_ratio >= ? and c.sharpness >= ? and (
+               (c.media_type = 'image' and c.capture_quality >= ?)
+               or (c.media_type = 'video' and c.duration_sec >= 2 and c.capture_quality >= ?
+                 and c.video_presence_ratio >= 0.66)
+             )
+           )
+         )
      ), ranked as (
        select *, row_number() over (
          partition by local_day order by capture_quality desc, identity_score desc, capture_time_ms desc, asset_id asc
@@ -1073,7 +1085,9 @@ function listEligibleCandidates(database, familyId, userId) {
      where day_rank = 1 or (day_rank = 2 and capture_quality >= ?) or (media_type = 'video' and media_day_rank <= 2)
      order by coverage_needed desc, day_rank asc, capture_quality desc, identity_score desc,
        capture_time_ms desc, asset_id asc limit ?`,
-    [familyId, userId, NIGHTLY_BURST_ALTERNATE_MIN_QUALITY, NIGHTLY_CANDIDATE_QUERY_LIMIT],
+    [familyId, userId, NIGHTLY_QUEUE_IDENTITY_FLOOR, NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR,
+      NIGHTLY_QUEUE_SHARPNESS_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR,
+      NIGHTLY_BURST_ALTERNATE_MIN_QUALITY, NIGHTLY_CANDIDATE_QUERY_LIMIT],
   );
   return rows.map(mapCandidateRow);
 }
@@ -1093,12 +1107,18 @@ function candidateBacklogStats(database, familyId, userId) {
      where c.family_id = ? and c.user_id = ? and c.lifecycle_state = 'eligible'
        and c.availability = 'available'
        and (c.representative_asset_id is null or c.representative_asset_id = c.asset_id)
-       and c.identity_score >= ? and (
-         (c.media_type = 'image' and c.capture_quality >= ?)
-         or (c.media_type = 'video' and c.duration_sec >= 2 and c.capture_quality >= ?
-           and (c.video_presence_ratio >= 0.66 or c.identity_score >= 0.9))
+       and (
+         c.selection_reason_code = 'parent_pick'
+         or (
+           c.identity_score >= ? and c.face_size_ratio >= ? and c.sharpness >= ? and (
+             (c.media_type = 'image' and c.capture_quality >= ?)
+             or (c.media_type = 'video' and c.duration_sec >= 2 and c.capture_quality >= ?
+               and c.video_presence_ratio >= 0.66)
+           )
+         )
        )`,
-    [familyId, userId, NIGHTLY_QUEUE_IDENTITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR],
+    [familyId, userId, NIGHTLY_QUEUE_IDENTITY_FLOOR, NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR,
+      NIGHTLY_QUEUE_SHARPNESS_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR, NIGHTLY_QUEUE_QUALITY_FLOOR],
   );
   return {
     eligibleCount: Number(row?.eligible_count || 0),
@@ -1299,6 +1319,7 @@ function revalidateActiveNightlySession(database, session, now = new Date()) {
   const rows = database.getAllSync(
     `select i.position, i.asset_id, i.reason_code, i.item_state, i.commit_state, i.draft_text,
        c.media_type, c.availability, c.identity_score, c.capture_quality,
+       c.face_size_ratio, c.sharpness,
        c.duration_sec, c.video_presence_ratio,
        e.parent_interacted, e.media_commit_state, e.text_commit_state,
        e.voice_commit_state, e.reaction_commit_state, e.collection_commit_state
@@ -1324,6 +1345,8 @@ function revalidateActiveNightlySession(database, session, now = new Date()) {
     availability: row.availability,
     identityScore: row.identity_score,
     captureQuality: row.capture_quality,
+    faceSizeRatio: row.face_size_ratio,
+    sharpness: row.sharpness,
     mediaType: row.media_type,
     durationSec: row.duration_sec,
     videoPresenceRatio: row.video_presence_ratio,
@@ -1382,6 +1405,8 @@ function mapCandidateRow(row) {
     durationSec: Number(row.duration_sec || 0),
     identityScore: Number(row.identity_score || 0),
     captureQuality: Number(row.capture_quality || 0),
+    faceSizeRatio: finiteOrNull(row.face_size_ratio),
+    sharpness: finiteOrNull(row.sharpness),
     videoPresenceRatio: Number(row.video_presence_ratio || 0),
     visualFingerprint: parseJsonArray(row.visual_fingerprint_json),
     eventClusterKey: row.event_cluster_key,
@@ -1401,6 +1426,12 @@ function parseJsonArray(value) {
   } catch {
     return [];
   }
+}
+
+function finiteOrNull(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function upsertCandidate(database, familyId, userId, candidate) {

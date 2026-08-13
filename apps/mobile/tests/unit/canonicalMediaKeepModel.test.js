@@ -5,12 +5,42 @@ import {
   assertCanonicalMediaIdentity,
   canonicalMediaProviderIdentity,
   confirmCanonicalKeepPreparation,
+  confirmCanonicalProviderAcceptance,
   ensureCanonicalMoment,
   finalizeCanonicalProviderUpload,
   reconcileCanonicalKeepSideEffect,
   resolveCanonicalPosterResult,
   resumeCanonicalProviderUpload,
 } from '../../src/canonicalMediaKeepModel.js';
+
+test('Stream publication requires a second exact provider acceptance reconciliation', async () => {
+  const persisted = [];
+  const context = {
+    uid: 'stream-1', reservationId: 'reservation-1', state: 'uploaded', uploadURL: null,
+  };
+  const confirmed = await confirmCanonicalProviderAcceptance({
+    context,
+    reconcile: async () => ({
+      uid: 'stream-1', reservationId: 'reservation-1', state: 'uploaded',
+    }),
+    persist: async (next) => persisted.push(next),
+  });
+  assert.equal(confirmed.state, 'uploaded');
+  assert.deepEqual(persisted, [confirmed]);
+
+  await assert.rejects(() => confirmCanonicalProviderAcceptance({
+    context,
+    reconcile: async () => ({
+      uid: 'attacker-stream', reservationId: 'reservation-1', state: 'uploaded',
+    }),
+    persist: async () => {},
+  }), /not confirmed/);
+  await assert.rejects(() => confirmCanonicalProviderAcceptance({
+    context: { ...context, state: 'uploading' },
+    reconcile: async () => context,
+    persist: async () => {},
+  }), /not ready/);
+});
 
 test('canonical side effects are marked only after prepare confirms durability', async () => {
   let marks = 0;

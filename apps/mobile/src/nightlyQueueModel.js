@@ -16,6 +16,13 @@ export const NIGHTLY_QUEUE_RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
 export const NIGHTLY_QUEUE_QUALITY_FLOOR = 0.5;
 export const NIGHTLY_QUEUE_STANDOUT_FLOOR = 0.55;
 export const NIGHTLY_QUEUE_IDENTITY_FLOOR = 0.82;
+// These conservative floors come from the bounded synthetic-device fixture:
+// known adult-only false positives had a matched face ratio below 0.03, and
+// deliberately blurry child photos had sharpness below 0.015. Strong fixture
+// child photos began above 0.07 and 0.19 respectively. They are admission
+// guards for the default lane, not a general claim that identity is solved.
+export const NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR = 0.05;
+export const NIGHTLY_QUEUE_SHARPNESS_FLOOR = 0.05;
 export const NIGHTLY_QUEUE_GENERATION_VERSION = 'nightly-queue-v2';
 
 export function buildNightlyQueue(candidates = [], {
@@ -99,7 +106,15 @@ function strongestPerLocalDay(candidates) {
 }
 
 export function meetsNightlyQueueQuality(candidate) {
+  // A photo or video explicitly selected through Another represents a parent
+  // choice and may not have analyzer metrics yet. Nothing else may use this
+  // bypass merely because it was previously queued or shown.
+  if (isExplicitParentPick(candidate)) return true;
   if (Number(candidate.identityScore || 0) < NIGHTLY_QUEUE_IDENTITY_FLOOR) return false;
+  const faceSizeRatio = finiteMetric(candidate.faceSizeRatio);
+  const sharpness = finiteMetric(candidate.sharpness);
+  if (faceSizeRatio == null || faceSizeRatio < NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR) return false;
+  if (sharpness == null || sharpness < NIGHTLY_QUEUE_SHARPNESS_FLOOR) return false;
   if (candidate.mediaType === 'video') return qualifyingVideo(candidate);
   return Number(candidate.captureQuality ?? candidate.qualityScore ?? 0) >= NIGHTLY_QUEUE_QUALITY_FLOOR;
 }
@@ -115,10 +130,20 @@ export function shouldWithdrawStaleNightlyItem(item) {
 
 function qualifyingVideo(candidate) {
   const duration = Number(candidate.durationSec || 0);
-  const presence = Number(candidate.videoPresenceRatio || 0);
+  const presence = finiteMetric(candidate.videoPresenceRatio);
   const quality = Number(candidate.captureQuality ?? candidate.qualityScore ?? 0);
   return duration >= 2 && quality >= NIGHTLY_QUEUE_QUALITY_FLOOR
-    && (presence >= 0.66 || Number(candidate.identityScore || 0) >= 0.9);
+    && presence != null && presence >= 0.66;
+}
+
+function isExplicitParentPick(candidate) {
+  return candidate?.selectionReasonCode === 'parent_pick' || candidate?.reasonCode === 'parent_pick';
+}
+
+function finiteMetric(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function addLane(chosen, lane, limit, context) {

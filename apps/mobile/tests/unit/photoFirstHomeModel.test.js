@@ -62,6 +62,32 @@ test('image-only Today uses video posters and never playable video URLs', () => 
   assert.equal(kept.mediaUri, 'https://images.test/video.jpg');
 });
 
+test('Today prefers a durable photo when a transient video poster leads the queue', () => {
+  const home = selectPhotoFirstHome({
+    tonightSession: {
+      items: [
+        {
+          state: 'queued',
+          mediaType: 'video',
+          localUri: 'file://private-source.mov',
+          previewUri: 'file://old-app-container/transient-poster.jpg',
+        },
+        {
+          state: 'queued',
+          mediaType: 'image',
+          localUri: 'ph://durable-child-photo',
+          captureTimeMs: 1_700_000_000_000,
+        },
+      ],
+    },
+  });
+
+  assert.equal(home.kind, 'tonight');
+  assert.equal(home.mediaUri, 'ph://durable-child-photo');
+  assert.equal(home.mediaType, 'image');
+  assert.equal(home.remaining, 2);
+});
+
 test('a previewless Tonight video yields to a truthful kept visual', () => {
   const home = selectPhotoFirstHome({
     tonightSession: {
@@ -78,4 +104,16 @@ test('photo-first Today occupies at least half of a small or large first viewpor
   assert.equal(photoFirstHomeMediaHeight(844), 473);
   assert.equal(photoFirstHomeMediaHeight(1366), 560);
   assert.equal(photoFirstHomeMediaHeight(null), 473);
+});
+
+test('the latest Keep wins Today without turning Keep time into capture time', () => {
+  const home = selectPhotoFirstHome({
+    sharedPhotos: [
+      { moment_id: 'older', thumbUrl: 'https://example.test/older.jpg', tagged_at: '2026-08-12T18:00:00Z' },
+      { moment_id: 'newer', thumbUrl: 'https://example.test/newer.jpg', tagged_at: '2026-08-12T20:00:00Z' },
+    ],
+  });
+  assert.equal(home.momentId, 'newer');
+  assert.equal(home.mediaUri, 'https://example.test/newer.jpg');
+  assert.equal(home.capturedAt, null);
 });

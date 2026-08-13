@@ -11,6 +11,7 @@ import { useAuth } from './AuthContext';
 import { Family } from './families';
 import { listSharedTagged } from './photoSync';
 import { buildMonthlyHeroes, firstLookStorageKey, pickRevealHeroes } from './reveal';
+import { groundedFirstLookCopy } from './groundedFamilyIdentityModel';
 
 const PHOTO_INTERVAL_MS = 2400;
 
@@ -21,7 +22,7 @@ export default function FirstLookRevealScreen() {
   const [loading, setLoading] = useState(true);
   const [photos, setPhotos] = useState([]);
   const [momentCount, setMomentCount] = useState(0);
-  const [creatorName, setCreatorName] = useState('Jesse');
+  const [creatorName, setCreatorName] = useState(() => groundedFirstLookCopy().creatorName);
   const [stage, setStage] = useState('intro');
   const [index, setIndex] = useState(0);
 
@@ -48,7 +49,7 @@ export default function FirstLookRevealScreen() {
           uri: month.hero?.fullUrl || month.hero?.thumbUrl,
         })).filter((photo) => photo.uri);
         const creator = members.find((member) => member.userId === family.createdBy);
-        setCreatorName(creator?.displayName || 'Jesse');
+        setCreatorName(groundedFirstLookCopy({ creatorDisplayName: creator?.displayName }).creatorName);
         setMomentCount(shared.length);
         setPhotos(revealPhotos);
       } finally {
@@ -164,7 +165,7 @@ export default function FirstLookRevealScreen() {
           ) : (
             <Animated.View style={{ opacity: copyOpacity }}>
               <Eyebrow align="center" style={styles.eyebrow}>
-                A Mother's Day gift
+                {groundedFirstLookCopy().eyebrow}
               </Eyebrow>
               <Spacer h={space.md} />
               <Display align="center" style={styles.headline}>

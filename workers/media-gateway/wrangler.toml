@@ -3,6 +3,8 @@
 #   npx wrangler deploy
 #   npx wrangler secret put MEDIA_SESSION_SECRET   # must match the Supabase secret
 #   npx wrangler secret put MEDIA_DELETION_SECRET  # must match the Supabase secret
+#   configure STREAM_AUTHORIZATION_URL and SUPABASE_ANON_KEY as environment vars
+#   npx wrangler secret put MEDIA_GATEWAY_AUTH_SECRET
 name = "olw-media-gateway"
 main = "src/index.js"
 compatibility_date = "2026-07-24"

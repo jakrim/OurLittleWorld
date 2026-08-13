@@ -9,6 +9,12 @@ export function selectWorldOpening(records = [], membersById = {}) {
   };
 }
 
+export function prioritizeImmediateKeepForOpening(records = [], immediateRecord = null) {
+  const archive = [...(records || [])];
+  if (!immediateRecord?.key) return archive;
+  return [immediateRecord, ...archive.filter((record) => record?.key !== immediateRecord.key)];
+}
+
 function worldVisualRecord(record, membersById) {
   const media = record?.moment?.media || [];
   const first = media.find((item) => worldImageUri(item)) || null;

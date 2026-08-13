@@ -11,8 +11,8 @@ import {
 
 /**
  * Issues a short-lived media session token (plan: "R2 And Worker Media
- * Gateway"). The Worker validates it locally with the shared secret, so
- * media requests never hit Supabase.
+ * Gateway"). The Worker validates the token locally; Stream playback also
+ * verifies the current family/media binding through a narrow trusted lookup.
  *
  * Token: base64url(JSON payload) + "." + base64url(HMAC-SHA256 signature)
  * Payload: { f: familyId, u: userId, t: storageTier, exp: unixSeconds }

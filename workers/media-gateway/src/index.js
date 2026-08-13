@@ -5,9 +5,10 @@
  *   variant: "original" (R2 object) | "stream" (redirect to Stream playback)
  *
  * Auth: ?session=<token> issued by the create-media-session Edge Function.
- * The token is validated locally (HMAC with the shared MEDIA_SESSION_SECRET);
- * the Worker never calls Supabase per media request. Responses are cached by
- * object key + variant — never by bearer token.
+ * The token is validated locally (HMAC with the shared MEDIA_SESSION_SECRET).
+ * Stream requests additionally use a trusted family/media lookup before a
+ * provider capability is minted. Responses are cached by object key + variant
+ * — never by bearer token.
  */
 
 import { accountDeletionMarkerKey, handleAccountDeletion } from './accountDeletion.js';
@@ -33,6 +34,12 @@ export default {
     if (!session) return withMetrics(new Response('Invalid media session', { status: 401 }), 'denied');
     if (session.f !== familyId) return withMetrics(new Response('Family mismatch', { status: 403 }), 'denied');
 
+    // A deletion marker overrides previously issued media sessions before any
+    // provider capability is minted or any cached object is returned.
+    if (await env.ORIGINALS.head(accountDeletionMarkerKey(familyId))) {
+      return withMetrics(new Response('Family media was deleted', { status: 410 }), 'denied');
+    }
+
     // 3. Variant gating: originals require a tier with originals enabled.
     if (variant === 'original' && session.t !== 'vault') {
       return withMetrics(new Response('Original backup is not included in this plan', { status: 403 }), 'denied');
@@ -45,16 +52,16 @@ export default {
       if (!env.STREAM_CUSTOMER_DOMAIN) {
         return withMetrics(new Response('Stream is not configured', { status: 503 }), 'miss');
       }
-      const playbackToken = await signStreamToken(objectId, env);
-      const path = playbackToken || objectId;
-      const playback = `https://${env.STREAM_CUSTOMER_DOMAIN}/${path}/manifest/video.m3u8`;
+      const authorized = await authorizeStreamPlayback(familyId, session.u, objectId, env);
+      if (!authorized) {
+        return withMetrics(new Response('Media not found', { status: 404 }), 'denied');
+      }
+      const playbackToken = await signStreamToken(objectId, env, session.exp);
+      if (!playbackToken) {
+        return withMetrics(new Response('Stream playback is unavailable', { status: 503 }), 'miss');
+      }
+      const playback = `https://${env.STREAM_CUSTOMER_DOMAIN}/${playbackToken}/manifest/video.m3u8`;
       return withMetrics(Response.redirect(playback, 302), 'redirect');
-    }
-
-    // A deletion marker overrides previously issued media sessions and any
-    // still-live Cache API entry. It contains no family content.
-    if (await env.ORIGINALS.head(accountDeletionMarkerKey(familyId))) {
-      return withMetrics(new Response('Family media was deleted', { status: 410 }), 'denied');
     }
 
     // 4. Cache by object key + variant after auth (never by token).
@@ -75,6 +82,36 @@ export default {
     return withMetrics(response, 'miss');
   },
 };
+
+export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
+  try {
+    if (!env.STREAM_AUTHORIZATION_URL || !env.SUPABASE_ANON_KEY || !env.MEDIA_GATEWAY_AUTH_SECRET) {
+      return false;
+    }
+    const response = await fetch(
+      env.STREAM_AUTHORIZATION_URL,
+      {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          apikey: env.SUPABASE_ANON_KEY,
+          authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+          'content-type': 'application/json',
+          'x-olw-media-gateway-secret': env.MEDIA_GATEWAY_AUTH_SECRET,
+        },
+        body: JSON.stringify({
+          target_family_id: familyId,
+          target_user_id: userId,
+          p_provider_object_id: objectId,
+        }),
+      },
+    );
+    if (!response.ok) return false;
+    return (await response.json())?.authorized === true;
+  } catch {
+    return false;
+  }
+}
 
 async function verifySession(token, secret) {
   try {
@@ -98,8 +135,10 @@ async function verifySession(token, secret) {
     if (!valid) return null;
 
     const payload = JSON.parse(new TextDecoder().decode(base64urlToBytes(body)));
-    if (!payload?.f || !payload?.exp) return null;
-    if (payload.exp * 1000 < Date.now()) return null;
+    const expiresAt = Number(payload?.exp);
+    if (!payload?.f || !payload?.u || !Number.isFinite(expiresAt)) return null;
+    if (expiresAt * 1000 < Date.now()) return null;
+    payload.exp = expiresAt;
     return payload;
   } catch {
     return null;
@@ -107,9 +146,9 @@ async function verifySession(token, secret) {
 }
 
 // Signs a short-lived Stream playback JWT (RS256 with the account signing
-// key). Returns null when signing is not configured, falling back to the
-// bare UID (which only works for videos without requireSignedURLs).
-async function signStreamToken(videoUid, env) {
+// key). Returns null when signing is not configured; callers fail closed and
+// never expose a bare provider UID as a playback capability.
+async function signStreamToken(videoUid, env, sessionExpiresAt) {
   try {
     if (!env.STREAM_SIGNING_KEY_ID || !env.STREAM_SIGNING_JWK) return null;
     const jwk = JSON.parse(new TextDecoder().decode(base64urlToBytes(env.STREAM_SIGNING_JWK)));
@@ -122,10 +161,13 @@ async function signStreamToken(videoUid, env) {
     );
     const enc = (obj) => base64urlFromBytes(new TextEncoder().encode(JSON.stringify(obj)));
     const header = enc({ alg: 'RS256', kid: env.STREAM_SIGNING_KEY_ID });
+    const nowSeconds = Math.floor(Date.now() / 1000);
     const payload = enc({
       sub: videoUid,
       kid: env.STREAM_SIGNING_KEY_ID,
-      exp: Math.floor(Date.now() / 1000) + 3600,
+      // Videos are currently capped at two minutes. A five-minute playback
+      // capability is enough for completion and never outlives its session.
+      exp: Math.min(Number(sessionExpiresAt), nowSeconds + 5 * 60),
     });
     const signature = await crypto.subtle.sign(
       'RSASSA-PKCS1-v1_5',

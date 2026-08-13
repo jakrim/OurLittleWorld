@@ -5,9 +5,11 @@ import test from 'node:test';
 import {
   buildNightlyQueue,
   meetsNightlyQueueQuality,
+  NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR,
   NIGHTLY_QUEUE_IDENTITY_FLOOR,
   NIGHTLY_QUEUE_MAX,
   NIGHTLY_QUEUE_QUALITY_FLOOR,
+  NIGHTLY_QUEUE_SHARPNESS_FLOOR,
   parentReasonLabel,
   shouldWithdrawStaleNightlyItem,
 } from '../../src/nightlyQueueModel.js';
@@ -121,6 +123,84 @@ test('uncertain identity never enters the default lane merely because the photo 
   assert.deepEqual(buildNightlyQueue([uncertain], { nowMs: NOW }), []);
 });
 
+test('tiny matched faces and blurry photos fail closed while strong measured photos remain eligible', () => {
+  const adultOnlyTinyFace = candidate('adult-only-tiny-face', NOW, 1, {
+    identityScore: 1,
+    faceSizeRatio: 0.029,
+    sharpness: 0.11,
+  });
+  const blurryChild = candidate('blurry-child', NOW - 1000, 1, {
+    identityScore: 1,
+    faceSizeRatio: 0.09,
+    sharpness: 0.014,
+  });
+  const strongChild = candidate('strong-child', NOW - 2000, 1, {
+    identityScore: 1,
+    faceSizeRatio: 0.072,
+    sharpness: 0.191,
+  });
+
+  assert.equal(meetsNightlyQueueQuality(adultOnlyTinyFace), false);
+  assert.equal(meetsNightlyQueueQuality(blurryChild), false);
+  assert.equal(meetsNightlyQueueQuality(strongChild), true);
+  assert.deepEqual(
+    buildNightlyQueue([adultOnlyTinyFace, blurryChild, strongChild], { nowMs: NOW }).map((item) => item.assetId),
+    ['strong-child'],
+  );
+});
+
+test('missing measured quality fails closed except for a narrow explicit parent pick', () => {
+  const missingMetrics = candidate('missing-metrics', NOW, 1, {
+    faceSizeRatio: null,
+    sharpness: null,
+  });
+  const parentPick = {
+    ...missingMetrics,
+    assetId: 'parent-pick',
+    selectionReasonCode: 'parent_pick',
+    eventClusterKey: 'parent-pick',
+  };
+
+  assert.equal(meetsNightlyQueueQuality(missingMetrics), false);
+  assert.equal(meetsNightlyQueueQuality(parentPick), true);
+  assert.deepEqual(buildNightlyQueue([missingMetrics, parentPick], { nowMs: NOW }), [{
+    assetId: 'parent-pick',
+    position: 0,
+    reasonCode: 'parent_pick',
+    reasonLabel: 'Chosen by you',
+  }]);
+});
+
+test('videos require measured frame quality and sustained matched presence unless parent-picked', () => {
+  const strongVideo = candidate('strong-video', NOW, 0.9, {
+    mediaType: 'video',
+    durationSec: 12,
+    videoPresenceRatio: 0.8,
+  });
+  const oneFrameOnly = candidate('one-frame-only', NOW - 1000, 0.9, {
+    mediaType: 'video',
+    durationSec: 12,
+    videoPresenceRatio: null,
+  });
+  const tinyVideoFace = candidate('tiny-video-face', NOW - 2000, 0.9, {
+    mediaType: 'video',
+    durationSec: 12,
+    videoPresenceRatio: 0.8,
+    faceSizeRatio: NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR - 0.001,
+  });
+
+  assert.equal(meetsNightlyQueueQuality(strongVideo), true);
+  assert.equal(meetsNightlyQueueQuality(oneFrameOnly), false);
+  assert.equal(meetsNightlyQueueQuality(tinyVideoFace), false);
+});
+
+test('default lane floors stay between measured negatives and strong synthetic child fixtures', () => {
+  assert.ok(NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR > 0.029);
+  assert.ok(NIGHTLY_QUEUE_FACE_SIZE_RATIO_FLOOR < 0.072);
+  assert.ok(NIGHTLY_QUEUE_SHARPNESS_FLOOR > 0.014);
+  assert.ok(NIGHTLY_QUEUE_SHARPNESS_FLOOR < 0.191);
+});
+
 test('stale default enrichment cannot preserve a candidate below the current quality floor', () => {
   const stale = {
     ...candidate('adult-only-false-positive', NOW, 0.99, {
@@ -183,6 +263,8 @@ function candidate(assetId, captureTimeMs, captureQuality, patch = {}) {
     localDay: new Date(captureTimeMs).toISOString().slice(0, 10),
     identityScore: 0.95,
     captureQuality,
+    faceSizeRatio: 0.12,
+    sharpness: 0.3,
     durationSec: null,
     videoPresenceRatio: null,
     eventClusterKey: `cluster-${assetId}`,

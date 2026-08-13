@@ -16,7 +16,7 @@ import {
   monthversaryBuckets,
   monthversaryLabel,
 } from './onThisDay';
-import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './photoSync';
+import { hydrateMediaUrls, listSharedTaggedPage, listSharedTaggedWithLatestKeep } from './photoSync';
 import { Memories } from './storage';
 import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
 import { buildBookHomeModel } from './bookHomeModel';
@@ -119,7 +119,7 @@ async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
 
 async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName }) {
   const [shared, memories, firsts, letters, promptState, missedPrompts, promptResponses, members, moments, monthversary, catchupDismissals, digestReadWeek] = await Promise.all([
-    listSharedTagged(familyId, { limit: 120 }).catch(() => []),
+    listSharedTaggedWithLatestKeep(familyId, { limit: 120 }).catch(() => []),
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
     Letters.list(familyId).catch(() => []),

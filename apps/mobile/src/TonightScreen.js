@@ -85,6 +85,11 @@ import { reconcileCanonicalKeepSideEffects } from './photoSync';
 import SharedMomentEnrichmentCard from './SharedMomentEnrichmentCard';
 import { composeGroundedMomentContext } from './groundedContextModel';
 import {
+  groundedCaptureTime,
+  isUnknownCaptureTimeError,
+  UNKNOWN_CAPTURE_TIME_MESSAGE,
+} from './groundedCaptureTimeModel.js';
+import {
   chooseSharedTonightLookback,
   listMomentAnnotations,
   listMomentContextFacts,
@@ -482,12 +487,15 @@ export default function TonightScreen() {
       refreshAfterDecision(next, 'kept', committed);
     } catch (saveError) {
       const unavailableFailure = isUnavailableError(saveError);
+      const unknownCaptureTime = isUnknownCaptureTimeError(saveError);
       failTonightKeep({
         sessionId: session.sessionId,
         familyId: family.id,
         userId: user.id,
         position: activeItem.position,
-        errorCode: unavailableFailure ? 'asset_unavailable' : 'save_failed',
+        errorCode: unavailableFailure
+          ? 'asset_unavailable'
+          : unknownCaptureTime ? 'capture_time_unknown' : 'save_failed',
       });
       if (unavailableFailure) {
         markCandidatesUnavailable({
@@ -552,12 +560,21 @@ export default function TonightScreen() {
       ]);
       return;
     }
+    const details = await getAssetDetails(picked.assetId, { downloadFromNetwork: true }).catch(() => null);
     const next = replaceTonightItemWithParentPick({
       sessionId: session.sessionId,
       familyId: family.id,
       userId: user.id,
       position: activeItem.position,
-      asset: picked,
+      asset: {
+        ...picked,
+        uri: details?.localUri || details?.uri || picked.uri,
+        mediaType: details?.mediaType || picked.type,
+        creationTime: groundedCaptureTime(details?.creationTime, picked.creationTime),
+        duration: details?.duration ?? picked.duration,
+        width: details?.width ?? picked.width,
+        height: details?.height ?? picked.height,
+      },
       remoteAbsenceConfirmed,
     });
     if (next.discardedVoiceUri) await deleteTonightVoiceDraft(next.discardedVoiceUri).catch(() => {});
@@ -1245,6 +1262,7 @@ function isUnavailableError(error) {
 }
 
 function parentError(error, fallback) {
+  if (isUnknownCaptureTimeError(error)) return UNKNOWN_CAPTURE_TIME_MESSAGE;
   if (isUnavailableError(error)) return 'The original is still waiting in iCloud. Open it once in Photos, then try again.';
   return fallback;
 }

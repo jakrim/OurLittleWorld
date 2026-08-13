@@ -8,6 +8,7 @@ import { recommendedNightlySize } from '../../src/firstYearCatchupModel.js';
 import { isNightlySessionContinuation } from '../../src/nightlySessionModel.js';
 import {
   readChronologicalPostgrestRelationshipCompatible,
+  readLatestTaggedPostgrestRelationshipCompatible,
   readPostgrestRelationshipCompatible,
 } from '../../src/postgrestCompatibility.js';
 import { shouldScheduleTonightNotification } from '../../src/tonightNotificationModel.js';
@@ -40,6 +41,64 @@ test('relationship cache misses retry the same family scope through base plus re
     { select: 'id', familyId: 'family-a' },
   ]);
   assert.deepEqual(rows, [{ id: 'moment-a', familyId: 'family-a', child: [] }]);
+});
+
+test('latest Keep reads are family-scoped, ready-only, and ordered by parent Keep time', async () => {
+  const calls = [];
+  const rows = await readLatestTaggedPostgrestRelationshipCompatible({
+    familyId: 'family-a',
+    embeddedSelect: 'asset_id, moment_media(*)',
+    baseSelect: 'asset_id, moment_media_id',
+    createQuery: (select) => ({
+      select,
+      filters: [],
+      orderBy: [],
+      eq(column, value) {
+        this.filters.push([column, value]);
+        return this;
+      },
+      order(column, options) {
+        this.orderBy.push([column, options]);
+        return this;
+      },
+      limit(value) {
+        this.rowLimit = value;
+        return this;
+      },
+    }),
+    applyQuery: async (query) => {
+      calls.push({
+        select: query.select,
+        filters: query.filters,
+        orderBy: query.orderBy,
+        rowLimit: query.rowLimit,
+      });
+      return query.select.includes('moment_media(*)')
+        ? { data: null, error: { code: 'PGRST200' } }
+        : { data: [{ asset_id: 'historical-keep', moment_media_id: 'media-a' }], error: null };
+    },
+    attachRelations: async (familyId, baseRows) => baseRows.map((row) => ({
+      ...row,
+      family_id: familyId,
+      moment_media: { id: row.moment_media_id, media_type: 'image' },
+    })),
+  });
+
+  for (const call of calls) {
+    assert.deepEqual(call.filters, [
+      ['upload_status', 'ready'],
+      ['family_id', 'family-a'],
+    ]);
+    assert.deepEqual(call.orderBy, [
+      ['tagged_at', { ascending: false, nullsFirst: false }],
+      ['asset_owner_user_id', { ascending: true }],
+      ['asset_id', { ascending: true }],
+    ]);
+    assert.equal(call.rowLimit, 1);
+  }
+  assert.equal(calls.length, 2);
+  assert.equal(rows[0].family_id, 'family-a');
+  assert.equal(rows[0].moment_media.id, 'media-a');
 });
 
 test('Firsts chronological reads retain kept media through relationship-cache fallback', async () => {

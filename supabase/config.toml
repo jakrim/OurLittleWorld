@@ -395,6 +395,9 @@ verify_jwt = false
 [functions.partner-inquiry]
 verify_jwt = false
 
+[functions.authorize-stream-playback]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

@@ -92,20 +92,29 @@ Deno.serve(async (req) => {
           : readReservationByProvider({ providerUid, familyId, userId: user.id, token }),
         readCanonicalMedia({ canonicalMediaId, providerUid, familyId, userId: user.id, token }),
       ]);
-      const legacyVideo = reservation && media
+      const canonicalProviderBound = reservation?.canonical_media_id === canonicalMediaId
+        && reservation?.transport === 'video-stream'
+        && reservation?.provider === 'stream'
+        && reservation?.provider_object_id === providerUid;
+      const legacyVideo = reservation && (media || canonicalProviderBound)
         ? await getStreamVideo({ accountId, apiToken, uid: providerUid })
         : null;
-      const disposition = legacyStreamRetryDisposition({
-        canonicalMediaId,
-        familyId,
-        userId: user.id,
-        providerUid,
-        providerState,
-        reservation,
-        media,
-        video: legacyVideo,
-      });
+      const disposition = canonicalProviderBound && legacyVideo
+        ? streamVideoDisposition(legacyVideo, { canonicalMediaId, familyId, providerState })
+        : legacyStreamRetryDisposition({
+          canonicalMediaId,
+          familyId,
+          userId: user.id,
+          providerUid,
+          providerState,
+          reservation,
+          media,
+          video: legacyVideo,
+        });
       if (disposition.action === 'invalid') {
+        throw new HttpError(409, 'Canonical provider identity is inconsistent.');
+      }
+      if (canonicalProviderBound && disposition.reservationId !== reservation.id) {
         throw new HttpError(409, 'Canonical provider identity is inconsistent.');
       }
       const attachedUid = await ensureProviderAttachment({ reservation, uid: providerUid, token });
@@ -126,6 +135,12 @@ Deno.serve(async (req) => {
           apiToken,
           selectedReservationId: reservation.id,
         });
+        if (disposition.action === 'uploaded') {
+          await confirmCanonicalProviderUpload({
+            reservationId: reservation.id,
+            providerObjectId: providerUid,
+          });
+        }
         return json({
           ...(disposition.action === 'prepared' ? { uploadURL: canonicalStreamUploadUrl(providerUid) } : {}),
           uid: providerUid,
@@ -201,6 +216,10 @@ Deno.serve(async (req) => {
       }
 
       if (selectedDisposition.action === 'uploaded') {
+        await confirmCanonicalProviderUpload({
+          reservationId: selectedDisposition.reservationId,
+          providerObjectId: selected.uid,
+        });
         return json({
           uid: selected.uid,
           reservationId: selectedDisposition.reservationId,
@@ -273,11 +292,11 @@ Deno.serve(async (req) => {
     try {
       providerClaim = await claimCanonicalProviderIdentity({
         candidateUid: payload.result.uid,
-        claim: (uid) => rpc('claim_canonical_media_upload_provider_object', {
+        claim: (uid) => trustedRpc('claim_canonical_media_upload_provider_object', {
           p_reservation_id: row.reservation_id,
           p_provider: 'stream',
           p_provider_object_id: uid,
-        }, token),
+        }),
         cleanup: (uid) => deleteStreamVideo({ accountId, apiToken, uid }),
       });
     } catch {
@@ -316,6 +335,12 @@ Deno.serve(async (req) => {
       }
       if (winningDisposition.action === 'replace') {
         throw new HttpError(409, 'Canonical provider winner is no longer resumable.');
+      }
+      if (winningDisposition.action === 'uploaded') {
+        await confirmCanonicalProviderUpload({
+          reservationId: row.reservation_id,
+          providerObjectId: providerClaim.uid,
+        });
       }
       return json({
         ...(winningDisposition.action === 'prepared'
@@ -515,7 +540,9 @@ async function ensureProviderAttachment({ reservation, uid, token }: {
     throw new HttpError(409, 'Canonical upload reservation belongs to another provider object.');
   }
   if (reservation.provider_object_id) return reservation.provider_object_id;
-  if (reservation.status === 'finalized' && !reservation.provider) return uid;
+  if (reservation.status === 'finalized' && !reservation.provider) {
+    throw new HttpError(409, 'The finalized Stream upload could not be reconciled safely.');
+  }
   if (!reservation.canonical_media_id) {
     await rpc('attach_media_upload_provider_object', {
       p_reservation_id: reservation.id,
@@ -524,15 +551,45 @@ async function ensureProviderAttachment({ reservation, uid, token }: {
     }, token);
     return uid;
   }
-  const claim = await rpc('claim_canonical_media_upload_provider_object', {
+  const claim = await trustedRpc('claim_canonical_media_upload_provider_object', {
     p_reservation_id: reservation.id,
     p_provider: 'stream',
     p_provider_object_id: uid,
-  }, token);
+  });
   const row = Array.isArray(claim) ? claim[0] : claim;
   const winner = String(row?.winning_provider_object_id || '').trim();
   if (!winner) throw new HttpError(409, 'Canonical provider claim was not confirmed.');
   return winner;
+}
+
+async function confirmCanonicalProviderUpload({ reservationId, providerObjectId }: {
+  reservationId: string;
+  providerObjectId: string;
+}) {
+  await trustedRpc('confirm_canonical_media_provider_upload', {
+    p_reservation_id: reservationId,
+    p_provider: 'stream',
+    p_provider_object_id: providerObjectId,
+  });
+}
+
+async function trustedRpc(name: string, body: Record<string, unknown>) {
+  const supabaseUrl = requiredEnv('SUPABASE_URL');
+  const serviceRoleKey = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, 'The Stream upload could not be recorded safely.');
+  }
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function deleteStreamVideo({ accountId, apiToken, uid }: {

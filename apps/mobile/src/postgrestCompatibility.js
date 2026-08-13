@@ -64,6 +64,29 @@ export async function readChronologicalPostgrestRelationshipCompatible({
   });
 }
 
+export async function readLatestTaggedPostgrestRelationshipCompatible({
+  familyId,
+  embeddedSelect,
+  baseSelect,
+  createQuery,
+  applyQuery = async (query) => query,
+  attachRelations,
+} = {}) {
+  return readPostgrestRelationshipCompatible({
+    familyId,
+    embeddedSelect,
+    baseSelect,
+    createQuery: (select) => createQuery(select)
+      .eq('upload_status', 'ready')
+      .order('tagged_at', { ascending: false, nullsFirst: false })
+      .order('asset_owner_user_id', { ascending: true })
+      .order('asset_id', { ascending: true })
+      .limit(1),
+    applyQuery,
+    attachRelations,
+  });
+}
+
 function rowsFromResult(data) {
   if (Array.isArray(data)) return data;
   return data ? [data] : [];
