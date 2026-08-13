@@ -1,7 +1,9 @@
 import { isMediaPolicyError } from './mediaPolicy';
-import { ensureMomentReaction, ensureMomentVoiceNote, updateMoment } from './moments';
+import { ensureMomentReaction, ensureMomentVoiceNote } from './moments';
 import { Tags } from './storage';
 import { applyMomentCollectionChoices } from './collections';
+import { saveCanonicalMomentNote } from './canonicalMomentNote.js';
+import { supabase } from './supabase';
 import {
   beginTonightKeep,
   markTonightCommitStep,
@@ -13,10 +15,11 @@ const defaultDependencies = {
   markTonightCommitStep,
   setBaby: (input) => Tags.setBaby(input),
   savedTarget: (input) => Tags.savedTarget(input),
-  saveText: ({ familyId, momentId, note }) => updateMoment({
+  saveText: ({ familyId, momentId, note }) => saveCanonicalMomentNote({
+    client: supabase,
     familyId,
     momentId,
-    patch: { captionNote: note },
+    note,
   }),
   saveVoice: ensureMomentVoiceNote,
   saveReaction: ensureMomentReaction,

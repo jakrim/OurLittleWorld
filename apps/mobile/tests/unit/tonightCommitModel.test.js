@@ -52,6 +52,25 @@ test('Tonight words attach to the exact canonical moment created by Keep', async
   }]);
 });
 
+test('an unconfirmed canonical note write stays failed and retries without recreating media', async () => {
+  const harness = commitHarness(item({ draftText: 'Those bright eyes' }), { failTextOnce: true });
+
+  await assert.rejects(
+    executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies }),
+    (error) => error.tonightCommitStep === 'text',
+  );
+  assert.equal(harness.item.canonicalMomentId, 'moment-1');
+  assert.equal(harness.item.commitSteps.media, 'saved');
+  assert.equal(harness.item.commitSteps.text, 'failed');
+
+  await executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies });
+
+  assert.equal(harness.calls.media, 1, 'the canonical moment is reused');
+  assert.equal(harness.calls.text, 2, 'only the unconfirmed text write is retried');
+  assert.deepEqual(harness.calls.textInputs.map((input) => input.momentId), ['moment-1', 'moment-1']);
+  assert.equal(harness.item.commitSteps.text, 'saved');
+});
+
 test('reaction failure after moment success is idempotent across repeated Keep', async () => {
   const harness = commitHarness(item({ favorite: true, reactionCode: 'spark' }), { failSparkOnce: true });
   await assert.rejects(executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies }));
@@ -116,6 +135,7 @@ function commitHarness(initialItem, options = {}) {
     collections: [],
   };
   let failedVoice = false;
+  let failedText = false;
   let failedSpark = false;
   const dependencies = {
     beginTonightKeep: () => ({ alreadyComplete: false, item: initialItem }),
@@ -132,6 +152,10 @@ function commitHarness(initialItem, options = {}) {
     saveText: async (input) => {
       calls.text += 1;
       calls.textInputs.push(input);
+      if (options.failTextOnce && !failedText) {
+        failedText = true;
+        throw new Error('canonical memory note write was not confirmed');
+      }
       calls.enrichment.push('text');
     },
     saveVoice: async ({ voiceNoteId, voiceObjectId }) => {
