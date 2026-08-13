@@ -40,6 +40,18 @@ test('media success plus voice failure retries the same stable identities withou
   ]);
 });
 
+test('Tonight words attach to the exact canonical moment created by Keep', async () => {
+  const harness = commitHarness(item({ draftText: 'Those bright eyes' }));
+
+  await executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies });
+
+  assert.deepEqual(harness.calls.textInputs, [{
+    familyId: 'family-a',
+    momentId: 'moment-1',
+    note: 'Those bright eyes',
+  }]);
+});
+
 test('reaction failure after moment success is idempotent across repeated Keep', async () => {
   const harness = commitHarness(item({ favorite: true, reactionCode: 'spark' }), { failSparkOnce: true });
   await assert.rejects(executeTonightCommit({ ...scope, item: harness.item, match: {}, dependencies: harness.dependencies }));
@@ -97,6 +109,7 @@ function commitHarness(initialItem, options = {}) {
     media: 0,
     mediaInputs: [],
     text: 0,
+    textInputs: [],
     enrichment: [],
     voiceIdentities: [],
     savedReactions: new Set(),
@@ -116,8 +129,9 @@ function commitHarness(initialItem, options = {}) {
       calls.mediaInputs.push(input);
     },
     savedTarget: async () => ({ moment_id: 'moment-1' }),
-    saveText: async () => {
+    saveText: async (input) => {
       calls.text += 1;
+      calls.textInputs.push(input);
       calls.enrichment.push('text');
     },
     saveVoice: async ({ voiceNoteId, voiceObjectId }) => {

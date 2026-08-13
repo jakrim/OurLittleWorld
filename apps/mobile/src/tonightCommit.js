@@ -1,6 +1,6 @@
 import { isMediaPolicyError } from './mediaPolicy';
-import { ensureMomentReaction, ensureMomentVoiceNote } from './moments';
-import { Memories, Tags } from './storage';
+import { ensureMomentReaction, ensureMomentVoiceNote, updateMoment } from './moments';
+import { Tags } from './storage';
 import { applyMomentCollectionChoices } from './collections';
 import {
   beginTonightKeep,
@@ -13,7 +13,11 @@ const defaultDependencies = {
   markTonightCommitStep,
   setBaby: (input) => Tags.setBaby(input),
   savedTarget: (input) => Tags.savedTarget(input),
-  saveText: (input) => Memories.setMine(input),
+  saveText: ({ familyId, momentId, note }) => updateMoment({
+    familyId,
+    momentId,
+    patch: { captionNote: note },
+  }),
   saveVoice: ensureMomentVoiceNote,
   saveReaction: ensureMomentReaction,
   saveCollections: applyMomentCollectionChoices,

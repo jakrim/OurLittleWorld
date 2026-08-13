@@ -8,6 +8,8 @@ import {
 } from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
+import { readMediaLibraryAssetDetails } from './photoAssetDetailsModel.js';
+
 export { ageAt, formatAge } from './ageModel.js';
 
 /**
@@ -333,32 +335,13 @@ async function countMediaInWindow({ mediaType, createdAfterMs, pageSize = 200 } 
  */
 export async function getAssetDetails(assetId, { downloadFromNetwork: _downloadFromNetwork = false } = {}) {
   if (!assetId) return null;
-  const asset = new Asset(assetId);
   const visionUri = uriForNativeVision(assetId);
   try {
-    const [uri, creationTime, location, width, height, mediaType, duration, fileName] = await Promise.all([
-      asset.getUri(),
-      asset.getCreationTime(),
-      asset.getLocation().catch(() => null),
-      asset.getWidth().catch(() => null),
-      asset.getHeight().catch(() => null),
-      asset.getMediaType().catch(() => null),
-      asset.getDuration().catch(() => null),
-      asset.getFilename().catch(() => null),
-    ]);
-    return {
-      id: assetId,
-      mediaType,
-      uri: visionUri,
-      localUri: uri || visionUri,
-      downloadStatus: uri ? 'ready' : 'pending',
-      creationTime: creationTime ?? undefined,
-      location,
-      width: width ?? undefined,
-      height: height ?? undefined,
-      duration: duration ?? undefined,
-      fileName,
-    };
+    return await readMediaLibraryAssetDetails({
+      asset: new Asset(assetId),
+      assetId,
+      visionUri,
+    });
   } catch (err) {
     return {
       id: assetId,

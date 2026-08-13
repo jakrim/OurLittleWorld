@@ -66,7 +66,6 @@ export async function executeTonightCommit({
         step: step.key,
         current,
         familyId,
-        userId,
         momentId,
         dependencies,
       }),
@@ -101,9 +100,13 @@ async function commitStep({ scope, step, current, dependencies, action, onStep }
   }
 }
 
-async function commitEnrichmentStep({ step, current, familyId, userId, momentId, dependencies }) {
+async function commitEnrichmentStep({ step, current, familyId, momentId, dependencies }) {
   if (step === 'text') {
-    return dependencies.saveText({ familyId, ownerUserId: userId, assetId: current.assetId, note: current.draftText });
+    return dependencies.saveText({
+      familyId,
+      momentId,
+      note: current.draftText,
+    });
   }
   if (step === 'voice') {
     return dependencies.saveVoice({
