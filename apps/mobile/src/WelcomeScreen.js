@@ -6,6 +6,10 @@ import { useRouter } from 'expo-router';
 import { Screen, Button, Brand, BrandMark, Display, Body, BodyTight, Caption, Eyebrow, Spacer, space, radius, shadow, useTheme } from './ui';
 import useReducedMotion from './ui/useReducedMotion';
 import { welcomeCardStyle } from './themeStyleContractModel.js';
+import {
+  WELCOME_ART_CYCLE_START,
+  welcomeArtRestingProgress,
+} from './welcomeMotionModel.js';
 
 const SLIDES = [
   {
@@ -61,7 +65,7 @@ export default function WelcomeScreen() {
 
   const brandO = useRef(new Animated.Value(0)).current;
   const slidesO = useRef(new Animated.Value(0)).current;
-  const artCycle = useRef(new Animated.Value(0)).current;
+  const artCycle = useRef(new Animated.Value(welcomeArtRestingProgress())).current;
   const dotsO = useRef(new Animated.Value(0)).current;
   const ctaO = useRef(new Animated.Value(0)).current;
 
@@ -71,9 +75,11 @@ export default function WelcomeScreen() {
       slidesO.setValue(1);
       dotsO.setValue(1);
       ctaO.setValue(1);
-      artCycle.setValue(0);
+      artCycle.setValue(welcomeArtRestingProgress({ reducedMotion: true }));
       return undefined;
     }
+
+    artCycle.setValue(welcomeArtRestingProgress());
 
     const fadeIn = (val, delay, duration = 700) =>
       Animated.timing(val, {
@@ -100,7 +106,7 @@ export default function WelcomeScreen() {
           useNativeDriver: true,
         }),
         Animated.timing(artCycle, {
-          toValue: 0,
+          toValue: WELCOME_ART_CYCLE_START,
           duration: 0,
           useNativeDriver: true,
         }),
