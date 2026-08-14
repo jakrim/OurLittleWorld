@@ -2,7 +2,11 @@ import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
+import {
+  getAssetDetails,
+  normalizeMediaLibraryAssetId,
+} from './photos';
+import { resolveLocalKeepMediaType } from './photoAssetIdentifierModel.js';
 import {
   groundedCaptureIso,
   requireGroundedCaptureIso,
@@ -441,6 +445,7 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
     localAssetId: assetId,
   });
   const sourceJob = mediaDb.getPendingUploadJob({ familyId, localAssetId: assetId });
+  const assetMediaType = resolveLocalKeepMediaType(match, sourceJob);
   let legacyIdentity = null;
   try {
     legacyIdentity = !existingIdentity && sourceJob
@@ -476,14 +481,14 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
     id: jobId,
     familyId,
     localAssetId: assetId,
-    mediaType: match?.mediaType === 'video' ? 'video' : 'image',
+    mediaType: assetMediaType === 'video' ? 'video' : 'image',
     videoPosterOnly,
   }));
 
   try {
     const info = await getAssetDetails(assetId, {
       downloadFromNetwork: true,
-      mediaType: match?.mediaType,
+      mediaType: assetMediaType,
     });
     if (!info) throw new Error('Could not load media from library');
     const localUri = info.localUri || info.uri;

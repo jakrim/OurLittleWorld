@@ -6,6 +6,25 @@ export function normalizeMediaLibraryAssetId(assetId) {
 
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
+function supportedMediaType(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'image' || normalized === 'photo') return 'image';
+  if (normalized === 'video') return 'video';
+  return null;
+}
+
+/**
+ * Resolve only durable, authoritative media-type evidence for a Photos read.
+ * The current interaction wins; an interrupted upload may fall back to the
+ * type already stored on its private local job. Unknown values remain unknown.
+ */
+export function resolveLocalKeepMediaType(match, sourceJob) {
+  return supportedMediaType(match?.mediaType || match?.type)
+    || supportedMediaType(sourceJob?.media_type)
+    || supportedMediaType(sourceJob?.mediaType)
+    || null;
+}
+
 /**
  * Build the identifier expected by the SDK 57 Asset constructor without
  * guessing across platform-specific media stores.

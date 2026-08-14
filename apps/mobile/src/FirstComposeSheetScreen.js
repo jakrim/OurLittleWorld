@@ -263,7 +263,11 @@ export default function FirstComposeSheetScreen() {
     try {
       let photoForSave = selectedPhoto;
       if (selectedPhoto?.localOnly) {
-        const uploaded = await uploadForTag({ familyId: family?.id, assetId: selectedPhoto.asset_id });
+        const uploaded = await uploadForTag({
+          familyId: family?.id,
+          assetId: selectedPhoto.asset_id,
+          match: { mediaType: 'image' },
+        });
         photoForSave = {
           ...selectedPhoto,
           asset_owner_user_id: user?.id,

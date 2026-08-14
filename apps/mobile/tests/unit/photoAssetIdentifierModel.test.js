@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   assetConstructorIdentifier,
   normalizeMediaLibraryAssetId,
+  resolveLocalKeepMediaType,
   uriForNativeVision,
 } from '../../src/photoAssetIdentifierModel.js';
 
@@ -51,4 +52,30 @@ test('Android bare identifiers fail closed without a trustworthy type', () => {
     platform: 'android',
     mediaType: 'image',
   }), 'not-a-media-store-row');
+});
+
+test('an interrupted Android upload reuses its durable type to resolve the same local asset', () => {
+  const sourceJob = {
+    local_asset_id: '43',
+    media_type: 'video',
+  };
+  const resolvedMediaType = resolveLocalKeepMediaType(null, sourceJob);
+
+  assert.equal(resolvedMediaType, 'video');
+  assert.equal(
+    assetConstructorIdentifier(sourceJob.local_asset_id, {
+      platform: 'android',
+      mediaType: resolvedMediaType,
+    }),
+    'content://media/external/video/media/43',
+  );
+  assert.equal(sourceJob.local_asset_id, '43');
+});
+
+test('current interaction type wins while unsupported evidence stays unknown', () => {
+  assert.equal(resolveLocalKeepMediaType(
+    { mediaType: 'photo' },
+    { media_type: 'video' },
+  ), 'image');
+  assert.equal(resolveLocalKeepMediaType(null, { media_type: 'audio' }), null);
 });
