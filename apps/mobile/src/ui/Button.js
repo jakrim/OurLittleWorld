@@ -37,6 +37,8 @@ export default function Button({
   accessibilityLabel,
   accessibilityHint,
   accessibilityState,
+  labelNumberOfLines = 1,
+  labelMaxFontSizeMultiplier,
 }) {
   const theme = useTheme();
   const reducedMotion = useReducedMotion();
@@ -100,7 +102,11 @@ export default function Button({
       >
         <View style={styles.content}>
           {icon ? <View style={styles.icon}>{icon}</View> : null}
-          <Text style={[styles.label, { color: v.fg, fontSize: s.font }]} numberOfLines={1}>
+          <Text
+            style={[styles.label, { color: v.fg, fontSize: s.font }]}
+            numberOfLines={labelNumberOfLines}
+            maxFontSizeMultiplier={labelMaxFontSizeMultiplier}
+          >
             {loading ? '…' : children}
           </Text>
           {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
@@ -150,7 +156,9 @@ const styles = StyleSheet.create({
     marginLeft: space.sm,
   },
   label: {
+    flexShrink: 1,
     fontWeight: '600',
     letterSpacing: 0,
+    textAlign: 'center',
   },
 });

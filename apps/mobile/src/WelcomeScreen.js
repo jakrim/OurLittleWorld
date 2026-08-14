@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Animated, Easing, StyleSheet, ScrollView, Pressable, Text, Linking } from 'react-native';
+import { View, Animated, Easing, StyleSheet, ScrollView, Pressable, Text, Linking, useWindowDimensions, AccessibilityInfo } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { useRouter } from 'expo-router';
 
@@ -11,6 +11,10 @@ import {
   WELCOME_BOOK_STAGE_HEIGHT,
   welcomeArtRestingProgress,
 } from './welcomeMotionModel.js';
+import {
+  shouldUseAccessibleWelcomeLayout,
+  welcomeSlideAccessibilityLabel,
+} from './welcomeLayoutModel.js';
 
 const SLIDES = [
   {
@@ -59,6 +63,7 @@ export default function WelcomeScreen() {
   const theme = useTheme();
   const welcomeStyle = welcomeCardStyle(theme);
   const reducedMotion = useReducedMotion();
+  const { fontScale } = useWindowDimensions();
   const scrollRef = useRef(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -127,6 +132,7 @@ export default function WelcomeScreen() {
   const artGap = isCompact ? space.sm : space.xxl;
   const eyebrowGap = isCompact ? space.sm : space.md;
   const bodyGap = isCompact ? space.sm : space.lg;
+  const usesAccessibleLayout = shouldUseAccessibleWelcomeLayout({ fontScale });
 
   const onBegin = () => {
     router.push('/sign-in');
@@ -142,6 +148,17 @@ export default function WelcomeScreen() {
     setActiveSlide(index);
     scrollRef.current?.scrollTo({ x: index * pageWidth, animated: true });
   };
+
+  if (usesAccessibleLayout) {
+    return (
+      <AccessibleWelcome
+        activeSlide={activeSlide}
+        onBegin={onBegin}
+        onSelectSlide={setActiveSlide}
+        theme={theme}
+      />
+    );
+  }
 
   return (
     <Screen variant="dawn" edges={{ top: true, bottom: true }}>
@@ -233,14 +250,135 @@ export default function WelcomeScreen() {
   );
 }
 
-function LegalNotice({ theme }) {
+function AccessibleWelcome({ activeSlide, onBegin, onSelectSlide, theme }) {
+  const slide = SLIDES[activeSlide] || SLIDES[0];
+  const welcomeStyle = welcomeCardStyle(theme);
+  const verticalScrollRef = useRef(null);
+  const slideAccessibilityLabel = welcomeSlideAccessibilityLabel({
+    slide,
+    index: activeSlide,
+    total: SLIDES.length,
+  });
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      verticalScrollRef.current?.scrollTo({ y: 0, animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeSlide]);
+
+  const selectSlide = (index) => {
+    const nextSlide = SLIDES[index];
+    onSelectSlide(index);
+    AccessibilityInfo.announceForAccessibility(welcomeSlideAccessibilityLabel({
+      slide: nextSlide,
+      index,
+      total: SLIDES.length,
+    }));
+  };
+
+  return (
+    <Screen bare variant="dawn" edges={{ top: true, bottom: true }}>
+      <ScrollView
+        ref={verticalScrollRef}
+        style={styles.accessibleScroll}
+        contentContainerStyle={styles.accessibleRoot}
+        bounces
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.accessibleBrandWrap}>
+          <BrandMark size={64} fillFrame />
+          <Spacer h={space.xs} />
+          <Brand align="center" maxFontSizeMultiplier={1.4}>our little world</Brand>
+        </View>
+
+        <View
+          key={slide.key}
+          accessible
+          accessibilityLabel={slideAccessibilityLabel}
+          style={styles.accessibleCopy}
+        >
+          <Eyebrow
+            align="center"
+            maxFontSizeMultiplier={1.8}
+            style={[styles.accessibleEyebrow, { color: theme.semantic.primary }]}
+          >
+            {slide.eyebrow}
+          </Eyebrow>
+          <Spacer h={space.md} />
+          <Display
+            align="center"
+            maxFontSizeMultiplier={1.6}
+            style={[styles.accessibleHeadline, { color: welcomeStyle.titleColor }]}
+          >
+            {slide.title.replace(/\s*\n\s*/g, ' ')}
+          </Display>
+          <Spacer h={space.xl} />
+          <Body
+            align="center"
+            maxFontSizeMultiplier={2}
+            style={[styles.accessibleBody, { color: welcomeStyle.bodyColor }]}
+          >
+            {slide.body}
+          </Body>
+        </View>
+
+        <View style={styles.accessiblePager}>
+          <Caption maxFontSizeMultiplier={2} style={{ color: welcomeStyle.captionColor }}>
+            {activeSlide + 1} of {SLIDES.length}
+          </Caption>
+          <View style={styles.accessibleDots}>
+            {SLIDES.map((item, index) => (
+              <Pressable
+                key={item.key}
+                onPress={() => selectSlide(index)}
+                accessibilityRole="button"
+                accessibilityLabel={`Show slide ${index + 1}: ${item.eyebrow}`}
+                accessibilityState={{ selected: activeSlide === index }}
+                style={styles.accessibleDotTarget}
+              >
+                <View
+                  style={[
+                    styles.dot,
+                    { backgroundColor: theme.semantic.borderStrong },
+                    activeSlide === index ? styles.dotActive : null,
+                    activeSlide === index ? { backgroundColor: theme.semantic.primary } : null,
+                  ]}
+                />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.accessibleActions}>
+          <Button
+            onPress={onBegin}
+            labelNumberOfLines={0}
+            labelMaxFontSizeMultiplier={2}
+          >
+            Start your family world
+          </Button>
+          <Spacer h={space.lg} />
+          <LegalNotice theme={theme} maxFontSizeMultiplier={2} />
+        </View>
+      </ScrollView>
+    </Screen>
+  );
+}
+
+function LegalNotice({ theme, maxFontSizeMultiplier }) {
   const welcomeStyle = welcomeCardStyle(theme);
   return (
-    <Caption align="center" style={[styles.legalText, { color: welcomeStyle.captionColor }]}>
+    <Caption
+      align="center"
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+      style={[styles.legalText, { color: welcomeStyle.captionColor }]}
+    >
       By continuing, you agree to the{' '}
       <Text
         accessibilityRole="link"
         onPress={() => Linking.openURL(PRIVACY_URL)}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         style={[styles.legalLink, { color: theme.semantic.primary }]}
       >
         Privacy Policy
@@ -249,6 +387,7 @@ function LegalNotice({ theme }) {
       <Text
         accessibilityRole="link"
         onPress={() => Linking.openURL(TERMS_URL)}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         style={[styles.legalLink, { color: theme.semantic.primary }]}
       >
         Terms of Service
@@ -257,6 +396,7 @@ function LegalNotice({ theme }) {
       <Text
         accessibilityRole="link"
         onPress={() => Linking.openURL(HOME_URL)}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         style={[styles.legalLink, { color: theme.semantic.primary }]}
       >
         website
@@ -508,6 +648,58 @@ const styles = StyleSheet.create({
     paddingTop: space.lg,
     paddingBottom: space.xl,
     alignItems: 'center',
+  },
+  accessibleRoot: {
+    flexGrow: 1,
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: space.xl,
+    paddingTop: space.lg,
+    paddingBottom: space.xxl,
+  },
+  accessibleScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  accessibleBrandWrap: {
+    alignItems: 'center',
+    marginBottom: space.xxl,
+  },
+  accessibleEyebrow: {
+    maxWidth: 340,
+  },
+  accessibleCopy: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  accessibleHeadline: {
+    maxWidth: 340,
+    fontSize: 34,
+    lineHeight: 45,
+  },
+  accessibleBody: {
+    maxWidth: 340,
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  accessiblePager: {
+    alignItems: 'center',
+    marginTop: space.xl,
+  },
+  accessibleDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accessibleDotTarget: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accessibleActions: {
+    width: '100%',
+    marginTop: space.lg,
   },
   brandWrap: {
     alignItems: 'center',
