@@ -481,7 +481,10 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   }));
 
   try {
-    const info = await getAssetDetails(assetId, { downloadFromNetwork: true });
+    const info = await getAssetDetails(assetId, {
+      downloadFromNetwork: true,
+      mediaType: match?.mediaType,
+    });
     if (!info) throw new Error('Could not load media from library');
     const localUri = info.localUri || info.uri;
     if (!localUri) {

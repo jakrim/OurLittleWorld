@@ -560,7 +560,10 @@ export default function TonightScreen() {
       ]);
       return;
     }
-    const details = await getAssetDetails(picked.assetId, { downloadFromNetwork: true }).catch(() => null);
+    const details = await getAssetDetails(picked.assetId, {
+      downloadFromNetwork: true,
+      mediaType: picked.type,
+    }).catch(() => null);
     const next = replaceTonightItemWithParentPick({
       sessionId: session.sessionId,
       familyId: family.id,
@@ -723,7 +726,10 @@ export default function TonightScreen() {
     setBusy(true);
     setError('');
     try {
-      const info = await getAssetDetails(activeItem.assetId, { downloadFromNetwork: true });
+      const info = await getAssetDetails(activeItem.assetId, {
+        downloadFromNetwork: true,
+        mediaType: activeItem.mediaType,
+      });
       const localUri = info?.localUri || info?.uri;
       if (!localUri) throw new Error(info?.downloadError || 'The original is still waiting in iCloud.');
       if (activeItem.mediaType === 'video' && info?.mediaType !== 'video') {

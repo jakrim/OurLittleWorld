@@ -7,10 +7,21 @@ import {
   requestPermissionsAsync,
 } from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import { Platform } from 'react-native';
 
+import {
+  assetConstructorIdentifier,
+  normalizeMediaLibraryAssetId,
+  uriForNativeVision,
+} from './photoAssetIdentifierModel.js';
 import { readMediaLibraryAssetDetails } from './photoAssetDetailsModel.js';
 
 export { ageAt, formatAge } from './ageModel.js';
+export {
+  assetConstructorIdentifier,
+  normalizeMediaLibraryAssetId,
+  uriForNativeVision,
+} from './photoAssetIdentifierModel.js';
 
 /**
  * Helpers that talk to the photo library on behalf of Our Little World.
@@ -20,12 +31,6 @@ export { ageAt, formatAge } from './ageModel.js';
 const DESC_CREATION = { key: AssetField.CREATION_TIME, ascending: false };
 const ASC_CREATION = { key: AssetField.CREATION_TIME, ascending: true };
 const VIDEO_FRAME_SAMPLE_LIMIT = 3;
-
-export function normalizeMediaLibraryAssetId(assetId) {
-  if (!assetId) return '';
-  const raw = String(assetId);
-  return raw.startsWith('ph://') ? raw.slice('ph://'.length) : raw;
-}
 
 function mediaQuery(mediaType, createdAfterMs, createdBeforeMs, { ascending = false } = {}) {
   let q = new Query()
@@ -46,20 +51,6 @@ function imageQuery(createdAfterMs, createdBeforeMs, options) {
 
 function videoQuery(createdAfterMs, createdBeforeMs, options) {
   return mediaQuery(MediaType.VIDEO, createdAfterMs, createdBeforeMs, options);
-}
-
-/** iOS Vision module expects ph:// URIs; asset ids are local identifiers. */
-export function uriForNativeVision(assetId) {
-  if (!assetId) return assetId;
-  if (
-    assetId.startsWith('ph://')
-    || assetId.startsWith('file://')
-    || assetId.startsWith('content://')
-    || assetId.startsWith('assets-library://')
-  ) {
-    return assetId;
-  }
-  return `ph://${assetId}`;
 }
 
 async function mapAssetToLegacy(asset) {
@@ -275,7 +266,7 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
     const candidates = raw === normalized ? [normalized] : [normalized, raw];
     for (const candidateId of candidates) {
       try {
-        const asset = new Asset(candidateId);
+        const asset = new Asset(assetConstructorIdentifier(candidateId, { platform: Platform.OS }));
         const mediaType = await asset.getMediaType().catch(() => null);
         if (mediaType !== MediaType.IMAGE && mediaType !== MediaType.VIDEO) continue;
         if (mediaType === MediaType.VIDEO) {
@@ -333,12 +324,21 @@ async function countMediaInWindow({ mediaType, createdAfterMs, pageSize = 200 } 
 /**
  * Load one library asset by id (replaces getAssetInfoAsync).
  */
-export async function getAssetDetails(assetId, { downloadFromNetwork: _downloadFromNetwork = false } = {}) {
+export async function getAssetDetails(assetId, {
+  downloadFromNetwork: _downloadFromNetwork = false,
+  mediaType,
+} = {}) {
   if (!assetId) return null;
-  const visionUri = uriForNativeVision(assetId);
+  const constructorIdentifier = assetConstructorIdentifier(assetId, {
+    platform: Platform.OS,
+    mediaType,
+  });
+  const visionUri = Platform.OS === 'ios'
+    ? uriForNativeVision(assetId)
+    : constructorIdentifier;
   try {
     return await readMediaLibraryAssetDetails({
-      asset: new Asset(assetId),
+      asset: new Asset(constructorIdentifier),
       assetId,
       visionUri,
     });
