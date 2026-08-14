@@ -81,8 +81,8 @@ This sequence requires a separate explicit authorization:
 
 1. Ship a compatible client that writes opaque shared media identity and can tolerate
    all additive schemas while the new features remain unreleased.
-2. Replay and verify migrations in timestamp order through:
-   `20260720210000`, `20260720211000`, `20260720220000`, and `20260720230000`.
+2. Replay and verify the full `supabase/migrations/` chain in timestamp order.
+   That directory is authoritative; do not maintain an abbreviated migration list here.
 3. Confirm RLS, active-writer write gates, Circle reads, lapsed read-only behavior,
    cascades, export queries, and migration ledger state in a non-production target.
 4. Backfill or rotate legacy raw shared identifiers only after old writers can no
