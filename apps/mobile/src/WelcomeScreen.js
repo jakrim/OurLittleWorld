@@ -126,7 +126,7 @@ export default function WelcomeScreen() {
   const logoSize = isCompact ? 72 : 86;
   const artGap = isCompact ? space.sm : space.xxl;
   const eyebrowGap = isCompact ? space.sm : space.md;
-  const bodyGap = isCompact ? space.md : space.lg;
+  const bodyGap = isCompact ? space.sm : space.lg;
 
   const onBegin = () => {
     router.push('/sign-in');
@@ -545,7 +545,8 @@ const styles = StyleSheet.create({
   },
   artSceneCompact: {
     width: 248,
-    height: 178,
+    height: 160,
+    transform: [{ scale: 0.88 }],
   },
   bookGlow: {
     position: 'absolute',
@@ -834,8 +835,8 @@ const styles = StyleSheet.create({
   },
   bodyCompact: {
     maxWidth: 330,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
   dots: {
     flexDirection: 'row',
