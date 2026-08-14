@@ -8,6 +8,7 @@ import useReducedMotion from './ui/useReducedMotion';
 import { welcomeCardStyle } from './themeStyleContractModel.js';
 import {
   WELCOME_ART_CYCLE_START,
+  WELCOME_BOOK_STAGE_HEIGHT,
   welcomeArtRestingProgress,
 } from './welcomeMotionModel.js';
 
@@ -276,7 +277,14 @@ function BabyBookArt({ compact, progress, theme }) {
   const welcomeStyle = welcomeCardStyle(theme);
   const journeyShift = progress.interpolate({
     inputRange: [0, 0.32, 0.4, 0.66, 0.74, 1],
-    outputRange: [0, 0, -58, -58, -116, -116],
+    outputRange: [
+      0,
+      0,
+      -WELCOME_BOOK_STAGE_HEIGHT,
+      -WELCOME_BOOK_STAGE_HEIGHT,
+      -WELCOME_BOOK_STAGE_HEIGHT * 2,
+      -WELCOME_BOOK_STAGE_HEIGHT * 2,
+    ],
   });
 
   return (
@@ -597,11 +605,11 @@ const styles = StyleSheet.create({
     maxWidth: 154,
   },
   bookJourneyWindow: {
-    height: 58,
+    height: WELCOME_BOOK_STAGE_HEIGHT,
     overflow: 'hidden',
   },
   bookJourneyStage: {
-    height: 58,
+    height: WELCOME_BOOK_STAGE_HEIGHT,
     justifyContent: 'center',
   },
   bookEyebrow: {

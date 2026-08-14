@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   WELCOME_ART_CYCLE_START,
   WELCOME_ART_REDUCED_MOTION_PROGRESS,
+  WELCOME_BOOK_STAGE_HEIGHT,
   welcomeArtRestingProgress,
 } from '../../src/welcomeMotionModel.js';
 
@@ -11,6 +12,7 @@ test('the animated welcome starts with meaningful visible content', () => {
   assert.equal(welcomeArtRestingProgress(), WELCOME_ART_CYCLE_START);
   assert.ok(WELCOME_ART_CYCLE_START >= 0.18, 'the first streamed detail is fully visible');
   assert.ok(WELCOME_ART_CYCLE_START < 0.32, 'the first family-world stage remains in view');
+  assert.ok(WELCOME_BOOK_STAGE_HEIGHT >= 64, 'two-line stage titles are not clipped');
 });
 
 test('Reduce Motion holds a fully rendered static illustration', () => {

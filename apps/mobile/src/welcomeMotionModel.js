@@ -3,6 +3,7 @@
 // Reduce Motion users with no illustration at all.
 export const WELCOME_ART_CYCLE_START = 0.24;
 export const WELCOME_ART_REDUCED_MOTION_PROGRESS = 1;
+export const WELCOME_BOOK_STAGE_HEIGHT = 64;
 
 export function welcomeArtRestingProgress({ reducedMotion = false } = {}) {
   return reducedMotion
