@@ -33,7 +33,7 @@ Deno.test('a family session cannot mint playback for another family Stream UID',
     assertEquals(requested, {
       target_family_id: FAMILY_B,
       target_user_id: SESSION_USER,
-      p_provider_object_id: STREAM_A,
+      provider_object_id: STREAM_A,
     });
     assertEquals(response.status, 404);
     assertEquals(response.headers.get('x-olw-cache'), 'denied');

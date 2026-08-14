@@ -102,7 +102,7 @@ export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
         body: JSON.stringify({
           target_family_id: familyId,
           target_user_id: userId,
-          p_provider_object_id: objectId,
+          provider_object_id: objectId,
         }),
       },
     );
