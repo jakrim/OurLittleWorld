@@ -124,7 +124,7 @@ export default function WelcomeScreen() {
   const pageWidth = viewportWidth || 1;
   const isCompact = viewportHeight > 0 && viewportHeight < 790;
   const logoSize = isCompact ? 72 : 86;
-  const artGap = isCompact ? space.xl : space.xxl;
+  const artGap = isCompact ? space.sm : space.xxl;
   const eyebrowGap = isCompact ? space.sm : space.md;
   const bodyGap = isCompact ? space.md : space.lg;
 
@@ -535,7 +535,7 @@ const styles = StyleSheet.create({
   },
   slideCompact: {
     paddingTop: space.xs,
-    paddingBottom: space.lg,
+    paddingBottom: space.sm,
   },
   artScene: {
     width: 270,
