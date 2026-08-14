@@ -177,11 +177,13 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   row retains the 280-character text draft.
   An unfinished session resumes until completed; one active
   session is enforced per family/parent, and a completed session suppresses another
-  queue on the same local day. `/tonight` keeps through the canonical
-  `Tags.setBaby`/`Memories.setMine` path and reuses canonical voice-note and reaction
-  services with stable identities across retries. Quota reservations for image,
-  Stream, direct-video, and poster transports are idempotently keyed by canonical media identity
-  before any object becomes ready. A partial canonical write blocks
+  queue on the same local day. `/tonight` prepares media privately, then calls
+  `finalize_canonical_media_keep` to atomically publish the moment, media, tag, and
+  matching quota reservation; canonical Stream provider bindings publish in that same
+  transaction. A media Keep requires a capture time from Photos or the durable private
+  candidate, never the Keep timestamp. Canonical identities and quota reservations for
+  image, Stream, direct-video, and poster transports remain stable across retries. A
+  partial canonical write blocks
   Skip or replacement until resolved. Skips clean local drafts, unavailable iCloud
   originals remain recoverable, best-of-burst queries return at most 12 eligible
   members, the native picker remains available, and `/review` stays the advanced grid.
@@ -255,11 +257,14 @@ history lives in `docs/sprint-progress.md`, the backlog in `docs/polish-backlog.
   `/tonight` may select one deterministic lookback from at most 180 already-kept
   moments; event companion results are capped at 12. Family annotation export pages
   500 rows at a time to a 5,000-row ceiling and never exports grouping digests.
-- **Upload/storage:** `photoSync.js` uploads resized full+thumb JPEGs to the private
-  `family-photos` bucket as `photo_tags` rows; moments media in `moment_media`
-  (Supabase storage, Cloudflare Stream for video, R2 for large originals). Playback is
-  mediated by `workers/media-gateway` with short-lived session tokens
-  (`create-media-session` edge function).
+- **Upload/storage:** `photoSync.js` prepares resized full+thumb JPEGs in the private
+  `family-photos` bucket; `finalize_canonical_media_keep` then publishes the canonical
+  `photo_tags` and `moment_media` rows only after the matching reservation, provider
+  evidence, and storage objects are confirmed. Videos use Supabase storage or
+  Cloudflare Stream; R2 holds large originals. Playback is mediated by
+  `workers/media-gateway`: a short-lived family session (`create-media-session`) is
+  exchanged only after a trusted lookup proves the exact Stream UID is canonically
+  published for that family and viewer.
   The device Photos identifier stays in SQLite and upload-job state only. Remote
   `photo_tags.asset_id`, `moment_media.local_identifier`, and related saved references
   use the mapped opaque UUID. Shared metadata removes local asset, picker, candidate,

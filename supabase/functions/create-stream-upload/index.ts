@@ -531,8 +531,16 @@ async function removeCanonicalDuplicates({
   }
 }
 
+type MediaUploadReservation = {
+  id: string;
+  status: string;
+  provider?: string | null;
+  provider_object_id?: string | null;
+  canonical_media_id?: string | null;
+};
+
 async function ensureProviderAttachment({ reservation, uid, token }: {
-  reservation: Record<string, any>;
+  reservation: MediaUploadReservation;
   uid: string;
   token: string;
 }) {

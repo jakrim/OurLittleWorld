@@ -61,6 +61,13 @@ Family-visible connection state contains only safe aggregates.
 - Shared writes use opaque identifiers and idempotent canonical IDs. A partial
   Keep resumes the same transaction; it does not unlock Skip or create a
   replacement memory.
+- A media Keep requires a capture time grounded in the authorized Photos asset
+  or durable private candidate; Keep time never fills an unknown date. If that
+  evidence is unavailable, the parent retries the original or chooses Another
+  before any shared write begins.
+- A canonical media Keep publishes its moment, media, tag, and matching quota
+  reservation together. Retries reuse those identities, and private discovery
+  evidence is rejected at the shared boundary.
 - Videos remain playable media when policy allows; poster-only fallback is
   explicit. Parents may always choose a different item through the native picker.
 
@@ -70,6 +77,9 @@ Family-visible connection state contains only safe aggregates.
   writer entitlement, Circle/read-only scope, and lapsed access.
 - Lapsed families receive the policy-defined read experience but cannot bypass
   write gates through storage, Edge Functions, direct API calls, or retries.
+- Initial child-profile completion is a narrow creator-only, write-once setup
+  exception before purchase; exact replays are safe, but it cannot edit an
+  established family profile or relax ordinary write gates.
 - Deleting an author account must not cascade away co-owned family history.
 - Export and deletion cover the real schema and media graph, retain required
   audit/legal boundaries, and never expose another family's data.
