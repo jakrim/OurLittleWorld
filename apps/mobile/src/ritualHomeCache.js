@@ -5,6 +5,17 @@ const CACHE_VERSION = 'v7';
 const revisions = new Map();
 const listeners = new Map();
 const invalidatedKeys = new Set();
+const mutations = new Map();
+
+function enqueueMutation(key, mutation) {
+  const previous = mutations.get(key) || Promise.resolve();
+  const scheduled = previous.catch(() => {}).then(mutation);
+  const settled = scheduled.finally(() => {
+    if (mutations.get(key) === settled) mutations.delete(key);
+  });
+  mutations.set(key, settled);
+  return settled;
+}
 
 export function ritualHomeCacheKey({ familyId, userId }) {
   if (!familyId || !userId) return null;
@@ -23,11 +34,19 @@ export async function readRitualHomeCache({ familyId, userId }) {
   }
 }
 
-export async function writeRitualHomeCache({ familyId, userId, payload }) {
+export async function writeRitualHomeCache({ familyId, userId, payload, revision = null }) {
   const key = ritualHomeCacheKey({ familyId, userId });
-  if (!key || !payload) return;
-  await AsyncStorage.setItem(key, JSON.stringify(payload));
-  invalidatedKeys.delete(key);
+  if (!key || !payload) return false;
+  const expectedRevision = Number.isFinite(revision)
+    ? Number(revision)
+    : ritualHomeCacheRevision({ familyId, userId });
+  return enqueueMutation(key, async () => {
+    if (expectedRevision !== ritualHomeCacheRevision({ familyId, userId })) return false;
+    await AsyncStorage.setItem(key, JSON.stringify(payload));
+    if (expectedRevision !== ritualHomeCacheRevision({ familyId, userId })) return false;
+    invalidatedKeys.delete(key);
+    return true;
+  });
 }
 
 export function ritualHomeCacheRevision({ familyId, userId }) {
@@ -40,7 +59,7 @@ export async function invalidateRitualHomeCache({ familyId, userId }) {
   if (!key) return false;
   revisions.set(key, Number(revisions.get(key) || 0) + 1);
   invalidatedKeys.add(key);
-  await AsyncStorage.removeItem(key);
+  await enqueueMutation(key, () => AsyncStorage.removeItem(key));
   for (const listener of listeners.get(key) || []) {
     try {
       listener();

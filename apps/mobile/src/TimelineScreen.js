@@ -386,6 +386,7 @@ export default function TimelineScreen() {
     if (!photo) return;
     if (photo.asset_owner_user_id === user?.id) {
       const params = { assetId: photo.asset_id };
+      if (photo.media_type) params.mediaType = photo.media_type;
       const previewUri = photo.thumbUrl || photo.fullUrl;
       if (previewUri) params.uri = previewUri;
       if (photo.creation_time) {
@@ -657,6 +658,7 @@ export default function TimelineScreen() {
                 tagged={tagged}
                 onPress={() => {
                   const params = { assetId: item.id, uri: item.uri };
+                  if (item.mediaType) params.mediaType = item.mediaType;
                   if (item.creationTime != null) {
                     params.creationTime = String(item.creationTime);
                   }

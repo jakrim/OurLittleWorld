@@ -172,8 +172,12 @@ async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName
 
 export async function patchCachedPromptState({ familyId, userId, promptRow }) {
   if (!familyId || !userId || !promptRow) return null;
+  const revision = ritualHomeCacheRevision({ familyId, userId });
   const cached = await readRitualHomeCache({ familyId, userId });
-  if (!cached) return null;
+  if (!cached || !shouldCommitRitualHomeRefresh({
+    startedRevision: revision,
+    currentRevision: ritualHomeCacheRevision({ familyId, userId }),
+  })) return null;
   const promptDate = promptRow.prompt_date || promptRow.promptDate || null;
   const isTodayPrompt = cached.promptState?.promptDate && promptDate === cached.promptState.promptDate;
   let promptState = cached.promptState || null;
@@ -196,8 +200,11 @@ export async function patchCachedPromptState({ familyId, userId, promptRow }) {
     missedPrompts,
     missedPrompt: selectMissedPromptCatchup(missedPrompts),
   };
-  await writeRitualHomeCache({ familyId, userId, payload: next });
-  return next;
+  const committed = await writeRitualHomeCache({ familyId, userId, payload: next, revision });
+  return committed && shouldCommitRitualHomeRefresh({
+    startedRevision: revision,
+    currentRevision: ritualHomeCacheRevision({ familyId, userId }),
+  }) ? next : null;
 }
 
 export async function readCachedPromptState({ familyId, userId }) {
@@ -262,7 +269,13 @@ export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyN
           return payloadRef.current;
         }
         lastRefreshRef.current = Date.now();
-        await writeRitualHomeCache({ familyId, userId, payload: next });
+        const committed = await writeRitualHomeCache({ familyId, userId, payload: next, revision });
+        if (!committed || !shouldCommitRitualHomeRefresh({
+          startedRevision: revision,
+          currentRevision: ritualHomeCacheRevision({ familyId, userId }),
+        })) {
+          return payloadRef.current;
+        }
         setPayload(next);
         setStatus('ready');
         return next;

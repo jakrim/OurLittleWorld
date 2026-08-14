@@ -288,6 +288,7 @@ export default function LibraryScreen() {
   const openLocal = (photo) => {
     if (!canManageLibrary) return;
     const params = { assetId: photo.id, uri: photo.uri };
+    if (photo.mediaType) params.mediaType = photo.mediaType;
     if (photo.creationTime != null) params.creationTime = String(photo.creationTime);
     router.push({ pathname: '/photo/[assetId]', params });
   };
@@ -387,6 +388,7 @@ export default function LibraryScreen() {
       return;
     }
     const params = { assetId: photo.asset_id };
+    if (photo.media_type) params.mediaType = photo.media_type;
     if (photo.asset_owner_user_id) params.ownerUserId = photo.asset_owner_user_id;
     const previewUri = photo.thumbUrl || photo.fullUrl;
     if (previewUri) params.uri = previewUri;

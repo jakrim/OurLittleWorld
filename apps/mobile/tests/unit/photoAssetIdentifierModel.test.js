@@ -79,3 +79,13 @@ test('current interaction type wins while unsupported evidence stays unknown', (
   ), 'image');
   assert.equal(resolveLocalKeepMediaType(null, { media_type: 'audio' }), null);
 });
+
+test('a known local-library image type keeps an Android route upload addressable', () => {
+  const routeMediaType = resolveLocalKeepMediaType({ mediaType: 'image' });
+
+  assert.equal(routeMediaType, 'image');
+  assert.equal(
+    assetConstructorIdentifier('123', { platform: 'android', mediaType: routeMediaType }),
+    'content://media/external/images/media/123',
+  );
+});

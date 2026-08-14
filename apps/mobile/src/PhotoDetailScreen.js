@@ -11,6 +11,7 @@ import { Family } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { ageAt, formatAge, getAssetDetails } from './photos';
+import { resolveLocalKeepMediaType } from './photoAssetIdentifierModel.js';
 import { shareMemoryMoment } from './shareMoment';
 import { groundedMemoryAuthorLabel } from './groundedFamilyIdentityModel';
 
@@ -25,6 +26,7 @@ export default function PhotoDetailScreen() {
   const params = useLocalSearchParams();
   const assetId = Array.isArray(params.assetId) ? params.assetId[0] : params.assetId;
   const ownerUserIdParam = Array.isArray(params.ownerUserId) ? params.ownerUserId[0] : params.ownerUserId;
+  const routeMediaType = Array.isArray(params.mediaType) ? params.mediaType[0] : params.mediaType;
   const previewUri = Array.isArray(params.uri) ? params.uri[0] : params.uri;
   const previewCreationRaw = Array.isArray(params.creationTime)
     ? params.creationTime[0]
@@ -35,6 +37,10 @@ export default function PhotoDetailScreen() {
   const familyId = family?.id;
   const userId = user?.id;
   const ownerUserId = ownerUserIdParam || user?.id;
+  const routedMediaType = useMemo(
+    () => resolveLocalKeepMediaType({ mediaType: routeMediaType }),
+    [routeMediaType],
+  );
 
   const [asset, setAsset] = useState(null);
   const [note, setNote] = useState('');
@@ -54,7 +60,7 @@ export default function PhotoDetailScreen() {
       setAssetLoading(true);
       try {
         const [info, allTags, mems, memberList] = await Promise.all([
-          getAssetDetails(assetId, { downloadFromNetwork: true }).catch(() => null),
+          getAssetDetails(assetId, { downloadFromNetwork: true, mediaType: routedMediaType }).catch(() => null),
           Tags.all(familyId),
           Memories.forAsset({ familyId, assetId, ownerUserId }),
           Family.members(familyId),
@@ -83,7 +89,12 @@ export default function PhotoDetailScreen() {
     return () => {
       alive = false;
     };
-  }, [assetId, assetReloadKey, familyId, ownerUserId, userId]);
+  }, [assetId, assetReloadKey, familyId, ownerUserId, routedMediaType, userId]);
+
+  const assetMediaType = useMemo(
+    () => resolveLocalKeepMediaType({ mediaType: routedMediaType }, { mediaType: asset?.mediaType }),
+    [asset?.mediaType, routedMediaType],
+  );
 
   const takenAtMs = useMemo(() => {
     if (asset?.creationTime) return asset.creationTime;
@@ -124,7 +135,12 @@ export default function PhotoDetailScreen() {
     setIsBaby(next);
     setTagging(true);
     try {
-      await Tags.setBaby({ familyId: family.id, assetId, isBaby: next });
+      await Tags.setBaby({
+        familyId: family.id,
+        assetId,
+        isBaby: next,
+        match: assetMediaType ? { mediaType: assetMediaType } : null,
+      });
     } catch (err) {
       setIsBaby(!next);
       Alert.alert('Could not save', err.message || String(err));
