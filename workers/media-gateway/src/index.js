@@ -115,7 +115,12 @@ export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
       }));
     }
     return authorized;
-  } catch {
+  } catch (error) {
+    console.log(JSON.stringify({
+      event: 'stream_authorization_error',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorCode: typeof error?.cause?.code === 'string' ? error.cause.code : null,
+    }));
     return false;
   }
 }
