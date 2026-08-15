@@ -109,10 +109,10 @@ export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
     const payload = await response.json().catch(() => null);
     const authorized = response.ok && payload?.authorized === true;
     if (!authorized) {
-      console.warn('stream_authorization_denied', {
+      console.log(JSON.stringify({ event: 'stream_authorization_denied',
         edgeStatus: response.status,
         edgeAuthorized: payload?.authorized === true,
-      });
+      }));
     }
     return authorized;
   } catch {
