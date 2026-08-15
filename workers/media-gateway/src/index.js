@@ -92,7 +92,9 @@ export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
       env.STREAM_AUTHORIZATION_URL,
       {
         method: 'POST',
-        redirect: 'error',
+        // Never forward the gateway secret or bearer token across redirects.
+        // A redirect is returned as a normal non-OK response and fails closed.
+        redirect: 'manual',
         headers: {
           apikey: env.SUPABASE_ANON_KEY,
           authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,

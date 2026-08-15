@@ -159,8 +159,10 @@ Deno.test('authenticated original image playback remains independent of Stream a
 Deno.test('Stream authorization uses narrow Edge auth and fails closed on backend errors', async () => {
   const previousFetch = globalThis.fetch;
   let headers = null;
+  let redirect = null;
   globalThis.fetch = async (_url, init) => {
     headers = new Headers(init.headers);
+    redirect = init.redirect;
     return new Response('unavailable', { status: 503 });
   };
 
@@ -173,7 +175,31 @@ Deno.test('Stream authorization uses narrow Edge auth and fails closed on backen
     assertEquals(headers.get('apikey'), 'public-anon-test-key');
     assertEquals(headers.get('authorization'), 'Bearer public-anon-test-key');
     assertEquals(headers.get('x-olw-media-gateway-secret'), 'dedicated-gateway-test-secret');
+    assertEquals(redirect, 'manual');
     assertEquals(await authorizeStreamPlayback(FAMILY_A, SESSION_USER, STREAM_A, {}), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+Deno.test('Stream authorization never forwards credentials across redirects', async () => {
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(null, {
+      status: 307,
+      headers: { location: 'https://unexpected.example.test/authorization' },
+    });
+  };
+
+  try {
+    assertEquals(await authorizeStreamPlayback(FAMILY_A, SESSION_USER, STREAM_A, {
+      STREAM_AUTHORIZATION_URL: 'https://supabase.example.test/functions/v1/authorize-stream-playback',
+      SUPABASE_ANON_KEY: 'public-anon-test-key',
+      MEDIA_GATEWAY_AUTH_SECRET: 'dedicated-gateway-test-secret',
+    }), false);
+    assertEquals(calls, 1);
   } finally {
     globalThis.fetch = previousFetch;
   }
