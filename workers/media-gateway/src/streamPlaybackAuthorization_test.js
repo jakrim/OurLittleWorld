@@ -55,7 +55,7 @@ Deno.test('a family session cannot mint playback for another family Stream UID',
 Deno.test('Worker serialization is accepted by the Edge authorization parser', async () => {
   const previousFetch = globalThis.fetch;
   let parsed = null;
-  globalThis.fetch = async (_url, init) => {
+  globalThis.fetch = (_url, init) => {
     parsed = canonicalStreamAuthorizationInput(JSON.parse(init.body));
     return new Response(JSON.stringify({ authorized: Boolean(parsed) }), {
       status: 200,
@@ -87,7 +87,7 @@ Deno.test('missing and invalid media sessions are denied before authorization', 
     ORIGINALS: { head: () => null },
   };
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
+  globalThis.fetch = () => {
     authorizationCalls += 1;
     return new Response('{"authorized":true}');
   };
@@ -119,11 +119,11 @@ Deno.test('authenticated original image playback remains independent of Stream a
   Object.defineProperty(globalThis.caches, 'default', {
     configurable: true,
     value: {
-      match: async () => null,
+      match: () => null,
       put: async () => {},
     },
   });
-  globalThis.fetch = async () => {
+  globalThis.fetch = () => {
     authorizationCalls += 1;
     return new Response('{"authorized":false}');
   };
@@ -135,7 +135,7 @@ Deno.test('authenticated original image playback remains independent of Stream a
         MEDIA_SESSION_SECRET: secret,
         ORIGINALS: {
           head: () => null,
-          get: async () => ({
+          get: () => ({
             body: new TextEncoder().encode('image-bytes'),
             httpEtag: 'image-etag',
             writeHttpMetadata: (headers) => headers.set('content-type', 'image/jpeg'),
