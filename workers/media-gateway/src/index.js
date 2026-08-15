@@ -100,8 +100,8 @@ export async function authorizeStreamPlayback(familyId, userId, objectId, env) {
           'x-olw-media-gateway-secret': env.MEDIA_GATEWAY_AUTH_SECRET,
         },
         body: JSON.stringify({
-          target_family_id: familyId,
-          target_user_id: userId,
+          family_id: familyId,
+          user_id: userId,
           provider_object_id: objectId,
         }),
       },

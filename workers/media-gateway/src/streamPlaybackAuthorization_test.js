@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch } from 'jsr:@std/assert@1';
 
 import worker, { authorizeStreamPlayback } from './index.js';
+import { canonicalStreamAuthorizationInput } from '../../../supabase/functions/authorize-stream-playback/model.ts';
 
 const FAMILY_A = '10000000-0000-4000-8000-000000000001';
 const FAMILY_B = '20000000-0000-4000-8000-000000000002';
@@ -12,7 +13,10 @@ Deno.test('a family session cannot mint playback for another family Stream UID',
   let requested = null;
   globalThis.fetch = async (_url, init) => {
     requested = JSON.parse(init.body);
-    return new Response('{"authorized":false}', { status: 200, headers: { 'content-type': 'application/json' } });
+    const parsed = canonicalStreamAuthorizationInput(requested);
+    return new Response(JSON.stringify({
+      authorized: parsed?.familyId === FAMILY_A && parsed?.providerObjectId === STREAM_A,
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 
   try {
@@ -31,15 +35,124 @@ Deno.test('a family session cannot mint playback for another family Stream UID',
     );
 
     assertEquals(requested, {
-      target_family_id: FAMILY_B,
-      target_user_id: SESSION_USER,
+      family_id: FAMILY_B,
+      user_id: SESSION_USER,
       provider_object_id: STREAM_A,
+    });
+    assertEquals(canonicalStreamAuthorizationInput(requested), {
+      familyId: FAMILY_B,
+      userId: SESSION_USER,
+      providerObjectId: STREAM_A,
     });
     assertEquals(response.status, 404);
     assertEquals(response.headers.get('x-olw-cache'), 'denied');
     assertEquals(response.headers.get('location'), null);
   } finally {
     globalThis.fetch = previousFetch;
+  }
+});
+
+Deno.test('Worker serialization is accepted by the Edge authorization parser', async () => {
+  const previousFetch = globalThis.fetch;
+  let parsed = null;
+  globalThis.fetch = async (_url, init) => {
+    parsed = canonicalStreamAuthorizationInput(JSON.parse(init.body));
+    return new Response(JSON.stringify({ authorized: Boolean(parsed) }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    assertEquals(await authorizeStreamPlayback(FAMILY_A, SESSION_USER, STREAM_A, {
+      STREAM_AUTHORIZATION_URL: 'https://supabase.example.test/functions/v1/authorize-stream-playback',
+      SUPABASE_ANON_KEY: 'public-anon-test-key',
+      MEDIA_GATEWAY_AUTH_SECRET: 'dedicated-gateway-test-secret',
+    }), true);
+    assertEquals(parsed, {
+      familyId: FAMILY_A,
+      userId: SESSION_USER,
+      providerObjectId: STREAM_A,
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+Deno.test('missing and invalid media sessions are denied before authorization', async () => {
+  let authorizationCalls = 0;
+  const env = {
+    MEDIA_SESSION_SECRET: 'media-session-test-secret',
+    STREAM_CUSTOMER_DOMAIN: 'customer.example.test',
+    ORIGINALS: { head: () => null },
+  };
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    authorizationCalls += 1;
+    return new Response('{"authorized":true}');
+  };
+
+  try {
+    const missing = await worker.fetch(
+      new Request(`https://worker.test/media/${FAMILY_A}/stream/${STREAM_A}`),
+      env,
+      { waitUntil: () => {} },
+    );
+    const invalid = await worker.fetch(
+      new Request(`https://worker.test/media/${FAMILY_A}/stream/${STREAM_A}?session=invalid`),
+      env,
+      { waitUntil: () => {} },
+    );
+    assertEquals(missing.status, 401);
+    assertEquals(invalid.status, 401);
+    assertEquals(authorizationCalls, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+Deno.test('authenticated original image playback remains independent of Stream authorization', async () => {
+  const secret = 'media-session-test-secret';
+  let authorizationCalls = 0;
+  const previousFetch = globalThis.fetch;
+  const previousDefaultCache = globalThis.caches.default;
+  Object.defineProperty(globalThis.caches, 'default', {
+    configurable: true,
+    value: {
+      match: async () => null,
+      put: async () => {},
+    },
+  });
+  globalThis.fetch = async () => {
+    authorizationCalls += 1;
+    return new Response('{"authorized":false}');
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request(`https://worker.test/media/${FAMILY_A}/original/image-object?session=${await mediaSession(FAMILY_A, secret, 'vault')}`),
+      {
+        MEDIA_SESSION_SECRET: secret,
+        ORIGINALS: {
+          head: () => null,
+          get: async () => ({
+            body: new TextEncoder().encode('image-bytes'),
+            httpEtag: 'image-etag',
+            writeHttpMetadata: (headers) => headers.set('content-type', 'image/jpeg'),
+          }),
+        },
+      },
+      { waitUntil: () => {} },
+    );
+    assertEquals(response.status, 200);
+    assertEquals(response.headers.get('content-type'), 'image/jpeg');
+    assertEquals(authorizationCalls, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    Object.defineProperty(globalThis.caches, 'default', {
+      configurable: true,
+      value: previousDefaultCache,
+    });
   }
 });
 
@@ -106,11 +219,11 @@ Deno.test('an exactly published family Stream UID receives signed playback only'
   }
 });
 
-async function mediaSession(familyId, secret) {
+async function mediaSession(familyId, secret, tier = 'family') {
   const body = base64url(new TextEncoder().encode(JSON.stringify({
     f: familyId,
     u: SESSION_USER,
-    t: 'family',
+    t: tier,
     exp: Math.floor(Date.now() / 1000) + 60,
   })));
   const key = await crypto.subtle.importKey(
