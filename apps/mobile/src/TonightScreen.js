@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   Keyboard,
   KeyboardAvoidingView,
@@ -10,6 +11,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -91,6 +93,10 @@ import {
   tonightDecisionProperties,
   tonightOpenProperties,
 } from './curatedMemoryAnalyticsModel';
+import {
+  TONIGHT_MEDIA_COLLAPSE_DISTANCE,
+  tonightMediaHeights,
+} from './tonightReviewLayoutModel';
 
 const SAVE_STEP_LABELS = {
   media: 'Saving this memory…',
@@ -104,6 +110,7 @@ export default function TonightScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const theme = useTheme();
+  const { height: viewportHeight } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
   const { entitlement, loading: billingLoading } = useBilling();
@@ -127,8 +134,18 @@ export default function TonightScreen() {
   const [lookbackOpen, setLookbackOpen] = useState(false);
   const [lookbackMembers, setLookbackMembers] = useState({});
   const detailsScrollRef = useRef(null);
+  const detailsScrollY = useRef(new Animated.Value(0)).current;
   const trackedOpenRef = useRef(null);
   const trackedCompletionRef = useRef(null);
+  const mediaHeights = useMemo(
+    () => tonightMediaHeights(viewportHeight),
+    [viewportHeight],
+  );
+  const mediaHeight = detailsScrollY.interpolate({
+    inputRange: [0, TONIGHT_MEDIA_COLLAPSE_DISTANCE],
+    outputRange: [mediaHeights.expanded, mediaHeights.collapsed],
+    extrapolate: 'clamp',
+  });
 
   const loadLookback = useCallback(async () => {
     if (!canCurate || !family?.id) return null;
@@ -243,8 +260,9 @@ export default function TonightScreen() {
   useEffect(() => {
     setBurstOpen(false);
     Keyboard.dismiss();
+    detailsScrollY.setValue(0);
     detailsScrollRef.current?.scrollTo({ y: 0, animated: false });
-  }, [activeItem?.assetId, activeItem?.position]);
+  }, [activeItem?.assetId, activeItem?.position, detailsScrollY]);
   const recording = Boolean(recorderState.isRecording);
   const audioSeconds = recording
     ? Math.round((recorderState.durationMillis || 0) / 1000)
@@ -777,8 +795,7 @@ export default function TonightScreen() {
     ? formatAge(ageAt(family.babyBirthday, captureDate.getTime()))
     : '';
   const unavailable = activeItem.availability !== 'available' || !activeItem.localUri;
-  const remaining = session.items.filter((item) => ['queued', 'shown', 'unavailable'].includes(item.state)).length;
-  const statusCopy = saveStep ? (saveStep === 'retry' ? 'Retrying the same safe save…' : SAVE_STEP_LABELS[saveStep]) : '';
+  const statusCopy = saveStep ? (saveStep === 'retry' ? 'Retrying this save…' : SAVE_STEP_LABELS[saveStep]) : '';
 
   return (
     <Screen bare edges={{ top: true, bottom: true }}>
@@ -787,13 +804,16 @@ export default function TonightScreen() {
           <Pressable onPress={() => router.replace('/timeline')} accessibilityRole="button" accessibilityLabel="Close Tonight" style={styles.iconButton}>
             <Ionicons name="close" size={24} color={theme.semantic.text} />
           </Pressable>
-          <Caption maxFontSizeMultiplier={1.6}>{activeItem.position + 1} of {session.itemCount} · {remaining} left</Caption>
-          <Pressable onPress={() => router.push('/review')} accessibilityRole="button" accessibilityLabel="Open advanced photo review" style={styles.iconButton}>
+          <Caption maxFontSizeMultiplier={1.6}>{activeItem.position + 1} of {session.itemCount}</Caption>
+          <Pressable onPress={() => router.push('/review')} accessibilityRole="button" accessibilityLabel="Review more suggested photos" style={styles.iconButton}>
             <Ionicons name="grid-outline" size={21} color={theme.semantic.text} />
           </Pressable>
         </View>
 
-        <View style={[styles.mediaFrame, { backgroundColor: theme.semantic.cardAlt }]} testID="tonight-media-card">
+        <Animated.View
+          style={[styles.mediaFrame, { height: mediaHeight, backgroundColor: theme.semantic.cardAlt }]}
+          testID="tonight-media-card"
+        >
           {unavailable ? (
             <UnavailableCard
               onRetry={retryAvailability}
@@ -806,9 +826,9 @@ export default function TonightScreen() {
           ) : (
             <Image source={{ uri: activeItem.localUri }} style={StyleSheet.absoluteFill} contentFit="contain" cachePolicy="memory-disk" />
           )}
-        </View>
+        </Animated.View>
 
-        <ScrollView
+        <Animated.ScrollView
           key={`${session.sessionId}:${activeItem.position}:${activeItem.assetId}`}
           ref={detailsScrollRef}
           style={styles.detailsScroll}
@@ -816,6 +836,11 @@ export default function TonightScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: detailsScrollY } } }],
+            { useNativeDriver: false },
+          )}
+          scrollEventThrottle={16}
         >
           <Eyebrow maxFontSizeMultiplier={1.6}>{parentReasonLabel(activeItem.reasonCode)}</Eyebrow>
           <Hero maxFontSizeMultiplier={1.8} style={styles.dateTitle}>{captureDate ? formatCaptureDate(captureDate) : 'A memory worth a look'}</Hero>
@@ -834,7 +859,7 @@ export default function TonightScreen() {
 
           <Spacer h={space.md} />
           <Field
-            label="Add one line (optional)"
+            label="Add a note (optional)"
             value={draft}
             onChangeText={changeDraft}
             placeholder="What do you want to remember?"
@@ -890,8 +915,8 @@ export default function TonightScreen() {
           {collectionSuggestions.length ? (
             <View style={styles.collectionDraft}>
               <View style={styles.collectionDraftHeader}>
-                <Caption style={styles.collectionDraftTitle}>Filed for you</Caption>
-                <Caption>Tap only if one does not belong.</Caption>
+                <Caption style={styles.collectionDraftTitle}>Collections</Caption>
+                <Caption>Selected collections are added when you Keep.</Caption>
               </View>
               <View style={styles.collectionChipRow}>
                 {collectionSuggestions.map((suggestion) => {
@@ -904,6 +929,9 @@ export default function TonightScreen() {
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: selected }}
                       accessibilityLabel={`${suggestion.title} collection`}
+                      accessibilityHint={selected
+                        ? 'Leaves this collection out when you Keep.'
+                        : 'Adds this collection when you Keep.'}
                       style={[
                         styles.collectionChip,
                         {
@@ -937,7 +965,7 @@ export default function TonightScreen() {
 
           {statusCopy || error || keepNeedsRetry ? (
             <Caption style={[styles.error, { color: error ? theme.colors.danger : theme.semantic.muted }]}>
-              {statusCopy || error || 'Keep paused before completion. Retry the same Keep before moving on.'}
+              {statusCopy || error || 'This memory didn’t finish saving. Retry Keep before moving on.'}
             </Caption>
           ) : null}
           <View style={styles.actions}>
@@ -951,9 +979,9 @@ export default function TonightScreen() {
             <Caption style={{ color: theme.semantic.primary, fontWeight: '700' }}>Choose another from Photos</Caption>
           </Pressable>
           <Pressable onPress={() => router.push('/review')} accessibilityRole="button" style={styles.secondaryAction} testID="tonight-advanced-review">
-            <Caption>Advanced review grid</Caption>
+            <Caption>Review more photos</Caption>
           </Pressable>
-        </ScrollView>
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
     </Screen>
   );
@@ -1193,8 +1221,8 @@ const styles = StyleSheet.create({
   completionNote: { marginTop: space.md, maxWidth: 340 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md, minHeight: 52 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  mediaFrame: { flex: 1, minHeight: 290, overflow: 'hidden' },
-  detailsScroll: { flexGrow: 0, maxHeight: '54%' },
+  mediaFrame: { width: '100%', overflow: 'hidden' },
+  detailsScroll: { flex: 1 },
   details: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: space.lg },
   dateTitle: { fontSize: 29, lineHeight: 34, marginTop: 3 },
   actions: { flexDirection: 'row', gap: space.sm, marginTop: space.md },

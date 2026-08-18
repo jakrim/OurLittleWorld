@@ -123,8 +123,8 @@ test('final, shown, unavailable and superseded candidates never reappear', () =>
 });
 
 test('reason copy is fixed and parent readable', () => {
-  assert.equal(parentReasonLabel('best_day'), 'Best photo from this day');
-  assert.equal(parentReasonLabel('clear_video'), 'Clear video with your baby throughout');
+  assert.equal(parentReasonLabel('best_day'), 'A clear photo from this day');
+  assert.equal(parentReasonLabel('clear_video'), 'A clear video from this day');
   assert.doesNotMatch(parentReasonLabel('best_day'), /score|confidence|model|embedding/i);
 });
 

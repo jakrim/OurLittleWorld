@@ -21,11 +21,11 @@ export const CANDIDATE_STATES = Object.freeze([
 export const FINAL_PARENT_DECISION_STATES = Object.freeze(['kept', 'skipped']);
 
 export const SELECTION_REASONS = Object.freeze({
-  best_day: 'Best photo from this day',
-  best_burst: 'Best of a similar burst',
-  distinct_standout: 'Distinct standout',
-  clear_video: 'Clear video with your baby throughout',
-  first_year_coverage: 'Fills a day in the first year',
+  best_day: 'A clear photo from this day',
+  best_burst: 'A clear pick from similar photos',
+  distinct_standout: 'A different moment from this day',
+  clear_video: 'A clear video from this day',
+  first_year_coverage: 'A day from the first year',
   parent_pick: 'Chosen by you',
 });
 
