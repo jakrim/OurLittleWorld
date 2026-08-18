@@ -44,6 +44,7 @@ test('manual picker and shared upload metadata exclude device and identity evide
     'recognitionScore',
     'faceCount',
     'videoPresenceRatio',
+    'recognitionFrameTimeMs',
     'visualFingerprint',
     'identityEvidence',
   ]) {
