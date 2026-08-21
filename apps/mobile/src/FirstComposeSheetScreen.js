@@ -13,7 +13,6 @@ import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import { SUGGESTED_NOTE_LABEL, SUGGESTED_NOTE_USE_LABEL, suggestedFirstNote } from './captionTemplateModel.js';
 import { milestoneDateSourceCaption, shouldLockMilestoneDate } from './momentMilestoneModel.js';
-import { inferPhotoSceneLabels } from './visionSceneLabeler';
 import {
   defaultFirstHappenedDate,
   firstHappenedAgeLabel,
@@ -197,17 +196,13 @@ export default function FirstComposeSheetScreen() {
       ? `${family?.babyName || 'Your child'} was ${happenedAgeLabel}.`
       : '',
   });
-  // U1: one quiet sentence from real metadata, offered — never auto-inserted.
-  // The labeler's generic 'Family outing' fallback is dropped: a note must not
-  // claim what the metadata doesn't show.
+  // U1: one quiet sentence from grounded date and computed-age metadata,
+  // offered — never auto-inserted; browsing scene labels do not become note copy.
   const suggestedNote = useMemo(() => suggestedFirstNote({
     babyBirthday: family?.babyBirthday,
     happenedDate: date,
-    sceneLabels: (selectedPhoto?.creation_time
-      ? inferPhotoSceneLabels({ creationTime: new Date(selectedPhoto.creation_time).getTime() })
-      : []
-    ).filter((label) => label !== 'Family outing'),
-  }), [date, family?.babyBirthday, selectedPhoto?.creation_time]);
+    sceneLabels: [],
+  }), [date, family?.babyBirthday]);
   const suggestedTitleLocked = Boolean(seededFirst && !editingTitle);
   const effectiveTitle = title.trim() || (seededFirst ? seedTitle : '');
   const photoRailCaption = sharedPhotos.length
