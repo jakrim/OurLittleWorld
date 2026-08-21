@@ -4,8 +4,10 @@ import test from 'node:test';
 import { autoSaveCorrectionTarget } from '../../src/autoSaveCorrectionModel.js';
 import { mediaUploadMetadata } from '../../src/mediaUploadMetadataModel.js';
 
-test('shared upload metadata excludes local and recognition identity evidence', () => {
+test('shared upload metadata uses an allowlist and excludes identity evidence', () => {
   const metadata = mediaUploadMetadata({
+    source: 'scan-auto-save',
+    posterPath: 'family/poster.jpg',
     caption: 'Parent words',
     pickerAssetId: 'private-picker',
     localAssetId: 'private-local',
@@ -13,7 +15,11 @@ test('shared upload metadata excludes local and recognition identity evidence', 
     faceCount: 1,
     visualFingerprint: [1, -1],
   }, { captureQuality: 0.88, videoPresenceRatio: 1 });
-  assert.deepEqual(metadata, { caption: 'Parent words', captureQuality: 0.88 });
+  assert.deepEqual(metadata, {
+    source: 'scan-auto-save',
+    posterPath: 'family/poster.jpg',
+    captureQuality: 0.88,
+  });
 });
 
 test('device correction normalizes identity only at the local boundary', () => {
@@ -28,11 +34,5 @@ test('device correction normalizes identity only at the local boundary', () => {
   assert.equal(target.match.assetId, 'opaque-shared-key');
   const sharedMetadata = mediaUploadMetadata(target.match);
   assert.equal(Object.hasOwn(sharedMetadata, 'assetId'), false);
-  assert.deepEqual(sharedMetadata, {
-    childId: null,
-    mediaType: 'image',
-    score: null,
-    captureQuality: null,
-    creationTime: null,
-  });
+  assert.deepEqual(sharedMetadata, {});
 });

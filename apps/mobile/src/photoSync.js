@@ -28,7 +28,7 @@ import {
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
-import { mediaUploadMetadata } from './mediaUploadMetadataModel';
+import { classifyPosterErrorCode, mediaUploadMetadata } from './mediaUploadMetadataModel';
 import {
   assertLegacyQueuedKeepResolved,
   canonicalizeUploadJob,
@@ -203,7 +203,7 @@ async function prepareVideoPoster({ info, match, posterPath, posterId, required 
       posterId,
       metadata: {
         posterStatus: 'failed',
-        posterError: String(error?.message || error),
+        posterErrorCode: classifyPosterErrorCode(error),
       },
     };
   }
@@ -219,7 +219,7 @@ async function uploadPreparedVideoPoster(poster) {
       posterObject: null,
       posterMetadata: {
         posterStatus: 'failed',
-        posterError: String(error?.message || error),
+        posterErrorCode: classifyPosterErrorCode(error),
       },
     };
   }
@@ -776,7 +776,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     source: source || 'library-review',
     ...(fullPath ? { fullPath } : {}),
     posterPath,
-    recognitionFrameTimeMs: match?.frameTimeMs ?? null,
     originalFileName: info.fileName || match?.fileName || null,
   }, match);
   let streamUid = existingMedia?.stream_uid || remoteIdentity.providerUpload?.uid || null;

@@ -3,12 +3,12 @@ import { test } from 'node:test';
 
 import { factsOnlyContextDraft, suggestedFirstNote } from '../../src/captionTemplateModel.js';
 
-test('suggested note composes date, age, and scene from real metadata only', () => {
+test('suggested note composes only grounded date and age', () => {
   assert.equal(suggestedFirstNote({
     babyBirthday: '2025-07-23',
     happenedDate: '2025-10-01',
     sceneLabels: ['Midday outing'],
-  }), 'Oct 1 — 2 months, 8 days old. Midday outing.');
+  }), 'Oct 1 — 2 months, 8 days old.');
 });
 
 test('suggested note drops missing parts instead of inventing them', () => {
@@ -20,7 +20,7 @@ test('suggested note drops missing parts instead of inventing them', () => {
   assert.equal(suggestedFirstNote({
     happenedDate: '2025-10-01',
     sceneLabels: ['Morning routine'],
-  }), 'Oct 1. Morning routine.');
+  }), 'Oct 1.');
 
   assert.equal(suggestedFirstNote({ babyBirthday: '2025-07-23' }), '');
   assert.equal(suggestedFirstNote(), '');

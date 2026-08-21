@@ -31,7 +31,7 @@ test('known place names win unless they look like coordinates', () => {
   }), 'Out and about');
 });
 
-test('place clusters use home and scene fallbacks instead of coordinate titles', () => {
+test('place clusters use grounded parent notes without inventing a home', () => {
   const shared = [
     photoRow('home-1', { latitude: 40.1, longitude: -73.9, creation_time: '2026-07-01T08:00:00Z' }),
     photoRow('home-2', { latitude: 40.1002, longitude: -73.9002, creation_time: '2026-07-02T08:00:00Z' }),
@@ -43,16 +43,15 @@ test('place clusters use home and scene fallbacks instead of coordinate titles',
 
   const clusters = buildPlaceClusters({ shared, metadataByKey: {}, memoriesByKey });
 
-  assert.equal(clusters[0].label, 'At home');
+  assert.equal(clusters[0].label, 'Out and about');
   assert.equal(clusters[1].label, 'At the park');
   for (const cluster of clusters) {
     assert.doesNotMatch(cluster.label, /\d+(\.\d+)?°|^-?\d+(\.\d+)?:-?\d+(\.\d+)?$/);
   }
 });
 
-test('places without coordinates remain unknown unless a human fallback is available', () => {
+test('places without coordinates remain unknown unless grounded context is available', () => {
   assert.equal(formatLocationLabel({}), 'Unknown place');
-  assert.equal(displayLabelForPlace({ location: {}, isHome: true }), 'At home');
   assert.equal(displayLabelForPlace({ location: {}, topScenes: ['At a restaurant'] }), 'At a restaurant');
 });
 

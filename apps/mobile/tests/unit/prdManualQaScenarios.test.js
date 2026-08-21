@@ -92,7 +92,7 @@ test('section 15: large photo library with no firsts prioritizes book-ready phot
   assert.equal(home.printExportReadiness.state, 'print_ready');
   assert.ok(home.chapters.length >= 3);
   assert.ok(home.currentMonthChapter.bookReadyRecords.length > 0);
-  assert.equal(places[0].label, 'At home');
+  assert.equal(places[0].label, 'Out and about');
   assert.equal(places.length, 2);
   for (const place of places) {
     assert.doesNotMatch(place.label, /\d+(\.\d+)?°|^-?\d+(\.\d+)?:-?\d+(\.\d+)?$/);

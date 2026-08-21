@@ -3,7 +3,6 @@
  *
  * We infer useful scene labels from:
  * - geotag clusters (lat/lon)
- * - capture time
  * - memory note keywords
  *
  * This ships now without a native rebuild and keeps a clean API so we can
@@ -41,27 +40,8 @@ function labelsFromNote(note) {
     .map((entry) => entry.label);
 }
 
-function labelsFromTime(creationTime) {
-  if (!creationTime) return [];
-  const d = new Date(creationTime);
-  if (Number.isNaN(d.getTime())) return [];
-  const hour = d.getHours();
-  const dow = d.getDay();
-  const out = [];
-  if (hour >= 6 && hour <= 10) out.push('Morning routine');
-  if (hour >= 11 && hour <= 14) out.push('Midday outing');
-  if (hour >= 17 && hour <= 20) out.push('Evening wind-down');
-  if (dow === 0 || dow === 6) out.push('Weekend together');
-  return out;
-}
-
-export function inferPhotoSceneLabels({ creationTime, memoryNotes }) {
-  const labels = new Set([
-    ...labelsFromTime(creationTime),
-    ...(memoryNotes || []).flatMap(labelsFromNote),
-  ]);
-  if (labels.size === 0) labels.add('Family outing');
-  return Array.from(labels);
+export function inferPhotoSceneLabels({ memoryNotes } = {}) {
+  return Array.from(new Set((memoryNotes || []).flatMap(labelsFromNote)));
 }
 
 export function clusterKeyFromLocation({ latitude, longitude }) {
@@ -149,19 +129,13 @@ export function buildPlaceClusters({ shared, metadataByKey, memoriesByKey }) {
 
   if (!clusters.length) return [];
 
-  const homeId = [...clusters]
-    .sort((a, b) => b.sourcePhotoCount - a.sourcePhotoCount)[0]?.id;
-
   return clusters
     .map((cluster) => ({
       ...cluster,
-      topScenes: cluster.id === homeId
-        ? ['At home', ...cluster.topScenes.filter((label) => label !== 'At home')].slice(0, 4)
-        : cluster.topScenes,
       label: displayLabelForPlace({
         location: cluster.location,
         topScenes: cluster.topScenes,
-        isHome: cluster.id === homeId,
+        isHome: false,
       }),
     }))
     .sort((a, b) => b.eventCount - a.eventCount);
@@ -198,11 +172,5 @@ function looksLikeCoordinates(value) {
 }
 
 function isPrimaryPlaceScene(label) {
-  return ![
-    'Morning routine',
-    'Midday outing',
-    'Evening wind-down',
-    'Weekend together',
-    'Family outing',
-  ].includes(label);
+  return Boolean(label);
 }

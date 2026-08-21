@@ -1,5 +1,5 @@
 // Suggested note templates (U1). One quiet sentence composed only from real
-// metadata — the date, the child's computed age, and an inferred scene label.
+// metadata — the date and the child's computed age.
 // No adjectives, no invented feelings; offered under the note field, never
 // auto-inserted. No React Native imports — unit-tested with node --test.
 
@@ -14,17 +14,14 @@ export const CONTEXT_DRAFT_USE_LABEL = 'Use';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// 'Oct 1 — 2 months, 8 days old. Midday outing.' — every clause from stored
-// fields. Empty string when there is no date to anchor to.
-export function suggestedFirstNote({ babyBirthday, happenedDate, sceneLabels = [] } = {}) {
+// 'Oct 1 — 2 months, 8 days old.' — every clause from stored fields. Empty
+// string when there is no date to anchor to.
+export function suggestedFirstNote({ babyBirthday, happenedDate } = {}) {
   const date = localDateFromISODate(happenedDate);
   if (!date) return '';
   const dateLabel = `${MONTH_SHORT[date.getMonth()]} ${date.getDate()}`;
   const ageLabel = firstHappenedAgeLabel({ babyBirthday, happenedDate });
-  const scene = String((sceneLabels || [])[0] || '').trim();
-  let sentence = ageLabel ? `${dateLabel} — ${ageLabel} old.` : `${dateLabel}.`;
-  if (scene) sentence += ` ${scene}.`;
-  return sentence;
+  return ageLabel ? `${dateLabel} — ${ageLabel} old.` : `${dateLabel}.`;
 }
 
 // General context draft for parent-editable note fields. Every clause is a

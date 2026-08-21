@@ -5,36 +5,50 @@
 // No React Native imports — unit-tested with node --test.
 
 export function mediaUploadMetadata(base = {}, match = null) {
-  const out = withoutPrivateFields(base);
+  const out = {};
+  for (const [key, value] of Object.entries(base || {})) {
+    if (key === 'captureQuality') {
+      const quality = finiteOrNull(value);
+      if (quality != null) out.captureQuality = quality;
+    } else if (value !== undefined && SHARED_MEDIA_METADATA_KEYS.has(key)) {
+      out[key] = value;
+    }
+  }
   if (!match) return out;
   const captureQuality = finiteOrNull(match.captureQuality);
   if (captureQuality != null) out.captureQuality = captureQuality;
   return out;
 }
 
-const PRIVATE_METADATA_KEYS = new Set([
-  'assetId',
-  'localAssetId',
-  'pickerAssetId',
-  'recognitionCandidateId',
-  'recognitionScore',
-  'faceCount',
-  'videoPresenceRatio',
-  'videoSampledFrames',
-  'videoMatchedFrames',
-  'curationDay',
-  'curationRole',
-  'curationReason',
-  'visualFingerprint',
-  'identityEvidence',
+export const SHARED_MEDIA_METADATA_KEYS = new Set([
+  'source',
+  'fullPath',
+  'thumbPath',
+  'posterPath',
+  'posterTimeMs',
+  'posterWidth',
+  'posterHeight',
+  'posterSource',
+  'posterStatus',
+  'posterErrorCode',
+  'posterOnly',
+  'sourceDurationSec',
+  'originalFileName',
+  'fileSize',
+  'captureQuality',
+  'localAssetDeletedAt',
+  'localAssetStatus',
 ]);
 
-function withoutPrivateFields(base) {
-  const safe = {};
-  for (const [key, value] of Object.entries(base || {})) {
-    if (!PRIVATE_METADATA_KEYS.has(key) && value !== undefined) safe[key] = value;
-  }
-  return safe;
+export function classifyPosterErrorCode(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  if (/timeout|timed out|time out/.test(message)) return 'timeout';
+  if (/permission|unauthorized|forbidden|access denied/.test(message)) return 'permission';
+  if (/not found|no such file|does not exist|missing/.test(message)) return 'not_found';
+  if (/decode|decoder|invalid data|corrupt|unsupported format/.test(message)) return 'decode_failed';
+  if (/network|offline|connection|fetch|socket|http/.test(message)) return 'network';
+  if (/storage|upload|disk|file ?system|quota|no space/.test(message)) return 'storage';
+  return 'unknown';
 }
 
 function finiteOrNull(value) {
