@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { mediaUploadMetadata } from '../../src/mediaUploadMetadataModel.js';
+import {
+  classifyPosterErrorCode,
+  mediaUploadMetadata,
+} from '../../src/mediaUploadMetadataModel.js';
 
 test('only non-identity quality rides along after parent Keep', () => {
   assert.deepEqual(
@@ -26,29 +29,41 @@ test('missing or junk signals are omitted, not written as null', () => {
   assert.deepEqual(mediaUploadMetadata(), {});
 });
 
-test('private identity, curation, and camera-roll evidence is stripped', () => {
+test('unknown metadata is dropped while allowlisted media facts survive', () => {
   assert.deepEqual(
     mediaUploadMetadata({
       source: 'daily-curation',
+      fullPath: 'f/full/x.jpg',
+      posterStatus: 'failed',
+      posterErrorCode: 'decode_failed',
+      localAssetStatus: 'deleted',
       localAssetId: 'PH-PRIVATE/L0/001',
       pickerAssetId: 'PH-PRIVATE/L0/002',
       recognitionCandidateId: 'PH-PRIVATE/L0/003',
+      recognitionFrameTimeMs: 1200,
       identityEvidence: [0.1, 0.2],
       visualFingerprint: 'private-fingerprint',
     }, {
       score: 0.99,
       faceCount: 1,
       videoPresenceRatio: 2 / 3,
-      videoSampledFrames: 3,
-      videoMatchedFrames: 2,
-      curation: {
-        dayKey: '2026-07-16',
-        role: 'standout-video',
-        reason: 'baby-present-across-video',
-      },
     }),
     {
       source: 'daily-curation',
+      fullPath: 'f/full/x.jpg',
+      posterStatus: 'failed',
+      posterErrorCode: 'decode_failed',
+      localAssetStatus: 'deleted',
     },
   );
+});
+
+test('poster errors classify into stable codes', () => {
+  assert.equal(classifyPosterErrorCode(new Error('Timed out while reading video')), 'timeout');
+  assert.equal(classifyPosterErrorCode('Permission denied'), 'permission');
+  assert.equal(classifyPosterErrorCode('File not found'), 'not_found');
+  assert.equal(classifyPosterErrorCode('Decoder failed on invalid data'), 'decode_failed');
+  assert.equal(classifyPosterErrorCode('Network connection lost'), 'network');
+  assert.equal(classifyPosterErrorCode('Storage quota exceeded'), 'storage');
+  assert.equal(classifyPosterErrorCode('Something unexpected happened'), 'unknown');
 });

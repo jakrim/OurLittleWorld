@@ -17,7 +17,7 @@ import {
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
-import { mediaUploadMetadata } from './mediaUploadMetadataModel';
+import { classifyPosterErrorCode, mediaUploadMetadata } from './mediaUploadMetadataModel';
 import {
   assertCanonicalVideoPublication,
   assertLegacyQueuedKeepResolved,
@@ -185,6 +185,7 @@ async function prepareVideoPoster({ info, match, posterPath, posterId, required 
       },
     };
   } catch (error) {
+    console.warn('video poster extraction failed', error?.message || error);
     if (required) throw error;
     return {
       uri: null,
@@ -192,7 +193,7 @@ async function prepareVideoPoster({ info, match, posterPath, posterId, required 
       posterId,
       metadata: {
         posterStatus: 'failed',
-        posterError: String(error?.message || error),
+        posterErrorCode: classifyPosterErrorCode(error),
       },
     };
   }
@@ -204,11 +205,12 @@ async function uploadPreparedVideoPoster(poster) {
     await uploadBuffer(poster.posterPath, poster.uri, 'image/jpeg');
     return { posterObject: poster.posterId, posterMetadata: poster.metadata || {} };
   } catch (error) {
+    console.warn('video poster upload failed', error?.message || error);
     return {
       posterObject: null,
       posterMetadata: {
         posterStatus: 'failed',
-        posterError: String(error?.message || error),
+        posterErrorCode: classifyPosterErrorCode(error),
       },
     };
   }
@@ -257,7 +259,10 @@ async function publishVideoReadyRows({
       .update({
         full_object: fullId,
         poster_object: posterObject,
-        metadata: { ...metadata, ...(posterResult?.posterMetadata || {}) },
+        metadata: mediaUploadMetadata({
+          ...metadata,
+          ...(posterResult?.posterMetadata || {}),
+        }),
         upload_status: 'ready',
         upload_error: null,
         quota_class: quotaClass,
@@ -693,13 +698,16 @@ async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, in
 
   const width = full?.width || existingMedia?.width || existingTag?.original_width || info.width || null;
   const height = full?.height || existingMedia?.height || existingTag?.original_height || info.height || null;
-  const metadata = recovery.remoteReady && existingMedia?.metadata
-    ? existingMedia.metadata
-    : mediaUploadMetadata({
-      source: source || 'library-review',
-      fullPath,
-      thumbPath,
-    }, match);
+  const metadata = mediaUploadMetadata(
+    recovery.remoteReady && existingMedia?.metadata
+      ? existingMedia.metadata
+      : {
+          source: source || 'library-review',
+          fullPath,
+          thumbPath,
+        },
+    recovery.remoteReady && existingMedia?.metadata ? null : match,
+  );
   const [mediaReady, tagReady] = await Promise.all([
     supabase.from('moment_media').upsert({
       id: mediaId,
@@ -789,7 +797,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     source: source || 'library-review',
     ...(fullPath ? { fullPath } : {}),
     posterPath,
-    recognitionFrameTimeMs: match?.frameTimeMs ?? null,
     originalFileName: info.fileName || match?.fileName || null,
   }, match);
   let streamUid = existingMedia?.stream_uid || remoteIdentity.providerUpload?.uid || null;

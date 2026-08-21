@@ -24,6 +24,7 @@ import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
 import * as mediaDb from './mediaDb';
 import { readPostgrestRelationshipCompatible } from './postgrestCompatibility';
+import { classifyPosterErrorCode, mediaUploadMetadata } from './mediaUploadMetadataModel';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -202,13 +203,13 @@ async function uploadPickedImage({ familyId, momentId = null, letterId = null, u
   const location = locationFromAsset(asset);
   const creationTime = dateFromAsset(asset) || capturedAt;
 
-  const metadata = {
+  const metadata = mediaUploadMetadata({
     source: 'manual-picker',
     fullPath,
     thumbPath,
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
-  };
+  });
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
@@ -326,12 +327,12 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
   const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
   const fullPath = useStream ? null : `${target.basePath}/video/${fullId}.${ext}`;
 
-  const metadata = {
+  const metadata = mediaUploadMetadata({
     source: 'manual-picker',
     ...(fullPath ? { fullPath } : {}),
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
-  };
+  });
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
@@ -391,14 +392,14 @@ async function uploadPickedVideo({ familyId, momentId = null, letterId = null, u
       console.warn('video poster extraction failed', posterErr?.message || posterErr);
       posterMetadata = {
         posterStatus: 'failed',
-        posterError: String(posterErr?.message || posterErr),
+        posterErrorCode: classifyPosterErrorCode(posterErr),
       };
     }
     const { error: updateErr } = await supabase
       .from('moment_media')
       .update({
         poster_object: posterObject,
-        metadata: { ...metadata, ...posterMetadata },
+        metadata: mediaUploadMetadata({ ...metadata, ...posterMetadata }),
         upload_status: 'ready',
         upload_error: null,
         quota_class: 'optimized',
@@ -455,7 +456,7 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
 
   const poster = await createVideoPoster(asset);
 
-  const metadata = {
+  const metadata = mediaUploadMetadata({
     source: 'manual-picker',
     posterPath,
     posterTimeMs: poster.timeMs,
@@ -465,7 +466,7 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId
     sourceDurationSec: durationSec,
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
-  };
+  });
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
