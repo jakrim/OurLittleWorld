@@ -38,5 +38,5 @@ test('device correction normalizes identity only at the local boundary', () => {
   assert.equal(target.match.assetId, 'opaque-shared-key');
   const sharedMetadata = mediaUploadMetadata(target.match);
   assert.equal(Object.hasOwn(sharedMetadata, 'assetId'), false);
-  assert.deepEqual(sharedMetadata, {});
+  assert.deepEqual(sharedMetadata, { captureQuality: null });
 });
