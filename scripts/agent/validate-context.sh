@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+if ! command -v rg >/dev/null 2>&1; then
+  printf 'Context validation requires ripgrep (rg); refusing to skip guidance checks.\n' >&2
+  exit 1
+fi
 root="${1:-.}"; failures=0; files=()
 while IFS= read -r file; do files+=("$file"); done < <(find "$root" \( -path '*/node_modules' -o -path '*/vendor' -o -path '*/.git' -o -path '*/build' -o -path '*/dist' \) -prune -o \( -name AGENTS.md -o -name CLAUDE.md \) -type f -print | sort)
 if [[ "${#files[@]}" -eq 0 ]]; then printf 'No AGENTS.md or CLAUDE.md files found.\n' >&2; exit 1; fi
