@@ -765,7 +765,9 @@ export default function LibraryScreen() {
                   {place.sourcePhotoCount > place.eventCount ? (
                     <Caption>{countText(place.sourcePhotoCount, 'photo')} grouped into distinct visits</Caption>
                   ) : null}
-                  <Caption>{place.topScenes.slice(0, 3).join(' · ') || 'Family outing'}</Caption>
+                  {place.topScenes.length ? (
+                    <Caption>{place.topScenes.slice(0, 3).join(' · ')}</Caption>
+                  ) : null}
                 </View>
                 <View style={styles.placeThumbRow}>
                   {place.photos.slice(0, 3).map((photo) => (

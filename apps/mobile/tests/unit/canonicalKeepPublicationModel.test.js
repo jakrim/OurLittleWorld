@@ -62,6 +62,24 @@ test('publication response exposes canonical record identities but no reservatio
   assert.deepEqual(result, { momentId: 'moment-1', mediaId: 'media-1', alreadyPublished: false });
 });
 
+test('atomic Keep publication applies the shared metadata allowlist at the final client boundary', () => {
+  const params = buildCanonicalKeepPublicationParams({
+    ...base,
+    transport: 'image',
+    metadata: {
+      source: 'scan-auto-save',
+      fullPath: 'family/full/image.jpg',
+      recognitionFrameTimeMs: 1200,
+      localAssetId: 'private-device-id',
+      posterError: '/private/path/provider-error',
+    },
+  });
+  assert.deepEqual(params.p_metadata, {
+    source: 'scan-auto-save',
+    fullPath: 'family/full/image.jpg',
+  });
+});
+
 test('missing scope or mismatched readback fails closed', () => {
   assert.throws(() => buildCanonicalKeepPublicationParams({ ...base, reservationId: null, transport: 'image' }));
   assert.throws(() => canonicalKeepPublicationResult({

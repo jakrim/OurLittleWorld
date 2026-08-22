@@ -5,6 +5,8 @@
     "agent:inventory": "bash scripts/agent/repo-inventory.sh",
     "agent:validate": "bash scripts/agent/validate-context.sh",
     "smoke:mobile": "bash scripts/agent/smoke-mobile.sh",
+    "qa:hosted:bootstrap": "bash scripts/qa/bootstrap-hosted-backend.sh",
+    "qa:hosted:seed": "bash scripts/qa/seed-hosted-real-write-smoke.sh",
     "qa:account-deletion:local": "node scripts/qa-account-deletion-local.mjs",
     "dev": "turbo dev",
     "dev:web": "pnpm --filter @ourlittleworld/web dev",

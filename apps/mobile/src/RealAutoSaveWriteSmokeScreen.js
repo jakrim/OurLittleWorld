@@ -4,16 +4,24 @@ import { useRouter } from 'expo-router';
 
 import { Family } from './families';
 import { ensureLibraryPermission, fetchPhotosPage, getAssetDetails } from './photos';
-import { recordRecentAutoSave } from './recognitionTrust';
+import { getImportCalibration, recordRecentAutoSave } from './recognitionTrust';
 import { removeAutoSavedMemory } from './autoSaveCorrection';
 import { Tags } from './storage';
 import { resolveRemoteAssetKey } from './mediaDb';
 import { supabase } from './supabase';
-import { describeSupabaseTarget, isLocalSupabaseUrl } from './supabaseQaGuard';
+import {
+  describeSupabaseTarget,
+  isApprovedRealWriteQaTarget,
+  isLocalSupabaseUrl,
+} from './supabaseQaGuard';
 import { Button, Body, Caption, Card, Eyebrow, Screen, Title, space, useTheme } from './ui';
 
 const BUCKET = 'family-photos';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const HOSTED_QA_PROJECT_REF = process.env.EXPO_PUBLIC_OLW_QA_PROJECT_REF;
+const HOSTED_QA_PURCHASE_CODE = process.env.EXPO_PUBLIC_OLW_QA_PURCHASE_CODE;
+const HOSTED_QA_USER_EMAIL = process.env.EXPO_PUBLIC_OLW_QA_USER_EMAIL;
+const HOSTED_QA_USER_PASSWORD = process.env.EXPO_PUBLIC_OLW_QA_USER_PASSWORD;
 const LOCAL_QA_PURCHASE_CODE = 'OLWLOCALREALWRITE';
 
 export default function RealAutoSaveWriteSmokeScreen() {
@@ -21,7 +29,7 @@ export default function RealAutoSaveWriteSmokeScreen() {
   const theme = useTheme();
   const [state, setState] = useState({
     status: 'running',
-    steps: ['Starting local real-write smoke.'],
+    steps: ['Starting isolated real-write smoke.'],
     result: null,
     error: null,
   });
@@ -36,7 +44,7 @@ export default function RealAutoSaveWriteSmokeScreen() {
   const runSmoke = useCallback(async () => {
     setState({
       status: 'running',
-      steps: ['Starting local real-write smoke.'],
+      steps: ['Starting isolated real-write smoke.'],
       result: null,
       error: null,
     });
@@ -72,12 +80,12 @@ export default function RealAutoSaveWriteSmokeScreen() {
       <View style={styles.stack}>
         <Card>
           <Eyebrow>Dev QA</Eyebrow>
-          <Title>Local real-write auto-save smoke.</Title>
+          <Title>Isolated real-write auto-save smoke.</Title>
           <Body>
-            Creates a disposable local family, writes one simulator photo through
+            Creates a disposable QA family, writes one simulator photo through
             `Tags.setBaby`, then removes it through the assistant correction path.
           </Body>
-          <Caption>Local Supabase target: {describeSupabaseTarget(SUPABASE_URL)}</Caption>
+          <Caption>QA Supabase target: {describeSupabaseTarget(SUPABASE_URL)}</Caption>
           <Caption style={[styles.status, { color: passed ? theme.colors.success : theme.semantic.textMuted }]}>
             {statusLabel}
           </Caption>
@@ -116,22 +124,22 @@ export default function RealAutoSaveWriteSmokeScreen() {
 }
 
 async function runRealAutoSaveWriteSmoke({ onStep } = {}) {
-  if (!isLocalSupabaseUrl(SUPABASE_URL)) {
-    throw new Error('Refusing real-write smoke because Supabase is not local.');
+  if (!isApprovedRealWriteQaTarget(SUPABASE_URL, HOSTED_QA_PROJECT_REF)) {
+    throw new Error('Refusing real-write smoke because Supabase is not an approved QA target.');
   }
   onStep?.(`Using ${describeSupabaseTarget(SUPABASE_URL)}.`);
 
-  const user = await signInDisposableLocalUser(onStep);
+  const user = await signInDisposableQaUser(onStep);
   const familyId = await Family.create({
-    name: 'OLW Local QA',
+    name: 'OLW Hosted QA',
     babyName: 'QA Baby',
     babyBirthday: '2026-01-01',
     displayName: 'QA Parent',
     relationshipLabel: 'parent',
   });
-  if (!familyId) throw new Error('Could not create disposable local family.');
-  onStep?.(`Created disposable local family ${shortId(familyId)}.`);
-  await redeemLocalQaEntitlement({ familyId, onStep });
+  if (!familyId) throw new Error('Could not create disposable QA family.');
+  onStep?.(`Created disposable QA family ${shortId(familyId)}.`);
+  await redeemQaEntitlement({ familyId, onStep });
 
   const asset = await firstWritablePhoto(onStep);
   const match = {
@@ -196,16 +204,29 @@ async function runRealAutoSaveWriteSmoke({ onStep } = {}) {
 
   return {
     passed: upload.passed && removal.passed && correction.passed,
-    summary: 'Local real-write path passed.',
-    detail: 'Used local Supabase only: disposable auth user, disposable family, simulator Photos, real storage upload, assistant-added removal, and correction recording.',
+    summary: 'Isolated real-write path passed.',
+    detail: 'Used an approved QA backend: disposable auth user, disposable family, simulator Photos, real storage upload, assistant-added removal, and correction recording.',
     uploadSummary: `${upload.tag.upload_status}; opaque shared identity; private fields excluded`,
     removalSummary: removal.passed ? 'tag, media, and storage objects removed' : 'cleanup incomplete',
     correctionSummary: `${correction.correctionCount} correction(s), ${correction.negativeCount} negative example(s)`,
   };
 }
 
-async function signInDisposableLocalUser(onStep) {
+async function signInDisposableQaUser(onStep) {
   await supabase.auth.signOut().catch(() => {});
+  if (!isLocalSupabaseUrl(SUPABASE_URL)) {
+    const email = String(HOSTED_QA_USER_EMAIL || '').trim();
+    const password = String(HOSTED_QA_USER_PASSWORD || '');
+    if (!email || !password) {
+      throw new Error('Hosted QA ordinary-auth account is not configured.');
+    }
+    const signin = await supabase.auth.signInWithPassword({ email, password });
+    if (signin.error) throw signin.error;
+    const user = signin.data?.user || null;
+    if (!user?.id) throw new Error('Could not sign in the hosted QA user.');
+    onStep?.(`Signed in hosted QA user ${shortId(user.id)} through ordinary password auth.`);
+    return user;
+  }
   const suffix = `${Date.now()}-${Math.round(Math.random() * 100000)}`;
   const email = `olw-real-write-${suffix}@example.test`;
   const password = `Qa-${suffix}-password!`;
@@ -217,22 +238,26 @@ async function signInDisposableLocalUser(onStep) {
     if (signin.error) throw signin.error;
     user = signin.data?.user || user;
   }
-  if (!user?.id) throw new Error('Could not create disposable local user.');
-  onStep?.(`Signed in disposable local user ${shortId(user.id)}.`);
+  if (!user?.id) throw new Error('Could not create disposable local QA user.');
+  onStep?.(`Signed in disposable local QA user ${shortId(user.id)}.`);
   return user;
 }
 
-async function redeemLocalQaEntitlement({ familyId, onStep }) {
+async function redeemQaEntitlement({ familyId, onStep }) {
+  const code = isLocalSupabaseUrl(SUPABASE_URL)
+    ? LOCAL_QA_PURCHASE_CODE
+    : String(HOSTED_QA_PURCHASE_CODE || '').trim();
+  if (!code) throw new Error('Hosted QA entitlement code is not configured.');
   const { data, error } = await supabase.rpc('redeem_purchase_code', {
-    p_code: LOCAL_QA_PURCHASE_CODE,
+    p_code: code,
     target_family_id: familyId,
   });
   if (error) {
-    throw new Error(`Local QA entitlement code was not available: ${error.message}`);
+    throw new Error(`QA entitlement code was not available: ${error.message}`);
   }
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.family_id) throw new Error('Local QA entitlement redemption did not return a family.');
-  onStep?.(`Redeemed local QA entitlement (${row.plan_key || 'unknown plan'}).`);
+  onStep?.(`Redeemed QA entitlement (${row.plan_key || 'unknown plan'}).`);
   return row;
 }
 
@@ -300,6 +325,7 @@ async function verifyUpload({ familyId, userId, assetId }) {
     'pickerAssetId',
     'recognitionCandidateId',
     'recognitionScore',
+    'recognitionFrameTimeMs',
     'faceCount',
     'visualFingerprint',
     'identityEvidence',
@@ -344,19 +370,13 @@ async function verifyRemoval({ familyId, userId, assetId, mediaId, fullPath, thu
 }
 
 async function verifyCorrection({ familyId, userId, assetId }) {
-  const { data, error } = await supabase
-    .from('media_import_calibrations')
-    .select('corrections, negative_examples, auto_save_enabled')
-    .eq('family_id', familyId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw error;
+  const data = await getImportCalibration({ familyId, userId });
   const corrections = Array.isArray(data?.corrections) ? data.corrections : [];
-  const negativeExamples = Array.isArray(data?.negative_examples) ? data.negative_examples : [];
+  const negativeExamples = Array.isArray(data?.negativeExamples) ? data.negativeExamples : [];
   const hasCorrection = corrections.some((item) => item?.assetId === assetId && item?.verdict === 'removed');
   const hasNegative = negativeExamples.some((item) => item?.assetId === assetId && item?.verdict === 'removed');
-  if (!hasCorrection || !hasNegative || data?.auto_save_enabled !== false) {
-    throw new Error('Correction row did not record removed auto-save state.');
+  if (!hasCorrection || !hasNegative || data?.autoSaveEnabled !== false) {
+    throw new Error('Device-local correction state did not record the removed auto-save.');
   }
   return {
     passed: true,

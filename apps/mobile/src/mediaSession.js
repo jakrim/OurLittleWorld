@@ -7,7 +7,8 @@ import { MediaPolicyError } from './mediaPolicy';
  * cached until shortly before expiry so list hydration doesn't re-fetch.
  */
 
-export const MEDIA_GATEWAY_URL = 'https://olw-media-gateway.ourlittleworld.workers.dev';
+export const MEDIA_GATEWAY_URL = process.env.EXPO_PUBLIC_MEDIA_GATEWAY_URL
+  || 'https://olw-media-gateway.ourlittleworld.workers.dev';
 
 // Stream's simple one-shot upload caps out at 200 MB; larger sources fall
 // back to the legacy Supabase upload path until tus resumable uploads land.

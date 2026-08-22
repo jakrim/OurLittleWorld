@@ -1,4 +1,5 @@
 import { requireGroundedCaptureIso } from './groundedCaptureTimeModel.js';
+import { mediaUploadMetadata } from './mediaUploadMetadataModel.js';
 
 const TRANSPORTS = new Set(['image', 'video-stream', 'video-direct', 'video-poster']);
 
@@ -36,7 +37,7 @@ export function buildCanonicalKeepPublicationParams(input = {}) {
     p_width: integerOrNull(input.width),
     p_height: integerOrNull(input.height),
     p_duration_sec: finiteOrNull(input.durationSec),
-    p_metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
+    p_metadata: mediaUploadMetadata(input.metadata),
     p_stream_uid: input.streamUid || null,
     p_source_bytes: integerOrNull(input.sourceBytes),
     p_optimized_bytes: integerOrNull(input.optimizedBytes),

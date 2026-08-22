@@ -19,3 +19,19 @@ STREAM_CUSTOMER_DOMAIN = "customer-jogvhkgc1pngb2is.cloudflarestream.com"
 
 [observability]
 enabled = true
+
+# Persistent synthetic-only QA plane. Secrets are environment-specific and
+# must be set with `wrangler secret put --env qa`; they never inherit from the
+# production Worker.
+[env.qa]
+name = "olw-media-gateway-qa"
+
+[[env.qa.r2_buckets]]
+binding = "ORIGINALS"
+bucket_name = "olw-originals-qa"
+
+[env.qa.vars]
+STREAM_CUSTOMER_DOMAIN = "customer-jogvhkgc1pngb2is.cloudflarestream.com"
+
+[env.qa.observability]
+enabled = true
