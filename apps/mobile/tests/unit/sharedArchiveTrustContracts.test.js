@@ -22,6 +22,27 @@ test('shared upload metadata uses an allowlist and excludes identity evidence', 
   });
 });
 
+test('final publish metadata filters poster merge through the allowlist', () => {
+  const base = mediaUploadMetadata({
+    source: 'scan-auto-save',
+    fullPath: 'family/full.mp4',
+  });
+  const merged = mediaUploadMetadata({
+    ...base,
+    posterStatus: 'failed',
+    posterErrorCode: 'timeout',
+    posterError: 'ENOENT /var/private/local/path.jpg',
+    recognitionFrameTimeMs: 1234,
+    localAssetId: 'private-local',
+  });
+  assert.deepEqual(merged, {
+    source: 'scan-auto-save',
+    fullPath: 'family/full.mp4',
+    posterStatus: 'failed',
+    posterErrorCode: 'timeout',
+  });
+});
+
 test('device correction normalizes identity only at the local boundary', () => {
   const target = autoSaveCorrectionTarget({
     asset_id: 'opaque-shared-key',

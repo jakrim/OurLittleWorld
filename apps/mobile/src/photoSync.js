@@ -279,7 +279,7 @@ async function publishVideoReadyRows({
     width: width || posterResult?.posterMetadata?.posterWidth || null,
     height: height || posterResult?.posterMetadata?.posterHeight || null,
     durationSec,
-    metadata: { ...metadata, ...(posterResult?.posterMetadata || {}) },
+    metadata: mediaUploadMetadata({ ...metadata, ...(posterResult?.posterMetadata || {}) }),
     streamUid,
     sourceBytes,
     optimizedBytes,
