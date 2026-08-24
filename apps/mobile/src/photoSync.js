@@ -7,7 +7,7 @@ import * as mediaDb from './mediaDb';
 import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
 import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
 import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
-import { mediaUploadMetadata } from './mediaUploadMetadataModel';
+import { mediaUploadMetadata, sharedPosterProvenance } from './mediaUploadMetadataModel';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
@@ -522,10 +522,9 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
       posterObject = posterId;
       posterMetadata = {
         posterPath,
-        posterTimeMs: poster.timeMs,
         posterWidth: poster.width,
         posterHeight: poster.height,
-        posterSource: poster.source,
+        ...sharedPosterProvenance(poster),
       };
     } catch (posterErr) {
       posterMetadata = {
@@ -639,10 +638,9 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, us
   const metadata = mediaUploadMetadata({
     source: source || 'scan-auto-save',
     posterPath,
-    posterTimeMs: poster.timeMs,
     posterWidth: poster.width,
     posterHeight: poster.height,
-    posterSource: poster.source,
+    ...sharedPosterProvenance(poster),
     posterOnly: true,
     sourceDurationSec: durationSec,
     originalFileName: info.fileName || match?.fileName || null,

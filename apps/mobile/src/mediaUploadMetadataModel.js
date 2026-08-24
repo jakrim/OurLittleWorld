@@ -12,6 +12,15 @@ export function mediaUploadMetadata(base = {}, match = null) {
   return out;
 }
 
+// A video poster's frame time/source is recognition evidence when the frame
+// came from a face-match candidate; that provenance must never reach shared
+// metadata, even though the same fields are safe to share for a poster the
+// app generated on its own (no recognition input).
+export function sharedPosterProvenance(poster) {
+  if (poster?.source === 'recognition-frame') return {};
+  return { posterTimeMs: poster?.timeMs ?? null, posterSource: poster?.source ?? null };
+}
+
 const PRIVATE_METADATA_KEYS = new Set([
   'assetId',
   'localAssetId',

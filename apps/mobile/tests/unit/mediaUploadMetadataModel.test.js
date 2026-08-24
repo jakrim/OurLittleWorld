@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { mediaUploadMetadata } from '../../src/mediaUploadMetadataModel.js';
+import { mediaUploadMetadata, sharedPosterProvenance } from '../../src/mediaUploadMetadataModel.js';
 
 test('only non-identity quality rides along after parent Keep', () => {
   assert.deepEqual(
@@ -50,5 +50,19 @@ test('private identity, curation, and camera-roll evidence is stripped', () => {
     {
       source: 'daily-curation',
     },
+  );
+});
+
+test('poster provenance omits recognition frame timing and source entirely', () => {
+  assert.deepEqual(
+    sharedPosterProvenance({ timeMs: 4200, source: 'recognition-frame' }),
+    {},
+  );
+});
+
+test('poster provenance keeps frame timing and source for a self-generated poster', () => {
+  assert.deepEqual(
+    sharedPosterProvenance({ timeMs: 1500, source: 'generated-frame' }),
+    { posterTimeMs: 1500, posterSource: 'generated-frame' },
   );
 });
