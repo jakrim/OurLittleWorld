@@ -799,7 +799,7 @@ public class ExpoFaceMatcherModule: Module {
       let data = try Data(contentsOf: url)
       try ensureNotCancelled(token)
       guard let img = UIImage(data: data) else { return nil }
-      return img.cgImage ?? CIImage(image: img).flatMap { ciContext.createCGImage($0, from: $0.extent) }
+      return uprightCGImage(from: img)
     }
     if url.scheme == "ph" || url.scheme == "assets-library" {
       return try loadFromPhotos(url: url, token: token)
@@ -882,14 +882,39 @@ public class ExpoFaceMatcherModule: Module {
       resultLock.lock()
       let bestAvailable = resultImage
       resultLock.unlock()
-      return bestAvailable?.cgImage
+      return bestAvailable.flatMap { uprightCGImage(from: $0) }
     }
 
     try ensureNotCancelled(token)
     resultLock.lock()
     let resolvedImage = resultImage
     resultLock.unlock()
-    return resolvedImage?.cgImage
+    return resolvedImage.flatMap { uprightCGImage(from: $0) }
+  }
+
+  /// Bake `image.imageOrientation` into the pixel buffer.
+  ///
+  /// `UIImage.cgImage` returns the stored buffer and drops the orientation, so a
+  /// camera portrait (landscape pixels plus an EXIF rotation tag) reaches Vision
+  /// sideways. Every Vision request here passes `orientation: .up` and `crop` maps
+  /// bounding boxes with the buffer's own geometry, so normalising once at load
+  /// keeps detection, cropping, and feature prints in one upright space.
+  private func uprightCGImage(from image: UIImage) -> CGImage? {
+    if image.imageOrientation == .up {
+      return image.cgImage
+        ?? CIImage(image: image).flatMap { ciContext.createCGImage($0, from: $0.extent) }
+    }
+    // `image.draw` applies `imageOrientation`; `image.size` is already reported in
+    // the oriented space, so rendering at the image's own scale preserves the
+    // source pixel count.
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = image.scale
+    format.opaque = true
+    let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+    let redrawn = renderer.image { _ in
+      image.draw(in: CGRect(origin: .zero, size: image.size))
+    }
+    return redrawn.cgImage ?? image.cgImage
   }
 
   /// Crop a CGImage to the given Vision bounding box (normalised 0..1, origin
