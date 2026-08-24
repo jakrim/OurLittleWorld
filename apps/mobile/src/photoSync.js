@@ -420,7 +420,6 @@ async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, in
     source: source || 'library-review',
     ...(fullPath ? { fullPath } : {}),
     posterPath,
-    recognitionFrameTimeMs: match?.frameTimeMs ?? null,
     originalFileName: info.fileName || match?.fileName || null,
   }, match);
 

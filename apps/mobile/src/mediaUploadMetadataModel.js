@@ -31,6 +31,7 @@ const PRIVATE_METADATA_KEYS = new Set([
   'videoPresenceRatio',
   'videoSampledFrames',
   'videoMatchedFrames',
+  'recognitionFrameTimeMs',
   'curationDay',
   'curationRole',
   'curationReason',

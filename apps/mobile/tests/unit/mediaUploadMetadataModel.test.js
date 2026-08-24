@@ -35,6 +35,7 @@ test('private identity, curation, and camera-roll evidence is stripped', () => {
       recognitionCandidateId: 'PH-PRIVATE/L0/003',
       identityEvidence: [0.1, 0.2],
       visualFingerprint: 'private-fingerprint',
+      recognitionFrameTimeMs: 4200,
     }, {
       score: 0.99,
       faceCount: 1,
