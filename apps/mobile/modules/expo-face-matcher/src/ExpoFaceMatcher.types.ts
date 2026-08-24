@@ -9,6 +9,12 @@ export type FaceEmbedding = {
   embedding: number[];
   faceCount: number;
   primaryBox: FaceBox | null;
+  captureQuality: number | null;
+  faceSizeRatio: number;
+  sharpness: number;
+  yaw: number | null;
+  roll: number | null;
+  brightness: number | null;
 };
 
 export type CandidateInput = {
@@ -16,11 +22,38 @@ export type CandidateInput = {
   localUri: string;
 };
 
+export type ReferenceInput = {
+  referenceId: string;
+  embedding: number[];
+};
+
 export type MatchResult = {
   assetId: string;
   /** Cosine similarity to the reference embedding, ~[0..1]. */
   score: number;
   faceCount: number;
+  captureQuality: number | null;
+  faceSizeRatio: number;
+  sharpness: number;
+  yaw: number | null;
+  roll: number | null;
+  brightness: number | null;
+  /** Face-crop feature print used only for child-identity matching. */
+  featureVector: number[];
+  /** Whole-image plus selected-face perceptual fingerprint for near-duplicates. */
+  visualFingerprint: number[];
+};
+
+export type MultiReferenceMatchResult = MatchResult & {
+  referenceId: string;
+};
+
+export type MatchBatchResult = {
+  results: MultiReferenceMatchResult[];
+  processedAssetIds: string[];
+  timedOut: boolean;
+  cancelled: boolean;
+  durationMs: number;
 };
 
 export type ExpoFaceMatcherModuleEvents = Record<string, never>;

@@ -1,0 +1,42 @@
+appId: com.jessekrim.ourlittleworld
+name: Our Little World primary family journey
+---
+- stopApp
+- launchApp:
+    clearState: false
+- runFlow:
+    when:
+      visible: "Start your family world"
+    commands:
+      - tapOn: "Start your family world"
+- runFlow:
+    when:
+      visible: "Use dev code"
+    commands:
+      - tapOn: "Use dev code"
+      - assertVisible: "Check your inbox."
+      - tapOn: "Enter verification code"
+      - inputText: "${OLW_SMOKE_DEV_CODE}"
+      - waitForAnimationToEnd
+- tapOn:
+    text: "Continue"
+    optional: true
+- tapOn:
+    text: "Skip"
+    optional: true
+- runFlow: top-level-today-add-book.yaml
+- runFlow: add-photo-only-dry-run.yaml
+- runFlow: book-manual-qa-fixtures.yaml
+- runFlow: moment-detail-story-and-photo.yaml
+- openLink: "ourlittleworld://today"
+- assertVisible: "Today"
+- stopApp
+- launchApp:
+    clearState: false
+- assertVisible: "Today"
+- openLink: "ourlittleworld://settings"
+- tapOn:
+    text: "Dark"
+    optional: true
+- openLink: "ourlittleworld://today"
+- assertVisible: "Today"

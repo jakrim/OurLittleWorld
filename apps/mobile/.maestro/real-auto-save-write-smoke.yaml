@@ -1,0 +1,17 @@
+# PRD final real-write smoke: this route refuses remote Supabase targets and
+# only passes when the app is running against local Supabase. It creates a
+# disposable local user/family, uploads one simulator photo through Tags.setBaby,
+# removes it through the assistant-added correction path, and verifies cleanup.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://real-auto-save-write-smoke"
+- assertVisible:
+    text: "Local Supabase.*"
+- tapOn: "Run again"
+- assertVisible: "Real-write auto-save: passed"
+- assertVisible:
+    text: "Upload verified.*"
+- assertVisible:
+    text: "Removal verified.*"
+- assertVisible:
+    text: "Correction verified.*"

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, Pressable, Dimensions, Alert, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -10,10 +10,21 @@ import { Screen, Button, Hero, Body, Caption, Eyebrow, Spacer, semantic, colors,
 import { Tags } from './storage';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
 import { embedFace, isNative } from './faceMatcher';
 import { addTrustedReferenceImage } from './recognitionReferences';
-import { recordCalibrationReview } from './recognitionTrust';
+import { selectExplicitReferenceLearningCandidates } from './recognitionReferenceModel';
+import { HIGH_CONFIDENCE_THRESHOLD, recordCalibrationReview } from './recognitionTrust';
+import {
+  assetIdsForReviewAction,
+  buildReviewStacks,
+  expandReviewItems,
+} from './photoStackModel';
+import { maybePromptForPushNotifications } from './pushNotifications';
 import * as Scan from './scanController';
+import { buildDailyCurationPlan, curationDayKey } from './dailyCurationModel';
+import { isMediaPolicyError } from './mediaPolicy';
+import { markCandidateDecisions } from './candidateLedgerStore';
 
 /**
  * Live review grid.
@@ -24,44 +35,76 @@ import * as Scan from './scanController';
  *  • Edge-to-edge photo tiles, density adjustable from 1 → 5 columns
  *    via a pinch gesture (Photos.app style).
  *  • Floating date header that updates with the visible row.
- *  • Filter chips (All / High / Borderline) for quickly sweeping the
- *    questionable matches.
+ *  • Filter chips use parent-facing labels while internal scoring stays hidden.
  *  • Sticky save bar at the bottom — works at any time, even mid-scan.
  */
 export default function ReviewMatchesScreen() {
   const router = useRouter();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const scan = Scan.useScanState();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canCurate = writer && entitlement?.isActive === true;
 
-  const [filter, setFilter] = useState('all');     // 'all' | 'high' | 'borderline'
+  const [filter, setFilter] = useState('high');    // 'all' | 'high' | 'borderline'
   const [columns, setColumns] = useState(3);       // 1 .. 5
   const [topDate, setTopDate] = useState(null);    // creationTime ms of first visible
   const [savingCount, setSavingCount] = useState(0);
   const [savingTotal, setSavingTotal] = useState(0);
   const [savingErrors, setSavingErrors] = useState(0);
+  const [expandedStackIds, setExpandedStackIds] = useState(() => new Set());
+  const [promotedFoldedIds, setPromotedFoldedIds] = useState(() => new Set());
+  const [rejectedIds, setRejectedIds] = useState(() => new Set());
 
   const matches = scan.matches;
 
-  // Filtered list. For 'all' we just hide saved ones; for the others
-  // we filter once per (matches reference || filter) change.
-  const visibleMatches = useMemo(() => {
+  const unsavedMatches = useMemo(() => {
     const seen = new Set();
     const out = [];
-    const min = filter === 'high' ? 0.75 : 0;
-    const max = filter === 'high' ? 1.01 : 0.75;
     for (const match of matches) {
-      if (!match || match.saved) continue;
-      if (seen.has(match.assetId)) continue;
-      if (filter !== 'all') {
-        const score = match.score ?? 0;
-        if (score < min || score >= max) continue;
-      }
+      if (!match || match.saved || seen.has(match.assetId)) continue;
       seen.add(match.assetId);
       out.push(match);
     }
     return out;
-  }, [matches, filter]);
+  }, [matches]);
+
+  // Filtered list. For 'all' we just hide saved ones; for the others
+  // we filter once per (matches reference || filter) change.
+  const filteredMatches = useMemo(() => {
+    const out = [];
+    const min = filter === 'high' ? HIGH_CONFIDENCE_THRESHOLD : 0;
+    const max = filter === 'high' ? 1.01 : HIGH_CONFIDENCE_THRESHOLD;
+    for (const match of unsavedMatches) {
+      if (filter !== 'all') {
+        const score = match.score ?? 0;
+        if (score < min || score >= max) continue;
+      }
+      out.push(match);
+    }
+    return out;
+  }, [filter, unsavedMatches]);
+
+  const reviewItems = useMemo(() => buildReviewStacks(filteredMatches), [filteredMatches]);
+  const displayItems = useMemo(() => expandReviewItems(reviewItems, expandedStackIds), [expandedStackIds, reviewItems]);
+  const curationPlan = useMemo(() => buildDailyCurationPlan(unsavedMatches, {
+    minIdentityScore: HIGH_CONFIDENCE_THRESHOLD,
+  }), [unsavedMatches]);
+  const selectedAssetIds = useMemo(() => {
+    const selected = new Set(curationPlan.selectedAssetIds);
+    for (const id of promotedFoldedIds) selected.add(id);
+    for (const id of rejectedIds) selected.delete(id);
+    return selected;
+  }, [curationPlan.selectedAssetIds, promotedFoldedIds, rejectedIds]);
+  const selectedCount = selectedAssetIds.size;
+
+  useEffect(() => {
+    setExpandedStackIds((current) => pruneSet(current, reviewItems.map((item) => item.id)));
+    const liveAssetIds = matches.map((match) => match.assetId).filter(Boolean);
+    setPromotedFoldedIds((current) => pruneSet(current, liveAssetIds));
+    setRejectedIds((current) => pruneSet(current, liveAssetIds));
+  }, [matches, reviewItems]);
 
   const counts = {
     all: scan.matches.length - scan.savedCount,
@@ -69,29 +112,56 @@ export default function ReviewMatchesScreen() {
     borderline: scan.borderlineCount,
   };
 
-  const toggle = useCallback((assetId, accepted) => {
-    Haptics.selectionAsync();
-    Scan.setAccepted(assetId, !accepted);
-  }, []);
-
   const acceptVisible = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const ids = new Set(visibleMatches.map((m) => m.assetId));
-    Scan.setAcceptedBulk((m) => ids.has(m.assetId), true);
+    const ids = new Set(displayItems.flatMap((item) => assetIdsForReviewAction(item, 'accept')));
+    setRejectedIds((current) => withoutIds(current, ids));
+    setPromotedFoldedIds((current) => withIds(current, ids));
   };
 
   const rejectVisible = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const ids = new Set(visibleMatches.map((m) => m.assetId));
-    Scan.setAcceptedBulk((m) => ids.has(m.assetId), false);
+    const ids = new Set(displayItems.flatMap((item) => assetIdsForReviewAction(item, 'reject')));
+    setRejectedIds((current) => withIds(current, ids));
+    setPromotedFoldedIds((current) => withoutIds(current, ids));
   };
 
+  const toggleMatch = useCallback((match, accepted) => {
+    if (!match?.assetId) return;
+    Haptics.selectionAsync();
+    if (accepted) {
+      setRejectedIds((current) => withIds(current, [match.assetId]));
+      setPromotedFoldedIds((current) => withoutIds(current, [match.assetId]));
+    } else {
+      setRejectedIds((current) => withoutIds(current, [match.assetId]));
+      setPromotedFoldedIds((current) => withIds(current, [match.assetId]));
+    }
+  }, []);
+
+  const toggleStack = useCallback((stackId) => {
+    setExpandedStackIds((current) => {
+      const next = new Set(current);
+      if (next.has(stackId)) next.delete(stackId);
+      else next.add(stackId);
+      return next;
+    });
+  }, []);
+
   const onSave = async () => {
-    if (!family) return;
-    const accepted = matches.filter((m) => m.accepted && !m.saved);
-    const rejected = matches.filter((m) => !m.accepted && !m.saved);
+    if (!family || !canCurate) return;
+    const accepted = matches
+      .filter((m) => selectedAssetIds.has(m.assetId) && !m.saved)
+      .map((match) => ({
+        ...match,
+        curation: curationPlan.decisionByAssetId[match.assetId] || {
+          dayKey: curationDayKey(match.creationTime),
+          role: 'parent-pick',
+          reason: 'parent-pick',
+        },
+      }));
+    const rejected = matches.filter((m) => rejectedIds.has(m.assetId) && !m.saved);
     if (!accepted.length) {
-      Alert.alert('Nothing accepted', 'Tap media to accept it first.');
+      Alert.alert('Nothing selected', 'Tap media to keep it first.');
       return;
     }
 
@@ -106,22 +176,37 @@ export default function ReviewMatchesScreen() {
     const savedIds = [];
     let done = 0;
     let errors = 0;
+    let previewVideos = 0;
     const concurrency = 6;
     const workers = Array.from({ length: concurrency }, async () => {
       while (queue.length > 0) {
         const m = queue.shift();
         if (!m) return;
         try {
-          await Tags.setBaby({
-            familyId: family.id,
-            assetId: m.assetId,
-            isBaby: true,
-            match: m,
-            videoPosterOnly: m.mediaType === 'video',
-          });
+          try {
+            await Tags.setBaby({
+              familyId: family.id,
+              assetId: m.assetId,
+              isBaby: true,
+              match: m,
+              videoPosterOnly: false,
+              source: 'daily-curation',
+            });
+          } catch (error) {
+            if (m.mediaType !== 'video' || !isMediaPolicyError(error)) throw error;
+            await Tags.setBaby({
+              familyId: family.id,
+              assetId: m.assetId,
+              isBaby: true,
+              match: m,
+              videoPosterOnly: true,
+              source: 'daily-curation',
+            });
+            previewVideos += 1;
+          }
           savedIds.push(m.assetId);
-        } catch (e) {
-          console.warn('save match failed', m.assetId, e?.message);
+        } catch {
+          console.warn('review save failed', { mediaType: m.mediaType === 'video' ? 'video' : 'image' });
           errors += 1;
           setSavingErrors(errors);
         }
@@ -136,13 +221,35 @@ export default function ReviewMatchesScreen() {
       family,
       user,
       matches: savedMatches,
-    }).catch((err) => console.warn('refreshTrustedReferences', err?.message));
+      explicitlyConfirmedAssetIds: promotedFoldedIds,
+    }).catch(() => console.warn('trusted reference refresh failed'));
     await recordCalibrationReview({
       familyId: family.id,
       userId: user?.id,
       accepted: savedMatches,
       rejected,
-    }).catch((err) => console.warn('recordCalibrationReview', err?.message));
+    }).catch(() => console.warn('calibration review persistence failed'));
+    if (user?.id) {
+      markCandidateDecisions({
+        familyId: family.id,
+        userId: user.id,
+        keptAssetIds: savedIds,
+        skippedAssetIds: rejected.map((match) => match.assetId),
+      });
+    }
+    if (savedIds.length && user?.id) {
+      await maybePromptForPushNotifications({
+        familyId: family.id,
+        userId: user.id,
+        reason: 'review-save',
+      });
+    }
+    if (previewVideos > 0) {
+      Alert.alert(
+        `${previewVideos} ${previewVideos === 1 ? 'video was' : 'videos were'} saved as previews`,
+        'The family moment is safe. The parent with the original can open it later to save the playable video.',
+      );
+    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/timeline');
@@ -167,11 +274,11 @@ export default function ReviewMatchesScreen() {
   // for tiled grids in RN 0.83.
   const rows = useMemo(() => {
     const out = [];
-    for (let i = 0; i < visibleMatches.length; i += columns) {
-      out.push(visibleMatches.slice(i, i + columns));
+    for (let i = 0; i < displayItems.length; i += columns) {
+      out.push(displayItems.slice(i, i + columns));
     }
     return out;
-  }, [visibleMatches, columns]);
+  }, [displayItems, columns]);
 
   // Track the topmost visible row to drive the floating date header.
   // Only re-renders when the *day* changes so fast scroll never thrashes.
@@ -190,6 +297,26 @@ export default function ReviewMatchesScreen() {
   }).current;
 
   // ─── Render branches ──────────────────────────────────────────────────────
+
+  if (billingLoading) {
+    return <Screen variant="warm"><View style={styles.center}><Caption>Preparing private review…</Caption></View></Screen>;
+  }
+
+  if (!canCurate) {
+    return (
+      <Screen variant="warm">
+        <View style={styles.center}>
+          <Eyebrow align="center">Private discovery</Eyebrow>
+          <Spacer h={space.md} />
+          <Hero align="center" style={{ fontSize: 28 }}>Photo review is paused.</Hero>
+          <Spacer h={space.sm} />
+          <Body align="center">Only parents on an active family plan can review or save newly discovered photos.</Body>
+          <Spacer h={space.lg} />
+          <Button variant="quiet" onPress={() => router.replace('/timeline')}>Back to Our World</Button>
+        </View>
+      </Screen>
+    );
+  }
 
   if (savingTotal > 0) {
     const pct = Math.round((savingCount / savingTotal) * 100);
@@ -286,7 +413,7 @@ export default function ReviewMatchesScreen() {
             <FlatList
               key={`cols-${columns}`}
               data={rows}
-              keyExtractor={(row, i) => `r${i}-${row[0]?.assetId || 'empty'}`}
+              keyExtractor={(row, i) => `r${i}-${row[0]?.id || row[0]?.match?.assetId || 'empty'}`}
               contentContainerStyle={{ paddingBottom: 140 }}
               initialNumToRender={12}
               windowSize={21}
@@ -307,34 +434,54 @@ export default function ReviewMatchesScreen() {
                   <Spacer h={space.sm} />
                   <Body>
                     {scanning
-                      ? 'Pinch to resize · tap any item that isn’t them to skip it.'
-                      : `Pinch to resize · tap any item that isn’t ${family?.babyName || 'them'} to skip it.`}
+                      ? 'One clear photo is selected for every day that has an eligible match. Distinct standout photos and special videos stay selected too.'
+                      : `One clear photo is selected for every day that has an eligible match. Distinct standout photos and special videos stay selected too; tap anything that is not ${family?.babyName || 'them'} to skip it.`}
                   </Body>
+                  <Spacer h={space.xs} />
+                  <Caption>
+                    {curationPlan.photoDayCount.toLocaleString()} photo days · {curationPlan.photoCount.toLocaleString()} photos · {curationPlan.videoCount.toLocaleString()} videos selected
+                  </Caption>
                   <Spacer h={space.md} />
                   <View style={styles.chipRow}>
                     <Chip active={filter === 'all'} onPress={() => setFilter('all')}>
                       All · {counts.all.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'high'} onPress={() => setFilter('high')}>
-                      High · {counts.high.toLocaleString()}
+                      Clear matches · {counts.high.toLocaleString()}
                     </Chip>
                     <Chip active={filter === 'borderline'} onPress={() => setFilter('borderline')}>
-                      Borderline · {counts.borderline.toLocaleString()}
+                      Optional checks · {counts.borderline.toLocaleString()}
                     </Chip>
                   </View>
                 </View>
               )}
               renderItem={({ item: row }) => (
                 <View style={{ flexDirection: 'row', height: TILE }}>
-                  {row.map((item) => (
-                    <Tile
-                      key={item.assetId}
-                      item={item}
-                      size={TILE}
-                      columns={columns}
-                      onToggle={toggle}
-                    />
-                  ))}
+                  {row.map((item) => {
+                    if (item.type === 'stack' || item.type === 'stack-control') {
+                      return (
+                        <StackTile
+                          key={item.id}
+                          item={item}
+                          size={TILE}
+                          columns={columns}
+                          expanded={item.type === 'stack-control'}
+                          onToggle={toggleStack}
+                        />
+                      );
+                    }
+                    const match = item.match || item;
+                    return (
+                      <Tile
+                        key={item.id || match.assetId}
+                        item={{ ...match, accepted: selectedAssetIds.has(match.assetId) }}
+                        size={TILE}
+                        columns={columns}
+                        folded={item.folded}
+                        onToggle={(current, accepted) => toggleMatch(current, accepted, { folded: item.folded })}
+                      />
+                    );
+                  })}
                 </View>
               )}
               ListEmptyComponent={
@@ -360,24 +507,24 @@ export default function ReviewMatchesScreen() {
           <View style={styles.actionBar}>
             <View style={styles.barInner}>
               <View style={styles.barLeft}>
-                <Caption>{scan.acceptedCount.toLocaleString()} of {(scan.matches.length - scan.savedCount).toLocaleString()} selected</Caption>
+                <Caption>{selectedCount.toLocaleString()} of {(scan.matches.length - scan.savedCount).toLocaleString()} selected</Caption>
                 <View style={{ flexDirection: 'row', gap: space.sm, marginTop: 4 }}>
                   <Pressable onPress={rejectVisible} hitSlop={8}>
                     <Caption style={{ color: colors.plum, fontWeight: '600' }}>
-                      Skip {filter === 'all' ? 'all' : 'these'}
+                      Skip {filter === 'all' ? 'shown' : 'these'}
                     </Caption>
                   </Pressable>
                   <Caption style={{ color: colors.whisper }}>·</Caption>
                   <Pressable onPress={acceptVisible} hitSlop={8}>
                     <Caption style={{ color: colors.coral, fontWeight: '600' }}>
-                      Accept {filter === 'all' ? 'all' : 'these'}
+                      Keep {filter === 'all' ? 'shown' : 'these'}
                     </Caption>
                   </Pressable>
                 </View>
               </View>
               <View style={styles.barRight}>
-                <Button onPress={onSave} disabled={scan.acceptedCount === 0}>
-                  Save {scan.acceptedCount.toLocaleString()}
+                <Button onPress={onSave} disabled={selectedCount === 0}>
+                  Save selected
                 </Button>
               </View>
             </View>
@@ -387,11 +534,10 @@ export default function ReviewMatchesScreen() {
   );
 }
 
-async function refreshTrustedReferences({ family, user, matches }) {
+async function refreshTrustedReferences({ family, user, matches, explicitlyConfirmedAssetIds }) {
   if (!isNative || !family?.id || !user?.id || !matches?.length) return;
   const usedAgeBuckets = new Set();
-  const candidates = matches
-    .filter((match) => Number(match.score || 0) >= 0.82 && match.faceCount > 0 && (match.localUri || match.uri))
+  const candidates = selectExplicitReferenceLearningCandidates(matches, explicitlyConfirmedAssetIds)
     .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
   let added = 0;
   for (const match of candidates) {
@@ -456,7 +602,47 @@ function Chip({ active, onPress, children }) {
   );
 }
 
-const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
+const StackTile = React.memo(function StackTile({ item, size, columns, expanded, onToggle }) {
+  const inner = columns >= 4 ? 1 : columns === 3 ? 2 : columns === 2 ? 3 : 0;
+  const stackId = item.controlForStackId || item.id;
+  const label = expanded
+    ? 'Hide stack'
+    : `${item.curationSummary || `Kept ${item.keep.length} of ${item.matches.length}`} · see rest`;
+  return (
+    <Pressable
+      onPress={() => onToggle(stackId)}
+      accessibilityRole="button"
+      accessibilityLabel={expanded ? 'Collapse similar photo stack' : `Expand ${item.matches.length} similar photos`}
+      style={{ width: size, height: size, padding: inner / 2 }}
+    >
+      <View style={styles.tile}>
+        <Image
+          source={{ uri: item.cover?.uri }}
+          style={styles.thumb}
+          contentFit="cover"
+          transition={120}
+          cachePolicy="memory-disk"
+          recyclingKey={item.cover?.assetId}
+        />
+        <View style={styles.stackScrim} />
+        <View style={[styles.stackBadge, columns >= 4 && styles.stackBadgeCompact]}>
+          <Ionicons name={expanded ? 'chevron-up' : 'albums-outline'} size={columns >= 4 ? 10 : 13} color={colors.onPrimary} />
+          {columns <= 4 ? (
+            <Caption numberOfLines={2} ellipsizeMode="tail" style={styles.stackBadgeText}>{label}</Caption>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+}, (prev, next) =>
+  prev.item === next.item &&
+  prev.size === next.size &&
+  prev.columns === next.columns &&
+  prev.expanded === next.expanded &&
+  prev.onToggle === next.onToggle,
+);
+
+const Tile = React.memo(function Tile({ item, size, columns, folded, onToggle }) {
   // Tiny separator so tiles aren't fully glued together — Photos.app uses ~1px.
   const inner = columns >= 4 ? 1 : columns === 3 ? 2 : columns === 2 ? 3 : 0;
   return (
@@ -490,6 +676,11 @@ const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
             <Ionicons name="heart" size={columns >= 4 ? 10 : 12} color={colors.onPrimary} />
           </View>
         ) : null}
+        {folded && !item.accepted && columns <= 3 ? (
+          <View style={styles.promoteBadge}>
+            <Caption style={styles.promoteBadgeText}>Tap to keep</Caption>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -497,8 +688,30 @@ const Tile = React.memo(function Tile({ item, size, columns, onToggle }) {
   prev.item === next.item &&
   prev.size === next.size &&
   prev.columns === next.columns &&
+  prev.folded === next.folded &&
   prev.onToggle === next.onToggle,
 );
+
+function pruneSet(current, allowedValues) {
+  const allowed = new Set(allowedValues);
+  const next = new Set([...current].filter((value) => allowed.has(value)));
+  return next.size === current.size ? current : next;
+}
+
+function withIds(current, ids) {
+  const next = new Set(current);
+  for (const id of ids || []) {
+    if (id) next.add(id);
+  }
+  return next;
+}
+
+function withoutIds(current, ids) {
+  const remove = ids instanceof Set ? ids : new Set(ids || []);
+  const next = new Set(current);
+  for (const id of remove) next.delete(id);
+  return next;
+}
 
 function formatHeaderDate(ms) {
   if (!ms) return '';
@@ -602,6 +815,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: glass.inkScrim,
+  },
+  stackScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: glass.photoDim,
+    opacity: 0.28,
+  },
+  stackBadge: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 6,
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: glass.inkScrimStrong,
+  },
+  stackBadgeCompact: {
+    left: 'auto',
+    right: 4,
+    bottom: 4,
+    width: 22,
+    height: 22,
+    minHeight: 22,
+    borderRadius: 11,
+    paddingHorizontal: 0,
+  },
+  stackBadgeText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 0,
+  },
+  promoteBadge: {
+    position: 'absolute',
+    left: 6,
+    right: 6,
+    bottom: 6,
+    minHeight: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: glass.inkScrimStrong,
+  },
+  promoteBadgeText: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+    fontSize: 11,
+    letterSpacing: 0,
   },
 
   shimmerDot: {

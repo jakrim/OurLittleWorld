@@ -20,6 +20,14 @@ class ExpoFaceMatcherModule extends NativeModule<ExpoFaceMatcherModuleEvents> {
       assetId: candidate.assetId,
       score: 0.5,
       faceCount: 0,
+      captureQuality: null,
+      faceSizeRatio: 0,
+      sharpness: 0,
+      yaw: null,
+      roll: null,
+      brightness: null,
+      featureVector: [],
+      visualFingerprint: [],
     }));
   }
 }

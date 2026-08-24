@@ -1,0 +1,24 @@
+# Our World fixture smoke: the archive renders empty and large-library states
+# without writing synthetic memories into the active family archive.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos&qa=empty"
+- assertVisible: "Start your family record."
+- assertVisible:
+    text: "Keep a photo, a note between parents, a voice, a First, or a letter to begin."
+- assertVisible: "Add to your world"
+- openLink: "ourlittleworld://library?segment=photos&qa=large-no-firsts"
+- assertVisible: "Open Between parents"
+- assertVisible: "Open Voice notes"
+- assertVisible: "Open Firsts"
+- assertVisible: "Open Letters to baby"
+- assertNotVisible: "Some memories did not finish saving"
+- openLink: "ourlittleworld://library?segment=export&qa=large-no-firsts"
+- assertVisible: "Export your family record."
+- assertVisible:
+    text: "Printing is an optional future extra.*"
+- assertVisible:
+    text: "500"
+- openLink: "ourlittleworld://library?segment=places&qa=large-no-firsts"
+- assertVisible: "At home"
+- assertVisible: "At the park"

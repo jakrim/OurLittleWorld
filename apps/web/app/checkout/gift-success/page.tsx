@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import CheckoutCompletion from "@/components/CheckoutCompletion";
+import CommercialAvailability from "@/components/CommercialAvailability";
 
 export const metadata: Metadata = {
   title: "Gift Checkout Complete",
-  description: "Your Our Little World gift year purchase is ready to send or redeem.",
+  description: "Your Our Little World Family gift year is ready to send or redeem.",
 };
 
 type GiftSuccessProps = {
@@ -13,6 +15,7 @@ type GiftSuccessProps = {
 export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps) {
   const params = await searchParams;
   const giftCode = value(params?.gift_code);
+  const sessionId = value(params?.session_id);
 
   return (
     <main id="main">
@@ -23,27 +26,17 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
             <span>/</span>
             <span>Gift</span>
           </div>
-          <p className="script">gift ready</p>
-          <h1 className="page-title">The first year is ready to give.</h1>
+          <p className="script">gift checkout</p>
+          <h1 className="page-title">Confirm the gift.</h1>
           <p className="lead">
-            Share this code with the recipient. They can redeem it in the app after creating their family space.
+            We will verify payment with Stripe before showing the single-use gift code.
           </p>
         </div>
       </section>
 
       <section className="section band-soft">
         <div className="narrow policy-list">
-          <article className="policy-item">
-            <h2>Gift code</h2>
-            {giftCode ? (
-              <div className="code-box" aria-label="Gift code">{giftCode}</div>
-            ) : (
-              <p>Your gift code is being prepared. If it does not appear, contact support with your Stripe receipt email.</p>
-            )}
-            <p>
-              The recipient should choose Redeem website gift or partner access from the app purchase screen.
-            </p>
-          </article>
+          <CheckoutCompletion kind="gift" sessionId={sessionId} code={giftCode} />
           <article className="policy-item">
             <h2>Support</h2>
             <p>
@@ -54,6 +47,7 @@ export default async function GiftSuccessPage({ searchParams }: GiftSuccessProps
           </article>
         </div>
       </section>
+      <CommercialAvailability surface="success" />
     </main>
   );
 }

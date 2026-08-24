@@ -1,14 +1,16 @@
 import {
+  checkoutAttributionFromInput,
   codeHint,
   corsHeaders,
+  encryptCode,
   errorResponse,
-  generateCode,
   giftPlanFromInput,
   hashCode,
   json,
   originFromRequest,
   readJson,
   requiredEnv,
+  setStripeMetadata,
   stripeFormRequest,
 } from '../_shared/billing.ts';
 
@@ -27,19 +29,22 @@ Deno.serve(async (req) => {
     const giftPlan = giftPlanFromInput(String(body.plan || 'gift_year'));
     const priceId = requiredEnv(giftPlan.priceEnv);
     const origin = originFromRequest(req);
-    const giftCode = generateCode('GIFT');
+    const attemptId = checkoutAttemptId(body.checkout_attempt_id);
+    const giftCode = await checkoutCode('GIFT', 'gift', attemptId);
     const giftCodeHash = await hashCode(giftCode);
-    const successUrl = `${origin}/checkout/gift-success?session_id={CHECKOUT_SESSION_ID}&gift_code=${encodeURIComponent(giftCode)}`;
+    const giftCodeCiphertext = await encryptCode(giftCode, `gift:${attemptId}`);
+    const successUrl = `${origin}/checkout/gift-success#session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${origin}/gift/?checkout=cancelled`;
 
     const params = new URLSearchParams();
     params.set('mode', 'payment');
     params.set('customer_email', giverEmail);
-    params.set('client_reference_id', `gift-${crypto.randomUUID()}`);
+    params.set('client_reference_id', `gift-${attemptId}`);
     params.set('success_url', successUrl);
     params.set('cancel_url', cancelUrl);
     params.set('line_items[0][price]', priceId);
     params.set('line_items[0][quantity]', '1');
+    params.set('payment_method_types[0]', 'card');
     params.set('metadata[kind]', giftPlan.kind);
     params.set('metadata[plan_key]', giftPlan.planKey);
     params.set('metadata[stripe_price_id]', priceId);
@@ -51,8 +56,11 @@ Deno.serve(async (req) => {
     params.set('metadata[delivery_day]', String(body.delivery_day || '').slice(0, 32));
     params.set('metadata[code_hash]', giftCodeHash);
     params.set('metadata[code_hint]', codeHint(giftCode));
+    setStripeMetadata(params, checkoutAttributionFromInput(body));
 
-    const session = await stripeFormRequest('/v1/checkout/sessions', params);
+    const session = await stripeFormRequest('/v1/checkout/sessions', params, 'POST', {
+      idempotencyKey: checkoutIdempotencyKey('gift', attemptId),
+    });
     return json({ url: session.url });
   } catch (error) {
     return errorResponse(error);

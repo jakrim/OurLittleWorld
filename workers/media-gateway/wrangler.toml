@@ -2,9 +2,11 @@
 # Deploy AFTER R2 is enabled and the olw-originals bucket exists:
 #   npx wrangler deploy
 #   npx wrangler secret put MEDIA_SESSION_SECRET   # must match the Supabase secret
+#   npx wrangler secret put MEDIA_DELETION_SECRET  # must match the Supabase secret
 name = "olw-media-gateway"
 main = "src/index.js"
-compatibility_date = "2026-07-01"
+compatibility_date = "2026-07-24"
+compatibility_flags = [ "nodejs_compat" ]
 
 [[r2_buckets]]
 binding = "ORIGINALS"

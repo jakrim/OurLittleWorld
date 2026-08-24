@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 
 import StaticPage from "@/components/StaticPage";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
 
-export const metadata: Metadata = {
-  title: "Story",
-  description: "The story and principles behind Our Little World, a private baby book for family memories.",
-};
+export const metadata: Metadata = metadataFor("story");
 
 export default function StoryPage() {
-  return <StaticPage contentKey="story" />;
+  return (
+    <>
+      <BreadcrumbStructuredData route="story" />
+      <StaticPage contentKey="story" />
+    </>
+  );
 }

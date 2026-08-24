@@ -20,7 +20,7 @@ import { Screen, Brand, Hero, Body, Caption, Eyebrow, GlassButton, radius, space
 import { supabase, hasSupabaseCreds } from './supabase';
 import { useAuth } from './AuthContext';
 
-const DEV_LOGIN_EMAIL = 'jesse.krim@gmail.com';
+const DEV_LOGIN_EMAIL = String(process.env.EXPO_PUBLIC_OLW_DEV_LOGIN_EMAIL || '').trim();
 const INVALID_CODE_MESSAGE = 'That code is invalid. Try again.';
 const VERIFY_CODE_ERROR_MESSAGE = 'Could not verify that code. Try again.';
 const HOME_URL = 'https://ourlittleworld.me/';
@@ -86,6 +86,7 @@ export default function AuthScreen() {
   const sendCode = async () => sendCodeTo(email);
 
   const startDevLogin = () => {
+    if (!DEV_LOGIN_EMAIL) return;
     setError(null);
     setBusy(false);
     setEmail(DEV_LOGIN_EMAIL);
@@ -228,7 +229,7 @@ export default function AuthScreen() {
                 Send code
               </AuthButton>
 
-              {__DEV__ ? (
+              {__DEV__ && DEV_LOGIN_EMAIL ? (
                 <FooterLink
                   onPress={startDevLogin}
                   disabled={busy || authLoading}

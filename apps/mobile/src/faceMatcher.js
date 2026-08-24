@@ -8,18 +8,20 @@
  *
  * Public API
  * ----------
- *   embedFace(localUri) → { embedding: number[], faceCount, primaryBox } | null
- *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount }]
+ *   embedFace(localUri) → { embedding, faceCount, primaryBox, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness } | null
+ *   matchAgainst({ reference, candidates }) → [{ assetId, score, faceCount, captureQuality, faceSizeRatio, sharpness, yaw, roll, brightness, featureVector, visualFingerprint }]
  *
  * Embeddings are L2-normalised so cosine similarity == dot product.
  */
 
 import { countPhotosInWindow, fetchPhotosPage } from './photos';
 import {
-  ageDaysForCandidate,
-  referenceWeightForCandidate,
-  selectReferencesForCandidates,
-} from './recognitionReferences';
+  DEFAULT_NATIVE_MATCH_BATCH_TIMEOUT_MS,
+  mergeMultiReferenceMatches,
+  nativeReferenceInputs,
+  resolveNativeMatchBatchTimeout,
+  selectMatchReferences,
+} from './faceMatcherModel';
 
 let native = null;
 try {
@@ -55,26 +57,47 @@ export async function embedFace(localUri) {
  *   reference: { embedding: number[] }
  *   candidates: [{ assetId, localUri }]
  *
- * Native module returns scores in [0..1] (higher = more similar).
+ * Native module returns scores in [0..1] (higher = more similar) plus the
+ * selected face crop's feature vector for on-device lookalike suppression.
  * If native is unavailable, we return uniform 0.5 score so the user
  * can still walk through their library manually.
  */
-export async function matchAgainst({ reference, candidates }) {
+export async function matchAgainst({
+  reference,
+  candidates,
+  timeoutMs = DEFAULT_NATIVE_MATCH_BATCH_TIMEOUT_MS,
+}) {
   if (!candidates?.length) return [];
 
   if (!native || !reference?.embedding) {
-    return candidates.map((c) => ({ assetId: c.assetId, score: 0.5, faceCount: 0 }));
+    return candidates.map((c) => ({
+      assetId: c.assetId,
+      score: 0.5,
+      faceCount: 0,
+      captureQuality: null,
+      faceSizeRatio: null,
+      sharpness: null,
+      yaw: null,
+      roll: null,
+      brightness: null,
+      featureVector: null,
+      visualFingerprint: null,
+    }));
   }
 
   try {
-    const out = await native.matchAgainst(
-      { embedding: reference.embedding },
-      candidates.map((c) => ({ assetId: c.assetId, localUri: c.localUri })),
+    const out = await withTimeout(
+      native.matchAgainst(
+        { embedding: reference.embedding },
+        candidates.map((c) => ({ assetId: c.assetId, localUri: c.localUri })),
+      ),
+      resolveNativeMatchBatchTimeout(timeoutMs),
+      'Native photo analysis took too long',
     );
     return out.sort((a, b) => b.score - a.score);
   } catch (e) {
     console.warn('matchAgainst failed', e?.message);
-    return candidates.map((c) => ({ assetId: c.assetId, score: 0.5, faceCount: 0 }));
+    return candidates.map((c) => emptyNativeMatch(c.assetId));
   }
 }
 
@@ -83,43 +106,110 @@ export async function matchAgainstReferenceProfile({
   birthdayISO,
   fallbackReference,
   candidates,
+  referenceLimit,
+  batchId,
+  timeoutMs = DEFAULT_NATIVE_MATCH_BATCH_TIMEOUT_MS,
 }) {
   if (!candidates?.length) return [];
-  const refs = selectReferencesForCandidates(profile, { birthdayISO, candidates });
-  const references = refs.length ? refs : (fallbackReference ? [fallbackReference] : []);
+  const references = selectMatchReferences({
+    profile,
+    birthdayISO,
+    candidates,
+    fallbackReference,
+    referenceLimit,
+  });
   if (!references.length) return matchAgainst({ reference: null, candidates });
-  if (references.length === 1) {
-    return matchAgainst({ reference: references[0], candidates });
-  }
 
-  const byCandidate = new Map(candidates.map((candidate) => [candidate.assetId, candidate]));
-  const bestById = new Map();
-
-  for (const reference of references) {
-    const scored = await matchAgainst({ reference, candidates });
-    for (const result of scored) {
-      const candidate = byCandidate.get(result.assetId);
-      const candidateAge = ageDaysForCandidate({
-        birthdayISO,
-        creationTime: candidate?.creationTime,
+  const resolvedTimeoutMs = resolveNativeMatchBatchTimeout(timeoutMs);
+  let results = [];
+  let batchSummary = {
+    timedOut: false,
+    cancelled: false,
+    processedAssetIds: candidates.map((candidate) => candidate.assetId),
+    durationMs: null,
+  };
+  if (native?.matchAgainstMany) {
+    try {
+      const batch = await withTimeout(
+        native.matchAgainstMany(
+          nativeReferenceInputs(references),
+          candidates.map((candidate) => ({
+            assetId: candidate.assetId,
+            localUri: candidate.localUri,
+          })),
+          {
+            batchId: String(batchId || `match-${Date.now()}`),
+            timeoutMs: resolvedTimeoutMs,
+          },
+        ),
+        resolvedTimeoutMs + 1_500,
+        'Native photo batch did not return',
+      );
+      results = Array.isArray(batch?.results) ? batch.results : [];
+      batchSummary = {
+        timedOut: batch?.timedOut === true,
+        cancelled: batch?.cancelled === true,
+        processedAssetIds: Array.isArray(batch?.processedAssetIds)
+          ? batch.processedAssetIds
+          : [],
+        durationMs: Number.isFinite(Number(batch?.durationMs))
+          ? Number(batch.durationMs)
+          : null,
+      };
+    } catch (error) {
+      cancelNativeMatchBatch(batchId);
+      console.warn('matchAgainstMany failed', error?.message);
+      results = [];
+      batchSummary = {
+        ...batchSummary,
+        timedOut: true,
+        processedAssetIds: [],
+      };
+    }
+  } else {
+    // Older development clients do not have the one-pass native API. Keep the
+    // complete legacy attempt within the same wall-clock budget and fail
+    // closed rather than letting one reference hold onboarding indefinitely.
+    const perReferenceTimeout = Math.max(
+      1_000,
+      Math.floor(resolvedTimeoutMs / Math.max(1, references.length)),
+    );
+    for (const reference of references) {
+      const scored = await matchAgainst({
+        reference,
+        candidates,
+        timeoutMs: perReferenceTimeout,
       });
-      const weight = referenceWeightForCandidate(reference, candidateAge);
-      const weightedScore = Math.min(1, Number(result.score || 0) * weight);
-      const previous = bestById.get(result.assetId);
-      if (!previous || weightedScore > previous.score) {
-        bestById.set(result.assetId, {
-          ...result,
-          rawScore: result.score,
-          score: weightedScore,
-          referenceId: reference.id || null,
-          referenceSource: reference.source || null,
-          ageWeight: weight,
-        });
-      }
+      results.push(...scored.map((result) => ({
+        ...result,
+        referenceId: reference.id,
+      })));
     }
   }
 
-  return Array.from(bestById.values()).sort((a, b) => b.score - a.score);
+  const merged = mergeMultiReferenceMatches({
+    profile,
+    birthdayISO,
+    candidates,
+    references,
+    results,
+  });
+  Object.defineProperty(merged, 'batchSummary', {
+    value: batchSummary,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return merged;
+}
+
+export function cancelNativeMatchBatch(batchId) {
+  if (!batchId || !native?.cancelMatchBatch) return false;
+  try {
+    return native.cancelMatchBatch(String(batchId)) === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -200,4 +290,34 @@ export async function scanLibrary({
 
   // Default sort by score DESC so the review screen shows best matches first.
   return all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+}
+
+function emptyNativeMatch(assetId) {
+  return {
+    assetId,
+    score: 0,
+    faceCount: 0,
+    captureQuality: null,
+    faceSizeRatio: null,
+    sharpness: null,
+    yaw: null,
+    roll: null,
+    brightness: null,
+    featureVector: null,
+    visualFingerprint: null,
+  };
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

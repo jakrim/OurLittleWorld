@@ -23,6 +23,13 @@
         "resourceClass": "m-medium"
       }
     },
+    "development-no-push": {
+      "extends": "development",
+      "environment": "development",
+      "env": {
+        "OLW_DISABLE_NOTIFICATIONS_PLUGIN": "true"
+      }
+    },
     "preview": {
       "extends": "base",
       "distribution": "internal",
@@ -30,15 +37,36 @@
         "resourceClass": "m-medium"
       }
     },
+    "production-internal": {
+      "extends": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "extends": "base",
       "autoIncrement": true
+    },
+    "release-candidate": {
+      "extends": "production",
+      "autoIncrement": false,
+      "environment": "production"
     }
   },
   "submit": {
     "production": {
       "ios": {
         "ascAppId": "6781823693"
+      },
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft",
+        "changesNotSentForReview": false
       }
     }
   }

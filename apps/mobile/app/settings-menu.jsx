@@ -5,7 +5,14 @@ import SettingsMenuSheetScreen from '../src/SettingsMenuSheetScreen';
 
 export default function SettingsMenuRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute
+      allowMissingFamily
+      allowIncompleteSetup
+      allowFirstLook
+      allowFirstValue
+      allowMissingSubscription
+      allowReadOnlyArchive
+    >
       <SettingsMenuSheetScreen />
     </ProtectedRoute>
   );

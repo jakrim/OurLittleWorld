@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "sequence_id": "olw-parent-onboarding-v2",
+  "name": "Our Little World — Begin Small, Build Together",
+  "source_sequence": "operations/parent-onboarding-v2.json",
+  "status": "provider_active_behavioral_lifecycle",
+  "classification": "marketing",
+  "audience_id": "333fbdbba0",
+  "audience_members_at_controlled_activation": 1,
+  "flow_id": 7274,
+  "flow_status": "sending",
+  "entry_trigger": {
+    "type": "signup",
+    "include_imported_contacts": true,
+    "account_creation_is_not_marketing_consent": true,
+    "website_launch_signup_is_excluded": false
+  },
+  "architecture": {
+    "pre_activation": ["founder-welcome", "one-photo-one-line", "privacy-control"],
+    "exit_to_post_activation": "moment_saved",
+    "post_activation": ["invite-caregiver", "firsts-payoff", "letter-ritual"]
+  },
+  "mailchimp": {
+    "founder-welcome": {"template_id": 10054324, "campaign_id": "1e30992877"},
+    "one-photo-one-line": {"template_id": 10054325, "campaign_id": "9400f6fd31"},
+    "privacy-control": {"template_id": 10054326, "campaign_id": "cca06254a1"},
+    "invite-caregiver": {"template_id": 10054327, "campaign_id": "d37f43d9fd"},
+    "firsts-payoff": {"template_id": 10054328, "campaign_id": "fd83d5b121"},
+    "letter-ritual": {"template_id": 10054329, "campaign_id": "762c5a2996", "delay_seconds": 21600}
+  },
+  "post_activation_hardening": [
+    "observe the first legitimate activated and converted production contacts through the active conditions",
+    "keep product-state tags server-authored and privacy-safe",
+    "reply routing from support@ourlittleworld.me is not verified",
+    "representative real-client rendering beyond controlled receipt is incomplete"
+  ],
+  "website_launch_isolation": {
+    "status": "retired_from_active_sync_2026-07-14",
+    "website_audience_id": "91d293c5c4",
+    "website_audience_name": "Our Little World Website Launch",
+    "parent_audience_id": "333fbdbba0",
+    "parent_campaign_count": 6,
+    "website_campaign_count": 0,
+    "public_signup_can_enter_parent_flow": true,
+    "evidence": "app-marketing marketing-ops: operations/lifecycle-production-cutover-2026-07-14.json"
+  },
+  "controlled_test": {
+    "received": true,
+    "content_and_footer_present": true,
+    "sender_gate_passed": true,
+    "domain_status": "AUTHENTICATED",
+    "journey_trigger_completed": 1,
+    "first_email_completed": 1,
+    "first_email_sent": 1,
+    "next_delay_queue_count": 1,
+    "temporary_test_campaign_deleted": true,
+    "evidence": "app-marketing marketing-ops: operations/mailchimp-lifecycle-activation-2026-07-13.json",
+    "occurred_before_website_audience_isolation": true
+  }
+}

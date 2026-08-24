@@ -1,19 +1,21 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Animated, Easing, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { Screen, Button, Hero, Caption, Eyebrow, Spacer, BrandMark, colors, space } from './ui';
 import useReducedMotion from './ui/useReducedMotion';
-import { embedFace, isNative } from './faceMatcher';
-import { addTrustedReferenceImage, primaryReference, readReferenceProfile } from './recognitionReferences';
-import { getAutoSaveConfig, recordRecentAutoSave, REVIEW_THRESHOLD } from './recognitionTrust';
-import { readScanCheckpoint, sinceMsForScan, writeScanCheckpoint } from './scanCheckpoints';
-import { clearPendingMediaLibraryChange, readPendingMediaLibraryChange } from './mediaLibraryChanges';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { useBilling } from './BillingContext';
+import { startLibraryScan } from './libraryScanLauncher';
+import {
+  prepareReferenceFirstValuePreview,
+  startFirstValuePreviewScan,
+} from './firstValuePreviewScan';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import { firstValueProgressCopy } from './scanPacingModel';
 import * as Scan from './scanController';
-import { Tags } from './storage';
-import { listSavedAssetIds } from './photoSync';
 
 /**
  * Brief radar splash. Kicks off the background scan via the controller,
@@ -24,16 +26,30 @@ import { listSavedAssetIds } from './photoSync';
  */
 export default function ScanProgressScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { family } = useFamily();
   const { user } = useAuth();
+  const { entitlement, loading: billingLoading } = useBilling();
   const scan = Scan.useScanState();
   const reducedMotion = useReducedMotion();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  // Expo Router may normalize local search params after the first render.
+  // First Look is a screen-lifetime contract: never let a later param refresh
+  // turn this into the ordinary background scan and hand the parent to Today.
+  const firstValueRequestedRef = useRef(false);
+  if (params.source === 'first_value') firstValueRequestedRef.current = true;
+  const firstValueRequested = firstValueRequestedRef.current;
+  const canScan = writer && (entitlement?.isActive === true || firstValueRequested);
+  const [startError, setStartError] = useState('');
+  const [scanAttempt, setScanAttempt] = useState(0);
+  const [firstValueReady, setFirstValueReady] = useState(false);
+  const [preparingReference, setPreparingReference] = useState(false);
+  const [referenceFallbackError, setReferenceFallbackError] = useState('');
 
   const pulse1 = useRef(new Animated.Value(0)).current;
   const pulse2 = useRef(new Animated.Value(0)).current;
   const fired = useRef(false);
   const handedOff = useRef(false);
-  const trustedRefreshCount = useRef(0);
 
   useEffect(() => {
     if (reducedMotion) {
@@ -57,126 +73,55 @@ export default function ScanProgressScreen() {
   // Kick off the scan once we have everything we need.
   useEffect(() => {
     if (fired.current) return;
-    if (!family || !user) return;
+    if (!family || !user || billingLoading || !canScan) return;
     if (Scan.isRunning()) { fired.current = true; return; }
 
     fired.current = true;
     (async () => {
-      const profile = await readReferenceProfile({ familyId: family.id, userId: user.id });
-      const ref = primaryReference(profile);
-      const checkpoint = await readScanCheckpoint({ familyId: family.id, userId: user.id });
-      const pendingLibraryChange = await readPendingMediaLibraryChange({
-        familyId: family.id,
-        userId: user.id,
-      });
-      const birthdayMs = family.babyBirthday
-        ? new Date(`${family.babyBirthday}T00:00:00`).getTime()
-        : undefined;
-      const sinceMs = sinceMsForScan({
-        babyBirthday: family.babyBirthday,
-        checkpoint,
-        forceFullRescan: pendingLibraryChange?.requiresFullLibraryScan,
-      });
-      const extraAssetIds = pendingLibraryChange?.requiresFullLibraryScan
-        ? []
-        : pendingLibraryChange?.insertedAssetIds || [];
-
-      // Skip media we've already saved to Supabase. Means "Find more"
-      // only does meaningful work on new content.
-      const skip = await listSavedAssetIds({
-        familyId: family.id,
-        ownerUserId: user.id,
-      }).catch(() => new Set());
-
-      const autoSaveConfig = await getAutoSaveConfig({
-        familyId: family.id,
-        userId: user.id,
-      });
-      const autoSave = autoSaveConfig
-        ? {
-          threshold: autoSaveConfig.threshold,
-          save: async (assetId, match) => {
-            // Auto-discovered videos save poster + metadata only; the user
-            // promotes them to playable videos explicitly.
-            await Tags.setBaby({
-              familyId: family.id,
-              assetId,
-              isBaby: true,
-              match,
-              videoPosterOnly: match?.mediaType === 'video',
-            });
-            await recordRecentAutoSave({
-              familyId: family.id,
-              userId: user.id,
-              match: match || { assetId },
-            });
-            if (
-              trustedRefreshCount.current < 2
-              && isNative
-              && match?.assetId
-              && Number(match.score || 0) >= 0.9
-              && (match.localUri || match.uri)
-            ) {
-              trustedRefreshCount.current += 1;
-              try {
-                const embedding = await embedFace(match.localUri || match.uri);
-                if (embedding?.embedding?.length) {
-                  await addTrustedReferenceImage({
-                    familyId: family.id,
-                    userId: user.id,
-                    birthdayISO: family.babyBirthday,
-                    match,
-                    embedding: embedding.embedding,
-                    faceCount: embedding.faceCount || match.faceCount || 1,
-                  });
-                }
-              } catch (err) {
-                console.warn('auto-save trusted reference refresh', err?.message);
-              }
-            }
-          },
-        }
-        : null;
-
-      Scan.start({
-        reference: ref,
-        referenceProfile: profile,
-        birthdayISO: family.babyBirthday,
-        since: sinceMs,
-        threshold: isNative ? REVIEW_THRESHOLD : null,
-        autoSave,
-        excludeIds: skip,
-        extraAssetIds,
-        extraAssetCreatedAfterMs: birthdayMs,
-        onComplete: async (finalState) => {
-          if (finalState?.phase !== 'done') return;
-          await writeScanCheckpoint({
-            familyId: family.id,
-            userId: user.id,
-            checkpoint: {
-              lastScannedAt: new Date(finalState.finishedAt || Date.now()).toISOString(),
-              lastCursor: JSON.stringify({
-                scanKey: finalState.scanKey,
-                seen: finalState.seen,
-                total: finalState.total,
-                sinceMs,
-                mediaLibraryChangeAt: pendingLibraryChange?.changedAt || null,
-                extraAssetCount: extraAssetIds.length,
-              }),
-            },
-          });
-          await clearPendingMediaLibraryChange({
-            familyId: family.id,
-            userId: user.id,
-          });
-        },
+      if (firstValueRequested) {
+        trackAnalyticsEvent('first_value_started', {
+          surface: 'first_value_preview',
+          paywall_source: 'first_value_preview',
+          paywall_version: 'olw-first-look-v1',
+          offer_version: 'olw-family-2026-07',
+        }, {
+          family_id: family.id,
+          actor_role: family?.me?.role || 'creator',
+          plan_state: 'none',
+          platform: analyticsPlatform(Platform.OS),
+          environment: analyticsEnvironment(),
+        });
+        const result = await startFirstValuePreviewScan({
+          family,
+          user,
+          onPreviewReady: () => setFirstValueReady(true),
+        });
+        if (!result.started) setStartError(result.reason || 'private-discovery-unavailable');
+        return;
+      }
+      await startLibraryScan({
+        family,
+        user,
+        requestPhotoPermission: true,
+        entitlementActive: true,
       });
     })();
-  }, [family?.id, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [billingLoading, canScan, family?.id, firstValueRequested, scanAttempt, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!firstValueRequested || !firstValueReady) return;
+    router.replace('/first-value-preview');
+  }, [firstValueReady, firstValueRequested, router]);
+
+  useEffect(() => {
+    if (!firstValueRequested) return undefined;
+    return () => Scan.abort();
+  }, [firstValueRequested]);
 
   // Hand off to timeline once scanning has begun. Auto-save + ScanBanner
   // do the rest in the background.
   useEffect(() => {
+    if (firstValueRequested) return undefined;
     if (handedOff.current) return;
     if (scan.phase === 'failed' || scan.phase === 'idle') return;
     if (scan.phase === 'scanning' || scan.phase === 'done' || scan.phase === 'aborted') {
@@ -186,7 +131,7 @@ export default function ScanProgressScreen() {
       }, 900);
       return () => clearTimeout(t);
     }
-  }, [scan.phase, router]);
+  }, [firstValueRequested, scan.phase, router]);
 
   const ringStyle = (val) => ({
     transform: [
@@ -194,6 +139,137 @@ export default function ScanProgressScreen() {
     ],
     opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] }),
   });
+
+  const stopScan = () => {
+    Scan.abort();
+    if (firstValueRequested) {
+      router.replace({ pathname: '/reference', params: { source: 'first_value' } });
+    }
+  };
+
+  const retryFirstValueScan = () => {
+    Scan.abort();
+    Scan.reset();
+    fired.current = false;
+    setStartError('');
+    setFirstValueReady(false);
+    setScanAttempt((value) => value + 1);
+  };
+
+  const continueWithReference = async () => {
+    if (!family || !user || preparingReference) return;
+    setPreparingReference(true);
+    setReferenceFallbackError('');
+    try {
+      const preview = await prepareReferenceFirstValuePreview({ family, user });
+      if (!preview) {
+        setReferenceFallbackError('That starting photo is no longer available. Choose another photo to continue.');
+        return;
+      }
+      router.replace('/first-value-preview');
+    } catch {
+      setReferenceFallbackError('We could not prepare that photo yet. Nothing was uploaded. Please try again.');
+    } finally {
+      setPreparingReference(false);
+    }
+  };
+
+  const firstValueProgress = firstValueProgressCopy({
+    checked: scan.checked,
+    total: scan.total,
+    batchSize: scan.batchSize,
+    timedOutBatches: scan.timedOutBatches,
+    skipped: scan.skippedDuringAnalysis,
+  });
+
+  if (!billingLoading && !canScan) {
+    return (
+      <Screen variant="dawn">
+        <View style={styles.root}>
+          <Spacer h={space.xxxl} />
+          <Eyebrow align="center">Private discovery</Eyebrow>
+          <Spacer h={space.sm} />
+          <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
+            {writer ? 'Scanning is paused.' : 'Only parents scan this library.'}
+          </Hero>
+          <Spacer h={space.md} />
+          <Caption align="center">
+            {writer
+              ? 'Your saved family memories remain available. Resume curation when your family plan is active.'
+              : 'Circle members only see memories after a parent keeps them in Our World.'}
+          </Caption>
+          <Spacer h={space.xxl} />
+          <Button onPress={() => router.replace('/timeline')}>Back to Our World</Button>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (
+    firstValueRequested
+    && (
+      startError
+      || (['done', 'failed', 'aborted'].includes(scan.phase) && !firstValueReady)
+    )
+  ) {
+    return (
+      <Screen variant="dawn">
+        <View style={styles.root}>
+          <Spacer h={space.xxxl} />
+          <Eyebrow align="center">Private First Look</Eyebrow>
+          <Spacer h={space.sm} />
+          <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
+            The quick search is finished.
+          </Hero>
+          <Spacer h={space.md} />
+          <Caption align="center">
+            {startError === 'photo-permission'
+              ? 'Photo access is needed for private discovery. Nothing was uploaded.'
+              : 'We did not find a clear enough match in this short pass. Nothing was uploaded, and you do not need to wait any longer.'}
+          </Caption>
+          <Spacer h={space.xxl} />
+          {startError === 'photo-permission' ? (
+            <>
+              <Button onPress={retryFirstValueScan}>
+                Check photo access again
+              </Button>
+              <Spacer h={space.sm} />
+              <Button
+                variant="quiet"
+                onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}
+              >
+                Choose a different reference
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onPress={continueWithReference} loading={preparingReference} disabled={preparingReference}>
+                Continue with your photo
+              </Button>
+              <Spacer h={space.sm} />
+              <Button
+                variant="ghost"
+                onPress={() => router.replace({ pathname: '/reference', params: { source: 'first_value' } })}
+                disabled={preparingReference}
+              >
+                Choose a different photo
+              </Button>
+              <Spacer h={space.sm} />
+              <Button variant="quiet" onPress={retryFirstValueScan}>
+                Try another short search
+              </Button>
+              {referenceFallbackError ? (
+                <>
+                  <Spacer h={space.sm} />
+                  <Caption align="center">{referenceFallbackError}</Caption>
+                </>
+              ) : null}
+            </>
+          )}
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen variant="dawn">
@@ -213,33 +289,43 @@ export default function ScanProgressScreen() {
         <Spacer h={space.xxl} />
 
         <Eyebrow align="center">
-          {scan.total
+          {firstValueRequested
+            ? firstValueProgress.eyebrow
+            : scan.total
             ? `${scan.seen.toLocaleString()} of ${scan.total.toLocaleString()} media`
             : 'Reading your library'}
         </Eyebrow>
         <Spacer h={space.sm} />
         <Hero align="center" style={{ fontSize: 30, lineHeight: 36 }}>
-          Looking for {family?.babyName || 'them'}…
+          {firstValueRequested
+            ? 'Finding one memory…'
+            : `Looking for ${family?.babyName || 'them'}…`}
         </Hero>
         <Spacer h={space.md} />
         <Caption align="center">
-          {scan.matches.length > 0
-            ? `${scan.matches.length.toLocaleString()} found · review before anything uploads`
-            : 'Likely matches will wait for your review.'}
+          {firstValueRequested
+            ? firstValueProgress.detail
+            : scan.matches.length > 0
+              ? `${scan.matches.length.toLocaleString()} likely found · review what belongs`
+              : 'First review builds trust; later clear matches can save automatically.'}
         </Caption>
 
         <Spacer h={space.xxxl} />
 
-        <Button onPress={() => router.replace('/timeline')}>
-          Keep scanning in background
-        </Button>
-        <Spacer h={space.sm} />
-        <Button variant="quiet" onPress={() => router.replace('/review')}>
-          Review matches
-        </Button>
-        <Spacer h={space.sm} />
-        <Button variant="ghost" onPress={() => Scan.abort()}>
-          Stop scan
+        {!firstValueRequested ? (
+          <>
+            <Button onPress={() => router.replace('/timeline')}>
+              Keep scanning in background
+            </Button>
+            <Spacer h={space.sm} />
+            <Button variant="quiet" onPress={() => router.replace('/review')}>
+              Review matches
+            </Button>
+            <Spacer h={space.sm} />
+          </>
+        ) : null}
+        <Button variant="ghost" onPress={stopScan}>
+          {firstValueRequested ? 'Cancel search' : 'Stop scan'}
         </Button>
       </View>
     </Screen>

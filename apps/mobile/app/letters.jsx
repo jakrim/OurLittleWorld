@@ -8,7 +8,7 @@ export default function LettersRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'none' }} />
-      <ProtectedRoute>
+      <ProtectedRoute allowReadOnlyArchive>
         <LettersScreen />
       </ProtectedRoute>
     </>

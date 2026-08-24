@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Share, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, Share, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
-import { Screen, Card, Button, Brand, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, space, radius } from './ui';
+import { Screen, Card, Button, BrandedBackHeader, Hero, Title, Subtitle, Body, Caption, Eyebrow, V, H, Spacer, semantic, colors, glass, space, radius } from './ui';
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 /**
  * Generates a single-use invite code (8 chars, 7-day expiry). The deep
@@ -52,6 +54,15 @@ export default function InviteScreen() {
       setCode(inv.code);
       setExpires(inv.expiresAt);
       setCodeRole(inviteRole);
+      trackAnalyticsEvent('caregiver_invite_created', {
+        surface: 'invite',
+        invite_role: inviteRole,
+      }, {
+        family_id: familyId,
+        actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+        platform: analyticsPlatform(Platform.OS),
+        environment: analyticsEnvironment(),
+      });
     } catch (err) {
       Alert.alert('Could not create invite', err.message || String(err));
     } finally {
@@ -114,12 +125,7 @@ export default function InviteScreen() {
   return (
     <Screen variant="warm" scroll>
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
-        <Pressable onPress={() => router.back()} style={styles.back}>
-          <Ionicons name="chevron-back" size={20} color={colors.plum} />
-          <Caption style={{ marginLeft: 4 }}>Back</Caption>
-        </Pressable>
-
-        <Brand>{family?.name || 'Our Little World'}</Brand>
+        <InviteHeader onBack={() => router.back()} />
         <Hero>Invite your family circle.</Hero>
         <Body>
           Invite a co-parent who can add moments, or a view-only family circle
@@ -241,6 +247,10 @@ export default function InviteScreen() {
   );
 }
 
+function InviteHeader({ onBack }) {
+  return <BrandedBackHeader onBack={onBack} style={styles.inviteTopRow} />;
+}
+
 function RoleOption({ active, icon, label, detail, disabled, onPress }) {
   return (
     <Pressable
@@ -275,10 +285,8 @@ function formatExpiry(iso) {
 }
 
 const styles = StyleSheet.create({
-  back: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
+  inviteTopRow: {
+    marginBottom: space.md,
   },
   codeBox: {
     flexDirection: 'row',

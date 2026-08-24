@@ -6,22 +6,48 @@ import BrandMark from './BrandMark';
 import { Brand, Caption, Hero } from './Type';
 import { radius, shadow, space, useTheme } from './theme';
 
-export default function AppHeader({ title, subtitle, onSettings, right }) {
+export default function AppHeader({ title, subtitle, onBack, onSettings, onActivity, activityUnread = false, right }) {
   const theme = useTheme();
   return (
     <View style={styles.root}>
       <View style={styles.brandRow}>
-        <View style={[styles.markFrame, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
-          <BrandMark size={46} fillFrame />
-        </View>
+        {onBack ? (
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            style={[styles.iconButton, styles.backButton, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+          >
+            <Ionicons name="chevron-back" size={22} color={theme.semantic.textSoft} />
+          </Pressable>
+        ) : (
+          <View style={[styles.markFrame, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
+            <BrandMark size={46} fillFrame />
+          </View>
+        )}
         <View style={styles.titleWrap}>
-          <Brand style={styles.brand}>our little world</Brand>
-          <Hero numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
+          <Brand numberOfLines={1} maxFontSizeMultiplier={1.2} style={styles.brand}>our little world</Brand>
+          <Hero numberOfLines={1} maxFontSizeMultiplier={1.4} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.title}>
             {title}
           </Hero>
-          {subtitle ? <Caption numberOfLines={1}>{subtitle}</Caption> : null}
+          {subtitle ? (
+            <Caption numberOfLines={1} maxFontSizeMultiplier={1.4} adjustsFontSizeToFit minimumFontScale={0.75}>
+              {subtitle}
+            </Caption>
+          ) : null}
         </View>
         {right}
+        {onActivity ? (
+          <Pressable
+            onPress={onActivity}
+            accessibilityRole="button"
+            accessibilityLabel="Open activity"
+            style={[styles.iconButton, styles.activityButton, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
+          >
+            <Ionicons name="notifications-outline" size={18} color={theme.semantic.textSoft} />
+            {activityUnread ? <View style={[styles.unreadDot, { backgroundColor: theme.semantic.primary }]} /> : null}
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={onSettings}
           accessibilityRole="button"
@@ -78,5 +104,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...shadow.whisper,
+  },
+  backButton: {
+    marginRight: space.md,
+  },
+  activityButton: {
+    marginRight: space.sm,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

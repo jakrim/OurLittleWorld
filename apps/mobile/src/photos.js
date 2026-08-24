@@ -8,12 +8,15 @@ import {
 } from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
+export { ageAt, formatAge } from './ageModel.js';
+
 /**
  * Helpers that talk to the photo library on behalf of Our Little World.
  * All expo-media-library access goes through this module (SDK 56 Query + Asset API).
  */
 
 const DESC_CREATION = { key: AssetField.CREATION_TIME, ascending: false };
+const ASC_CREATION = { key: AssetField.CREATION_TIME, ascending: true };
 const VIDEO_FRAME_SAMPLE_LIMIT = 3;
 
 export function normalizeMediaLibraryAssetId(assetId) {
@@ -22,22 +25,25 @@ export function normalizeMediaLibraryAssetId(assetId) {
   return raw.startsWith('ph://') ? raw.slice('ph://'.length) : raw;
 }
 
-function mediaQuery(mediaType, createdAfterMs) {
+function mediaQuery(mediaType, createdAfterMs, createdBeforeMs, { ascending = false } = {}) {
   let q = new Query()
     .eq(AssetField.MEDIA_TYPE, mediaType)
-    .orderBy(DESC_CREATION);
+    .orderBy(ascending ? ASC_CREATION : DESC_CREATION);
   if (createdAfterMs != null && Number.isFinite(createdAfterMs)) {
     q = q.gte(AssetField.CREATION_TIME, createdAfterMs);
+  }
+  if (createdBeforeMs != null && Number.isFinite(createdBeforeMs)) {
+    q = q.lt(AssetField.CREATION_TIME, createdBeforeMs);
   }
   return q;
 }
 
-function imageQuery(createdAfterMs) {
-  return mediaQuery(MediaType.IMAGE, createdAfterMs);
+function imageQuery(createdAfterMs, createdBeforeMs, options) {
+  return mediaQuery(MediaType.IMAGE, createdAfterMs, createdBeforeMs, options);
 }
 
-function videoQuery(createdAfterMs) {
-  return mediaQuery(MediaType.VIDEO, createdAfterMs);
+function videoQuery(createdAfterMs, createdBeforeMs, options) {
+  return mediaQuery(MediaType.VIDEO, createdAfterMs, createdBeforeMs, options);
 }
 
 /** iOS Vision module expects ph:// URIs; asset ids are local identifiers. */
@@ -72,8 +78,12 @@ async function mapAssetToLegacy(asset) {
 }
 
 async function mapAssetToVideo(asset) {
+  let uriError = null;
   const [uri, creationTime, duration, width, height, fileName] = await Promise.all([
-    asset.getUri(),
+    asset.getUri().catch((err) => {
+      uriError = err;
+      return null;
+    }),
     asset.getCreationTime(),
     asset.getDuration().catch(() => null),
     asset.getWidth().catch(() => 0),
@@ -85,11 +95,35 @@ async function mapAssetToVideo(asset) {
     mediaType: 'video',
     uri,
     localUri: uri,
+    downloadStatus: uri ? 'ready' : 'pending',
+    downloadError: uriError ? String(uriError?.message || uriError) : null,
     creationTime: creationTime ?? 0,
     duration: duration ?? null,
     width: width || 0,
     height: height || 0,
     fileName,
+  };
+}
+
+function cloudWaitCandidate(asset, mediaType = 'image') {
+  const sourceAssetId = normalizeMediaLibraryAssetId(asset?.sourceAssetId || asset?.id || asset?.assetId);
+  if (!sourceAssetId) return null;
+  return {
+    id: sourceAssetId,
+    candidateId: `${sourceAssetId}#icloud-wait`,
+    sourceAssetId,
+    mediaType,
+    uri: null,
+    localUri: null,
+    previewUri: null,
+    creationTime: asset?.creationTime ?? 0,
+    duration: asset?.duration ?? null,
+    width: asset?.width || 0,
+    height: asset?.height || 0,
+    fileName: asset?.fileName || null,
+    downloadStatus: asset?.downloadStatus || 'pending',
+    downloadError: asset?.downloadError || 'Waiting for the original to download from iCloud.',
+    cloudWaitOnly: true,
   };
 }
 
@@ -131,10 +165,16 @@ export async function ensureLibraryPermission() {
  * Fetch a page of photos sorted newest first.
  * `after` is an opaque offset string (legacy cursor compatibility).
  */
-export async function fetchPhotosPage({ after, pageSize = 60, createdAfterMs } = {}) {
+export async function fetchPhotosPage({
+  after,
+  pageSize = 60,
+  createdAfterMs,
+  createdBeforeMs,
+  sortAscending = false,
+} = {}) {
   const offset = after != null && after !== '' ? parseInt(String(after), 10) : 0;
   const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-  const rows = await imageQuery(createdAfterMs).limit(pageSize).offset(safeOffset).exe();
+  const rows = await imageQuery(createdAfterMs, createdBeforeMs, { ascending: sortAscending }).limit(pageSize).offset(safeOffset).exe();
   const assets = await Promise.all(rows.map(mapAssetToLegacy));
   return {
     assets,
@@ -165,7 +205,10 @@ function frameSampleTimes(durationMs) {
 }
 
 async function sampleVideoFrames(video) {
-  if (!video?.localUri) return [];
+  if (!video?.localUri) {
+    const marker = cloudWaitCandidate(video, 'video');
+    return marker ? [marker] : [];
+  }
   const frames = [];
   for (const timeMs of frameSampleTimes(video.duration)) {
     try {
@@ -188,6 +231,7 @@ async function sampleVideoFrames(video) {
         height: frame.height || video.height,
         videoUri: video.localUri,
         fileName: video.fileName,
+        downloadStatus: 'ready',
       });
     } catch {
       // Some cloud-backed or DRM-edited videos cannot be thumbnailed locally.
@@ -231,7 +275,7 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
       try {
         const asset = new Asset(candidateId);
         const mediaType = await asset.getMediaType().catch(() => null);
-        if (mediaType !== MediaType.IMAGE && mediaType !== MediaType.VIDEO) return null;
+        if (mediaType !== MediaType.IMAGE && mediaType !== MediaType.VIDEO) continue;
         if (mediaType === MediaType.VIDEO) {
           const video = await mapAssetToVideo(asset);
           if (minCreationTime != null && video.creationTime && video.creationTime < minCreationTime) {
@@ -239,6 +283,7 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
           }
           return sampleVideoFrames(video);
         }
+        const details = await getAssetDetails(candidateId, { downloadFromNetwork: true }).catch(() => null);
         const row = await mapAssetToLegacy(asset);
         if (minCreationTime != null && row.creationTime && row.creationTime < minCreationTime) {
           return null;
@@ -246,6 +291,10 @@ export async function fetchMediaScanCandidatesByIds(assetIds = [], { createdAfte
         return {
           ...row,
           id: normalizeMediaLibraryAssetId(row.id) || normalized,
+          localUri: details?.localUri || row.localUri,
+          uri: details?.uri || row.uri,
+          downloadStatus: details?.downloadStatus || 'ready',
+          downloadError: details?.downloadError || null,
         };
       } catch {
         // Try the alternate raw/ph:// shape before giving up.
@@ -319,52 +368,4 @@ export async function getAssetDetails(assetId, { downloadFromNetwork: _downloadF
       downloadError: String(err?.message || err || 'Could not load photo from library'),
     };
   }
-}
-
-/**
- * Compute baby age at a given timestamp.
- * Returns a structured object so callers can format flexibly.
- */
-export function ageAt(birthdayISO, takenAtMs) {
-  if (!birthdayISO || !takenAtMs) return null;
-  const birth = new Date(birthdayISO);
-  const taken = new Date(takenAtMs);
-  if (Number.isNaN(birth.getTime()) || Number.isNaN(taken.getTime())) return null;
-
-  let years = taken.getFullYear() - birth.getFullYear();
-  let months = taken.getMonth() - birth.getMonth();
-  let days = taken.getDate() - birth.getDate();
-
-  if (days < 0) {
-    months -= 1;
-    const lastMonth = new Date(taken.getFullYear(), taken.getMonth(), 0);
-    days += lastMonth.getDate();
-  }
-  if (months < 0) {
-    years -= 1;
-    months += 12;
-  }
-
-  const diffMs = taken.getTime() - birth.getTime();
-  const totalDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const beforeBirth = diffMs < 0;
-
-  return { years, months, days, totalDays, beforeBirth };
-}
-
-export function formatAge(age) {
-  if (!age) return '';
-  if (age.beforeBirth) return 'before they were born';
-  if (age.totalDays === 0) return 'birth day';
-  if (age.years === 0 && age.months === 0) {
-    return `${age.totalDays} day${age.totalDays === 1 ? '' : 's'} old`;
-  }
-  if (age.years === 0) {
-    const m = `${age.months} month${age.months === 1 ? '' : 's'}`;
-    const d = age.days ? ` ${age.days}d` : '';
-    return `${m}${d}`;
-  }
-  const y = `${age.years} year${age.years === 1 ? '' : 's'}`;
-  const m = age.months ? ` ${age.months}m` : '';
-  return `${y}${m}`;
 }

@@ -1,0 +1,13 @@
+# Private-family-world smoke: top-level navigation is Today, Add, and Our World.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=photos"
+- tapOn: "Today"
+- assertVisible: "Today"
+- tapOn: "Our World"
+- assertVisible:
+    text: ".*world\\."
+- tapOn: "Add"
+- assertVisible: "Add to your world"
+- assertVisible: "Note to each other"
+- tapOn: "Close add menu"

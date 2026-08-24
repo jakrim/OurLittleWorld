@@ -8,19 +8,17 @@ import { radius, shadow, space, useTheme } from './theme';
 
 const TABS = [
   { key: 'today', label: 'Today', icon: 'home-outline', route: '/timeline' },
-  { key: 'firsts', label: 'Firsts', icon: 'flag-outline', route: '/firsts' },
   { key: 'add', label: 'Add', icon: 'add', route: null },
-  { key: 'letters', label: 'Letters', icon: 'mail-outline', route: '/letters' },
-  { key: 'library', label: 'Library', icon: 'book-outline', route: '/library' },
+  { key: 'world', label: 'Our World', icon: 'albums-outline', route: '/library' },
 ];
 
-export default function BottomTabs({ active, onAddPress }) {
+export default function BottomTabs({ active, canAdd = true, onAddPress }) {
   const router = useRouter();
   const theme = useTheme();
   return (
     <View style={styles.wrap}>
       <View style={[styles.root, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}>
-        {TABS.map((tab) => {
+        {TABS.filter((tab) => tab.key !== 'add' || canAdd).map((tab) => {
           const selected = tab.key === active;
           const add = tab.key === 'add';
           return (

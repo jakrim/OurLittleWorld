@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Our Little World — Account Deletion Release Readiness</title>
+  <style>
+    :root {
+      --ink: #2f2523;
+      --muted: #6f625e;
+      --paper: #fffaf4;
+      --card: #fff;
+      --line: #eaded4;
+      --coral: #c65f52;
+      --rose: #f5dfd9;
+      --sage: #dfe9df;
+      --amber: #f7e9c9;
+      --danger: #a53f35;
+      --shadow: 0 18px 50px rgba(75, 48, 38, .08);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, #f8dfd7 0, transparent 30rem),
+        radial-gradient(circle at 92% 12%, #e6eee4 0, transparent 28rem),
+        var(--paper);
+      font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 80px; }
+    header {
+      min-height: 440px;
+      padding: clamp(36px, 7vw, 80px);
+      border: 1px solid rgba(198, 95, 82, .16);
+      border-radius: 34px;
+      background: rgba(255, 255, 255, .78);
+      box-shadow: var(--shadow);
+      display: grid;
+      align-content: center;
+      gap: 18px;
+    }
+    .eyebrow {
+      color: var(--coral);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { line-height: 1.12; letter-spacing: -.025em; }
+    h1 { max-width: 820px; margin: 0; font: 700 clamp(46px, 8vw, 84px)/.98 Georgia, serif; }
+    h2 { margin: 0 0 20px; font: 700 clamp(29px, 4vw, 44px)/1.08 Georgia, serif; }
+    h3 { margin: 0 0 10px; font-size: 19px; }
+    p { margin: 0 0 16px; }
+    .lead { max-width: 760px; color: var(--muted); font-size: clamp(19px, 2.5vw, 25px); }
+    .status {
+      display: inline-flex;
+      width: fit-content;
+      gap: 9px;
+      align-items: center;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: var(--sage);
+      font-weight: 750;
+      font-size: 14px;
+    }
+    .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #4c7a54; }
+    nav { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0 0; }
+    nav a {
+      color: var(--ink);
+      text-decoration: none;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.7);
+      font-size: 14px;
+    }
+    section { margin-top: 72px; scroll-margin-top: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 18px; }
+    .card {
+      grid-column: span 4;
+      padding: 25px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255,255,255,.86);
+      box-shadow: 0 10px 30px rgba(75,48,38,.04);
+    }
+    .card.wide { grid-column: span 6; }
+    .card.full { grid-column: 1 / -1; }
+    .card p:last-child, .callout p:last-child { margin-bottom: 0; }
+    .number {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: grid; place-items: center; margin-bottom: 16px;
+      color: #fff; background: var(--coral); font-weight: 800;
+    }
+    .callout {
+      padding: 26px;
+      border-left: 5px solid var(--coral);
+      border-radius: 8px 22px 22px 8px;
+      background: var(--rose);
+    }
+    .boundary {
+      padding: 24px;
+      border: 1px solid #d0dfd0;
+      border-radius: 22px;
+      background: var(--sage);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255,255,255,.9);
+    }
+    th, td { padding: 16px 18px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); background: #fbf4ed; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    code {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #f4ece6;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+    .flow div {
+      position: relative;
+      min-height: 116px;
+      padding: 18px;
+      border-radius: 17px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .flow div:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -11px;
+      top: 42%;
+      z-index: 2;
+      color: var(--coral);
+      font-size: 19px;
+      font-weight: 900;
+    }
+    .flow strong { display: block; margin-bottom: 6px; font-size: 15px; }
+    .pass, .hold { display: inline-block; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+    .pass { color: #315b39; background: var(--sage); }
+    .hold { color: #705317; background: var(--amber); }
+    ul { margin: 10px 0 0; padding-left: 21px; }
+    li { margin: 7px 0; }
+    .claim-safe { border-top: 4px solid #5f8a65; }
+    .claim-hold { border-top: 4px solid #c39038; }
+    footer { margin-top: 72px; padding: 24px 0; color: var(--muted); border-top: 1px solid var(--line); font-size: 14px; }
+    @media (max-width: 820px) {
+      .card, .card.wide { grid-column: 1 / -1; }
+      .flow { grid-template-columns: 1fr; }
+      .flow div:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -19px; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { width: 100%; padding: 0; }
+      header, .card { box-shadow: none; }
+      section { break-inside: avoid; margin-top: 40px; }
+      nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Our Little World · controlled release convergence · 24 July 2026</div>
+    <h1>Account deletion is now a real product flow—not a policy promise.</h1>
+    <p class="lead">Parents can export first, see exactly what their family role means, reauthenticate, and permanently remove their account without erasing a co-parent’s family history or touching the camera roll.</p>
+    <div class="status">Implementation and local runtime proof complete</div>
+    <nav aria-label="Report sections">
+      <a href="#experience">Parent experience</a>
+      <a href="#roles">Role outcomes</a>
+      <a href="#privacy">Privacy boundary</a>
+      <a href="#architecture">How it works</a>
+      <a href="#proof">Evidence</a>
+      <a href="#release">Release boundary</a>
+      <a href="#marketing">Marketing claims</a>
+    </nav>
+  </header>
+
+  <section id="experience">
+    <div class="eyebrow">The parent experience</div>
+    <h2>Clear enough to trust. Deliberate enough to prevent accidents.</h2>
+    <div class="grid">
+      <article class="card"><div class="number">1</div><h3>Reachable account controls</h3><p>Delete account is available from normal settings and remains reachable during incomplete setup, no-family onboarding, lapsed/read-only access, and the purchase gate.</p></article>
+      <article class="card"><div class="number">2</div><h3>Export before deletion</h3><p>The first action opens the current family export, discloses its current video, audio, and sharing limits, and tells a parent with multiple sole-parent archives to export each one they want to keep.</p></article>
+      <article class="card"><div class="number">3</div><h3>Exact impact, not generic fear</h3><p>The server counts sole-writer, shared-writer, and Circle memberships. If that preview cannot load, deletion cannot advance.</p></article>
+      <article class="card"><div class="number">4</div><h3>Fresh reauthentication</h3><p>A six-digit code is sent to the current account email. The backend consumes it directly with Supabase Auth and verifies that it resolves to the same user.</p></article>
+      <article class="card"><div class="number">5</div><h3>Explicit final act</h3><p>The parent must enter the fresh code and type <code>DELETE</code> exactly. The destructive button stays disabled until both checks are satisfied.</p></article>
+      <article class="card"><div class="number">6</div><h3>Device cleanup and honest completion</h3><p>Private queues, drafts, caches, scheduled notifications, and the local session are cleared. A partial local cleanup tells the parent to reinstall before another sign-in.</p></article>
+    </div>
+  </section>
+
+  <section id="roles">
+    <div class="eyebrow">Role-aware ownership</div>
+    <h2>“Delete me” does not mean “delete everybody.”</h2>
+    <table>
+      <thead><tr><th>Requester state</th><th>Deleted</th><th>Preserved</th><th>Billing behavior</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sole writer</strong></td><td>Family rows, app-controlled Supabase Storage, Stream video, R2 originals, user/device state, membership, Auth account.</td><td>Minimum detached billing/legal evidence; device camera roll; explicit export.</td><td>Active Stripe subscription is canceled first. Store subscription requires the parent’s store action.</td></tr>
+        <tr><td><strong>Additional writer</strong></td><td>Requester membership, push/notification/device state, private local ledgers and drafts, Auth account.</td><td>Shared family archive, media, collections, context, other writer membership, separately authored records with null attribution.</td><td>Deleted user is detached from retained billing records; remaining family/provider state is not invented or reassigned.</td></tr>
+        <tr><td><strong>Circle member</strong></td><td>Read-only membership, requester notifications/push state, Auth account.</td><td>The entire family archive, media, billing, gifts, Firsts, letters, and writer data.</td><td>No family billing ownership is removed from Circle.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="privacy">
+    <div class="eyebrow">Trust contract</div>
+    <h2>The deletion system sees less than the product sees.</h2>
+    <div class="boundary">
+      <h3>Never leaves the parent’s device before Keep</h3>
+      <p>Unsaved candidates, Photos asset IDs, face evidence, fingerprints, selection rationale, rejects, unavailable originals, Tonight queue state, text drafts, and temporary voice paths are not inputs to the Edge function, audit ledger, provider cleanup, analytics, notifications, reports, or another caregiver’s device.</p>
+    </div>
+    <div class="grid" style="margin-top:18px">
+      <article class="card wide"><h3>Service-only audit</h3><p>The durable ledger contains request and family-role identifiers, timestamps, status, attempt/error code, legal-hold state, and aggregate provider counts. It has no public/authenticated policy and no content or paths.</p></article>
+      <article class="card wide"><h3>Fail-closed mutation window</h3><p>A family lock makes established writer checks false and blocks membership changes between inventory and finalization. If the lock expires or a role changes, finalization stops and re-inventories.</p></article>
+      <article class="card wide"><h3>Legal hold before providers</h3><p>A hold stops the request before any Storage, Stream, R2, Stripe, database, or Auth deletion begins.</p></article>
+      <article class="card wide"><h3>No deletion analytics</h3><p>The mobile flow sends no deletion event. Provider and release evidence stays aggregate and never contains account content, email codes, media identifiers, or family examples.</p></article>
+      <article class="card full"><h3>Old media sessions fail closed</h3><p>The R2 Worker writes a content-free family deletion marker before erasure and checks it before original-media cache lookup. A still-valid short-lived token therefore receives <code>410</code> instead of a stale cached original.</p></article>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="eyebrow">Technical architecture</div>
+    <h2>One resumable transaction across five systems.</h2>
+    <div class="flow" aria-label="Account deletion lifecycle">
+      <div><strong>1. Mobile</strong>Export, server preview, OTP, exact confirmation.</div>
+      <div><strong>2. Supabase DB</strong>Audit row, legal hold, role inventory, family locks.</div>
+      <div><strong>3. Providers</strong>Storage prefix, Stream UID + family metadata, R2 prefix, Stripe.</div>
+      <div><strong>4. Finalizer</strong>Delete sole families; remove shared/Circle membership; minimize retained records.</div>
+      <div><strong>5. Auth + device</strong>Hard-delete user; clear SQLite, AsyncStorage, drafts, notifications, session.</div>
+    </div>
+    <div class="callout" style="margin-top:22px">
+      <h3>Why these technologies</h3>
+      <p><strong>Expo/React Native</strong> keeps the account journey inside the shipped family app and can erase native SQLite, files, notifications, and secure auth state. <strong>Supabase Postgres/RLS</strong> owns family roles, lifecycle locks, cascades, nullable authorship, and service-only audit. <strong>Deno Edge Functions</strong> provide the admin-only orchestration boundary without shipping credentials. <strong>Cloudflare Stream and R2</strong> hold video/original media, so their deletion must be verified before the family rows disappear. <strong>Wrangler</strong> validates that Worker code and bindings bundle without mutating production.</p>
+    </div>
+  </section>
+
+  <section id="proof">
+    <div class="eyebrow">Evidence completed</div>
+    <h2>Proven with synthetic accounts and real local service boundaries.</h2>
+    <div class="grid">
+      <article class="card"><span class="pass">PASS</span><h3>Fresh schema replay</h3><p>Every migration replayed on a disposable local database; schema lint passed. The account migration was reapplied twice to prove restart safety.</p></article>
+      <article class="card"><span class="pass">39 / 39</span><h3>Lifecycle pgTAP</h3><p>Role classification, locks, legal hold, cross-family selection, shared preservation, billing minimization, Auth deletion, and idempotency.</p></article>
+      <article class="card"><span class="pass">133 / 133</span><h3>Repository SQL contracts</h3><p>Account deletion plus existing Circle, shared-authorship, collections, and grounded-context contracts all passed.</p></article>
+      <article class="card"><span class="pass">10 / 10</span><h3>Edge and Worker tests</h3><p>Explicit confirmation, OTP normalization, family prefixes, aggregate-only evidence, authenticated R2 deletion, and deleted-session cache denial.</p></article>
+      <article class="card"><span class="pass">448 / 448</span><h3>Mobile contracts</h3><p>The complete mobile unit suite, repository lint/typecheck/build, Expo lint, and Expo Doctor 20/20 passed.</p></article>
+      <article class="card"><span class="pass">LOCAL E2E</span><h3>Actual Auth + OTP + Storage</h3><p>Synthetic two-writer and sole-family records went through local Auth, Mailpit OTP, Edge HTTP, PostgREST, Storage, database finalization, and hard user deletion.</p></article>
+      <article class="card"><span class="pass">DRY RUN</span><h3>Media Worker bundle</h3><p>Current Wrangler bundled the R2-bound Worker and inspected startup without deployment.</p></article>
+    </div>
+    <div class="callout" style="margin-top:22px">
+      <p><strong>Observed result:</strong> the sole family and its Storage object were gone; the shared family, remaining writer, shared moment, and shared Storage object remained; the deleting writer’s membership disappeared; shared attribution became null; the Supabase Auth user returned not found.</p>
+    </div>
+  </section>
+
+  <section id="release">
+    <div class="eyebrow">Controlled release boundary</div>
+    <h2>Ready for review and non-production provider rehearsal—not silently deployed.</h2>
+    <div class="grid">
+      <article class="card wide">
+        <span class="pass">COMPLETE LOCALLY</span>
+        <h3>Source and deterministic proof</h3>
+        <p>Implemented on isolated branch <code>codex/olw-account-deletion</code> from clean release base <code>5560b74</code> in commits <code>dba9fb2</code>, <code>5588ff7</code>, and <code>82d8282</code>, without incorporating the unrelated dirty canonical checkout.</p>
+      </article>
+      <article class="card wide">
+        <span class="hold">AUTHORIZATION REQUIRED</span>
+        <h3>Production and signed release</h3>
+        <p>Production migration, secret creation/change, Worker/Edge deployment, internal signed build upload, physical-device deletion, and public store promotion remain separate actions.</p>
+      </article>
+      <article class="card full">
+        <h3>Current provider and signed-build truth</h3>
+        <p>The linked Supabase project has no preview branch. Production has the earlier <code>create-stream-upload</code> but no <code>delete-account</code>; the deployed media Worker predates this implementation. The latest EAS store artifact is iOS <code>1.1.0</code> build <code>1.1.11</code> from base commit <code>5560b74</code>, so no signed build currently contains this flow. The deterministic smoke passed 25/25 before Maestro stopped at the absent authorized local test-code profile.</p>
+      </article>
+      <article class="card full">
+        <h3>Authorized order when Jesse approves it</h3>
+        <p>Additive migration → verify grants/RLS → configure the shared Worker/Edge deletion secret → deploy media Worker → deploy Stream tracking and deletion Edge functions → provider-backed synthetic rehearsal → clean signed client → physical-device synthetic deletion → limited cohort → aggregate monitoring.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="marketing">
+    <div class="eyebrow">Marketing truth</div>
+    <h2>The product promise this unlocks—after release evidence exists.</h2>
+    <div class="grid">
+      <article class="card wide claim-safe">
+        <h3>Claims supported by the implemented behavior</h3>
+        <ul>
+          <li>Your camera roll stays yours; deleting Our Little World does not delete device originals.</li>
+          <li>You can export your parent-approved archive before deleting the account.</li>
+          <li>Leaving a shared family does not erase the other parent’s family history.</li>
+          <li>Private discovery work and drafts stay on the parent’s device and are cleared with the deleted account.</li>
+        </ul>
+      </article>
+      <article class="card wide claim-hold">
+        <h3>Withhold from public claims until deployed and signed-device verified</h3>
+        <ul>
+          <li>“Delete your account in the app” as a currently available store-build capability.</li>
+          <li>Complete Stream/R2/Stripe erasure in the production provider configuration.</li>
+          <li>Any promise of instantaneous backup/log expiry or deletion beyond app-controlled systems.</li>
+          <li>Any claim that Apple or Google subscriptions are canceled by account deletion.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <footer>
+    Source companions: <code>docs/account-deletion-implementation.md</code>,
+    <code>docs/account-deletion-policy.md</code>, and
+    <code>docs/account-deletion-operations.md</code>. This report contains no real
+    family data, account identifiers, OTPs, media examples, provider secrets, or
+    private recognition evidence.
+  </footer>
+</main>
+</body>
+</html>

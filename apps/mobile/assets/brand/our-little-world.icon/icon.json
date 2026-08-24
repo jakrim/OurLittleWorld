@@ -1,0 +1,54 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "05-flower-dots.png",
+          "name" : "05-flower-dots"
+        },
+        {
+          "glass" : false,
+          "image-name" : "06-heart.png",
+          "name" : "06-heart"
+        },
+        {
+          "glass" : false,
+          "image-name" : "04-gold-sprout.png",
+          "name" : "04-gold-sprout"
+        },
+        {
+          "image-name" : "03-terracotta-ring.png",
+          "name" : "03-terracotta-ring"
+        },
+        {
+          "image-name" : "02-cream-badge.png",
+          "name" : "02-cream-badge"
+        },
+        {
+          "glass" : false,
+          "image-name" : "01-background.png",
+          "name" : "01-background"
+        }
+      ],
+      "name" : "Our Little World",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

@@ -8,7 +8,7 @@ export default function LibraryRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'none' }} />
-      <ProtectedRoute>
+      <ProtectedRoute allowReadOnlyArchive>
         <LibraryScreen />
       </ProtectedRoute>
     </>

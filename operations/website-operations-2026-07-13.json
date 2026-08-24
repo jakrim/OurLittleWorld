@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "project": "our-little-world",
+  "recorded_at": "2026-07-13",
+  "environment": "production",
+  "public_url": "https://ourlittleworld.me",
+  "release": {
+    "source_commit": "6f29c17bea3b73f52eea4968d67c5d983a8c85b1",
+    "deployment_id": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployment_url": "https://our-little-world-62fnys3ir-jessekrim.vercel.app",
+    "inspector_url": "https://vercel.com/jessekrim/our-little-world/6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "deployed_at": "2026-07-13T18:08:11Z",
+    "verified_at": "2026-07-13T18:09:31.859Z",
+    "health_release": "dpl_6XGP5XZZaLqEpaUyAEjYdkjcU94G",
+    "runtime_error_logs_last_30_minutes": 0,
+    "http_500_logs_last_30_minutes": 0
+  },
+  "owners": {
+    "website": "Vercel project our-little-world",
+    "canonical_marketing_ledger": "Supabase project baxgullapuksjbzkogii",
+    "marketing_provider": "Mailchimp",
+    "analytics": "dedicated Our Little World PostHog project"
+  },
+  "website": {
+    "commerce_state": "coming_soon",
+    "store_state": "coming_soon",
+    "partners_enabled": false,
+    "health_endpoint": "https://ourlittleworld.me/api/health/",
+    "indexable_routes": [
+      "/",
+      "/story/",
+      "/pricing/",
+      "/gift/",
+      "/privacy/",
+      "/terms/",
+      "/refunds/",
+      "/for/unfinished-baby-book/"
+    ]
+  },
+  "supabase": {
+    "project_ref": "baxgullapuksjbzkogii",
+    "migrations": [
+      "20260713190000_marketing_consent_provider_sync.sql",
+      "20260713220000_website_operational_monitoring.sql",
+      "20260713230000_lock_marketing_contacts_rpc_only.sql",
+      "20260713231000_quarantine_legacy_test_marketing_contacts.sql",
+      "20260713232000_isolate_website_launch_audience.sql"
+    ],
+    "edge_functions": [
+      "launch-signup",
+      "sync-marketing-contacts",
+      "mailchimp-webhook",
+      "website-health-event"
+    ],
+    "scheduler": "route and marketing dispatch every five minutes; operational alert evaluation every ten minutes",
+    "direct_marketing_table_access": "denied_including_service_role",
+    "operational_read_path": "restricted health RPCs",
+    "consent_history": "append_only"
+  },
+  "mailchimp": {
+    "website_audience": {
+      "id": "91d293c5c4",
+      "name": "Our Little World Website Launch",
+      "double_opt_in": true,
+      "campaign_count": 0,
+      "webhook_id": "154da6e30e",
+      "webhook_signature_required": true,
+      "visitor_tag": "olw-interested-visitor-v1",
+      "required_footer": {
+        "contact_email": "support@ourlittleworld.me",
+        "website_url": "https://ourlittleworld.me/",
+        "hosted_form_url": "https://ourlittleworld.us14.list-manage.com/subscribe?u=0477f4a0be2483e172607c403&id=91d293c5c4",
+        "confirmation_continue_url": "https://ourlittleworld.me/",
+        "verification_status": "provider_saved_and_form_builder_preview_verified",
+        "configuration_verified_at": "2026-07-13T18:32:42Z"
+      }
+    },
+    "parent_audience": {
+      "id": "333fbdbba0",
+      "name": "Our Little World",
+      "provider_native_campaign_count": 6,
+      "website_signup_excluded": true,
+      "product_eligibility_sync_deployed": false
+    },
+    "incident_and_resolution": {
+      "incident": "During controlled production testing, two website test aliases entered the existing parent audience and received the first parent-onboarding message.",
+      "impact": "Controlled test identities only; no public visitor send was observed.",
+      "cause": "The existing parent audience had provider-native signup automation, so list subscription itself was an unintended enrollment trigger.",
+      "resolution": "A new website-only audience with zero campaigns was created; active website contacts were migrated, controlled contacts were unsubscribed from the parent audience, and the sync worker was changed so provider subscription never marks welcome enrollment.",
+      "post_resolution_evidence": "A third controlled production signup synchronized only to the website audience, had zero welcome jobs, was absent from the parent audience, and received no parent-onboarding message during the observation window.",
+      "observed_at": "2026-07-13T17:58:00Z",
+      "observation_window": "several minutes after provider sync; exact duration was not instrumented"
+    },
+    "hosted_confirmation_incident": {
+      "status": "configuration_fixed_e2e_pending",
+      "reported_at": "2026-07-13T18:13:55Z",
+      "incident": "The Our Little World double-opt-in email showed a Get Mentors contact address, and the confirmation page Continue to website button opened getmentors.ai.",
+      "cause": "The new audience's Required email footer content retained Get Mentors values for contact email and Website URL. These fields are separate from the API-visible campaign sender defaults.",
+      "resolution": "Updated only the Our Little World Website Launch audience footer contact to support@ourlittleworld.me and Website URL to https://ourlittleworld.me/.",
+      "verification": [
+        "Mailchimp confirmed the footer settings save.",
+        "A readback of the audience footer editor returned the OLW support address and OLW website URL.",
+        "The Form Builder confirmation-page preview resolved Continue to website to https://ourlittleworld.me/.",
+        "The audience API now returns an ourlittleworld.us14.list-manage.com hosted signup URL.",
+        "The public hosted signup page returned 200 with Our Little World branding and zero Get Mentors references."
+      ],
+      "post_fix_regression": {
+        "provider_configuration": "verified",
+        "hosted_form": "verified",
+        "fresh_delivered_confirmation_email": "not_repeated_after_fix",
+        "fresh_tokenized_confirmation_page": "not_repeated_after_fix",
+        "required_next_check": "Complete the disposable-address production double-opt-in round trip documented in apps/web/README.md before changing this incident status to fully_resolved."
+      },
+      "configuration_verified_at": "2026-07-13T18:32:42Z"
+    }
+  },
+  "suppression_behavior": {
+    "provider_unsubscribe_round_trip": "verified",
+    "repeat_form_after_unsubscribe": "canonical_state_remained_unsubscribed_and_reconfirmation_was_requested",
+    "provider_pending_during_reconfirmation": "canonical_state_remained_unsubscribed",
+    "provider_confirmed_resubscribe": "signed_webhook_restored_canonical_subscription",
+    "complaint_and_hard_bounce": "suppression_paths_implemented_and_tested",
+    "duplicate_webhook": "idempotent"
+  },
+  "controlled_data": {
+    "measured_at": "2026-07-13T17:58:00Z",
+    "active_website_test_contacts": 3,
+    "active_contact_disposition": "Retained temporarily as acceptance fixtures in the isolated zero-campaign audience, tagged controlled-test-2026-07-13; unsubscribe or remove before any campaign is created and no later than the evidence-retention review.",
+    "evidence_retention_review_by": "2026-08-12",
+    "quarantined_legacy_dummy_contacts": 3,
+    "legacy_consent_history_preserved": true,
+    "active_outbox_or_terminal_jobs": 0,
+    "open_monitoring_alerts": 0
+  },
+  "rollback": {
+    "website": "Promote the previous healthy Vercel production deployment and keep commerce coming_soon.",
+    "provider_writes": "Set OUR_LITTLE_WORLD_MAILCHIMP_SYNC_ENABLED=false. Keep signed webhooks enabled so suppressions continue to flow into the canonical ledger.",
+    "edge_functions": "Redeploy the prior function source version.",
+    "database": "Migrations are additive. Do not delete consent history or destructively roll back tables during an incident.",
+    "audiences": "Do not merge the website audience into the parent audience and do not delete either audience as an incident response."
+  },
+  "known_remaining_work": [
+    "Configure an external alert destination.",
+    "Verify the full reply loop for the intended hello@ourlittleworld.me alias before changing the current support@ourlittleworld.me sender or inviting replies.",
+    "Connect parent onboarding only after product eligibility and exit-state signals exist.",
+    "Rotate the historical Mailchimp API key found outside this clean worktree.",
+    "Verify PostHog provider readback for the current funnel events.",
+    "Configure transactional gift email and its authenticated scheduler before live commerce."
+  ]
+}

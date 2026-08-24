@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function ReferenceRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowFirstValue>
       <ReferencePhotoScreen />
     </ProtectedRoute>
   );

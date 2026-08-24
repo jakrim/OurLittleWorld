@@ -194,6 +194,7 @@ create table if not exists public.firsts (
   asset_owner_user_id  uuid references auth.users(id) on delete set null,
   asset_id             text,
   goal_key             text references public.goal_definitions(key) on update cascade on delete set null,
+  shared_with          jsonb not null default '[]'::jsonb,
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
@@ -207,9 +208,10 @@ create table if not exists public.letters (
   author_user_id  uuid not null references auth.users(id) on delete cascade,
   title           text,
   body            text not null,
-  open_on         date not null,
+  open_on         date,
   audience        text not null default 'child' check (audience = 'child'),
-  sealed_at       timestamptz not null default now(),
+  source_first_id  uuid references public.firsts(id) on delete set null,
+  sealed_at       timestamptz,
   opened_at       timestamptz,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
@@ -233,8 +235,15 @@ end $$;
 alter table public.letters
   drop column if exists starter_key;
 
+alter table public.letters
+  add column if not exists source_first_id uuid references public.firsts(id) on delete set null;
+
 create index if not exists letters_family_open_idx
   on public.letters(family_id, open_on asc, created_at desc);
+
+create index if not exists letters_source_first_idx
+  on public.letters(family_id, source_first_id)
+  where source_first_id is not null;
 
 create table if not exists public.weekly_digests (
   id                         uuid primary key default gen_random_uuid(),
@@ -247,6 +256,7 @@ create table if not exists public.weekly_digests (
   firsts_count               integer not null default 0,
   letter_count               integer not null default 0,
   representative_media       jsonb not null default '[]'::jsonb,
+  shared_with                jsonb not null default '[]'::jsonb,
   moment_count               integer not null default 0,
   milestone_count            integer not null default 0,
   voice_note_count           integer not null default 0,
@@ -285,9 +295,23 @@ create table if not exists public.moments (
 create index if not exists moments_family_captured_idx
   on public.moments(family_id, captured_at desc);
 
+create index if not exists firsts_family_shared_with_idx
+  on public.firsts using gin (shared_with);
+
+create index if not exists weekly_digests_family_shared_with_idx
+  on public.weekly_digests using gin (shared_with);
+
+alter table public.letters
+  add column if not exists source_moment_id uuid references public.moments(id) on delete set null;
+
+create index if not exists letters_source_moment_idx
+  on public.letters(family_id, source_moment_id)
+  where source_moment_id is not null;
+
 create table if not exists public.moment_media (
   id                   uuid primary key default gen_random_uuid(),
-  moment_id            uuid not null references public.moments(id) on delete cascade,
+  moment_id            uuid references public.moments(id) on delete cascade,
+  letter_id            uuid references public.letters(id) on delete cascade,
   family_id            uuid not null references public.families(id) on delete cascade,
   owner_user_id         uuid not null references auth.users(id) on delete cascade,
   media_type            text not null check (media_type in ('image','video')),
@@ -308,15 +332,32 @@ create table if not exists public.moment_media (
   updated_at            timestamptz not null default now()
 );
 
+alter table public.moment_media
+  alter column moment_id drop not null,
+  add column if not exists letter_id uuid references public.letters(id) on delete cascade;
+
+do $$
+begin
+  alter table public.moment_media
+    add constraint moment_media_one_parent_check
+    check (num_nonnulls(moment_id, letter_id) = 1) not valid;
+exception
+  when duplicate_object then null;
+end $$;
+
 create index if not exists moment_media_moment_idx
   on public.moment_media(moment_id, sort_order asc, created_at asc);
 create index if not exists moment_media_family_idx
   on public.moment_media(family_id, created_at desc);
+create index if not exists moment_media_letter_idx
+  on public.moment_media(letter_id, sort_order asc, created_at asc)
+  where letter_id is not null;
 
 create table if not exists public.voice_notes (
   id              uuid primary key default gen_random_uuid(),
   family_id       uuid not null references public.families(id) on delete cascade,
   moment_id       uuid references public.moments(id) on delete cascade,
+  letter_id       uuid references public.letters(id) on delete cascade,
   author_user_id  uuid not null references auth.users(id) on delete cascade,
   duration_sec    numeric,
   waveform        jsonb not null default '[]'::jsonb,
@@ -328,8 +369,23 @@ create table if not exists public.voice_notes (
   updated_at      timestamptz not null default now()
 );
 
+alter table public.voice_notes
+  add column if not exists letter_id uuid references public.letters(id) on delete cascade;
+
+do $$
+begin
+  alter table public.voice_notes
+    add constraint voice_notes_one_parent_check
+    check (num_nonnulls(moment_id, letter_id) = 1) not valid;
+exception
+  when duplicate_object then null;
+end $$;
+
 create index if not exists voice_notes_moment_idx on public.voice_notes(moment_id);
 create index if not exists voice_notes_family_idx on public.voice_notes(family_id, created_at desc);
+create index if not exists voice_notes_letter_idx
+  on public.voice_notes(letter_id, created_at asc)
+  where letter_id is not null;
 
 create table if not exists public.moment_reactions (
   id              uuid primary key default gen_random_uuid(),
@@ -397,6 +453,9 @@ alter table public.firsts
 
 alter table public.firsts
   add column if not exists goal_key text references public.goal_definitions(key) on update cascade on delete set null;
+
+alter table public.firsts
+  add column if not exists shared_with jsonb not null default '[]'::jsonb;
 
 update public.firsts
 set goal_key = case
@@ -523,6 +582,72 @@ $$;
 
 revoke all on function public.is_family_writer(uuid) from public, anon;
 grant execute on function public.is_family_writer(uuid) to authenticated;
+
+create or replace function public.is_family_circle_member(fid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select exists (
+    select 1 from public.family_members
+    where family_id = fid
+      and user_id = auth.uid()
+      and role = 'circle'
+  );
+$$;
+
+revoke all on function public.is_family_circle_member(uuid) from public, anon;
+grant execute on function public.is_family_circle_member(uuid) to authenticated;
+
+create or replace function public.is_shared_with_circle(shared_with jsonb)
+returns boolean
+language sql
+immutable
+set search_path = public, pg_catalog
+as $$
+  select coalesce(shared_with, '[]'::jsonb) ? 'circle';
+$$;
+
+revoke all on function public.is_shared_with_circle(jsonb) from public, anon;
+grant execute on function public.is_shared_with_circle(jsonb) to authenticated;
+
+create or replace function public.is_moment_shared_with_circle(target_family_id uuid, target_moment_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select exists (
+    select 1
+    from public.moments m
+    where m.family_id = target_family_id
+      and m.id = target_moment_id
+      and public.is_shared_with_circle(m.shared_with)
+  );
+$$;
+
+revoke all on function public.is_moment_shared_with_circle(uuid, uuid) from public, anon;
+grant execute on function public.is_moment_shared_with_circle(uuid, uuid) to authenticated;
+
+create or replace function public.uuid_or_null(value text)
+returns uuid
+language plpgsql
+immutable
+set search_path = public, pg_catalog
+as $$
+begin
+  return nullif(value, '')::uuid;
+exception
+  when invalid_text_representation then
+    return null;
+end;
+$$;
+
+revoke all on function public.uuid_or_null(text) from public, anon;
+grant execute on function public.uuid_or_null(text) to authenticated;
 
 -- ─── invite code generator ───────────────────────────────────────────────────
 -- 8-char Crockford base32 (avoids confusing 0/O/1/I), 32^8 keyspace.
@@ -996,8 +1121,8 @@ create policy families_select on public.families for select
 create policy families_insert on public.families for insert
   with check (created_by = auth.uid());
 create policy families_update on public.families for update
-  using (public.is_family_member(id))
-  with check (public.is_family_member(id));
+  using (public.is_family_writer(id))
+  with check (public.is_family_writer(id));
 
 -- family_members
 create policy family_members_select on public.family_members for select
@@ -1007,70 +1132,88 @@ create policy family_members_admin_delete_circle on public.family_members for de
 
 -- family_invites
 create policy family_invites_select on public.family_invites for select
-  using (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id));
 create policy family_invites_modify on public.family_invites for all
   using (public.is_family_writer(family_id))
   with check (public.is_family_writer(family_id));
 
 -- photo_tags + memories
 create policy photo_tags_all on public.photo_tags for all
-  using (public.is_family_member(family_id))
+  using (public.is_family_writer(family_id))
   with check (public.is_family_writer(family_id) and tagged_by_user_id = auth.uid());
 
 create policy memories_select on public.memories for select
-  using (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id));
 create policy memories_insert on public.memories for insert
-  with check (public.is_family_member(family_id) and author_user_id = auth.uid());
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy memories_update_own on public.memories for update
-  using (public.is_family_member(family_id) and author_user_id = auth.uid())
-  with check (author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid())
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy memories_delete_own on public.memories for delete
-  using (public.is_family_member(family_id) and author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 -- rituals
 create policy daily_prompt_responses_select on public.daily_prompt_responses for select
-  using (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id));
 create policy daily_prompt_responses_insert on public.daily_prompt_responses for insert
-  with check (public.is_family_member(family_id) and author_user_id = auth.uid());
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy daily_prompt_responses_update_own on public.daily_prompt_responses for update
-  using (public.is_family_member(family_id) and author_user_id = auth.uid())
-  with check (author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid())
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy daily_prompt_responses_delete_own on public.daily_prompt_responses for delete
-  using (public.is_family_member(family_id) and author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 create policy goal_definitions_select on public.goal_definitions for select
   using (auth.uid() is not null);
 
 create policy firsts_select on public.firsts for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      public.is_family_circle_member(family_id)
+      and (
+        public.is_shared_with_circle(shared_with)
+        or (
+          moment_id is not null
+          and public.is_moment_shared_with_circle(family_id, moment_id)
+        )
+      )
+    )
+  );
 create policy firsts_insert on public.firsts for insert
-  with check (public.is_family_member(family_id) and created_by_user_id = auth.uid());
+  with check (public.is_family_writer(family_id) and created_by_user_id = auth.uid());
 create policy firsts_update_own on public.firsts for update
-  using (public.is_family_member(family_id) and created_by_user_id = auth.uid())
-  with check (created_by_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and created_by_user_id = auth.uid())
+  with check (public.is_family_writer(family_id) and created_by_user_id = auth.uid());
 create policy firsts_delete_own on public.firsts for delete
-  using (public.is_family_member(family_id) and created_by_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and created_by_user_id = auth.uid());
 
 create policy letters_select on public.letters for select
-  using (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id));
 create policy letters_insert on public.letters for insert
-  with check (public.is_family_member(family_id) and author_user_id = auth.uid());
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy letters_update_own on public.letters for update
-  using (public.is_family_member(family_id) and author_user_id = auth.uid())
-  with check (author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid())
+  with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy letters_delete_own on public.letters for delete
-  using (public.is_family_member(family_id) and author_user_id = auth.uid());
+  using (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 create policy weekly_digests_select on public.weekly_digests for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      public.is_family_circle_member(family_id)
+      and public.is_shared_with_circle(shared_with)
+    )
+  );
 create policy weekly_digests_insert on public.weekly_digests for insert
-  with check (public.is_family_member(family_id));
+  with check (public.is_family_writer(family_id));
 create policy weekly_digests_update on public.weekly_digests for update
-  using (public.is_family_member(family_id))
-  with check (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id))
+  with check (public.is_family_writer(family_id));
 
 create policy family_ritual_settings_select on public.family_ritual_settings for select
-  using (public.is_family_member(family_id));
+  using (public.is_family_writer(family_id));
 create policy family_ritual_settings_insert on public.family_ritual_settings for insert
   with check (public.is_family_writer(family_id));
 create policy family_ritual_settings_update on public.family_ritual_settings for update
@@ -1078,7 +1221,13 @@ create policy family_ritual_settings_update on public.family_ritual_settings for
   with check (public.is_family_writer(family_id));
 
 create policy moments_select on public.moments for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      public.is_family_circle_member(family_id)
+      and public.is_shared_with_circle(shared_with)
+    )
+  );
 create policy moments_insert on public.moments for insert
   with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy moments_update_own on public.moments for update
@@ -1088,7 +1237,14 @@ create policy moments_delete_own on public.moments for delete
   using (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 create policy moment_media_select on public.moment_media for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      moment_id is not null
+      and public.is_family_circle_member(family_id)
+      and public.is_moment_shared_with_circle(family_id, moment_id)
+    )
+  );
 create policy moment_media_insert on public.moment_media for insert
   with check (public.is_family_writer(family_id) and owner_user_id = auth.uid());
 create policy moment_media_update_own on public.moment_media for update
@@ -1098,7 +1254,14 @@ create policy moment_media_delete_own on public.moment_media for delete
   using (public.is_family_writer(family_id) and owner_user_id = auth.uid());
 
 create policy voice_notes_select on public.voice_notes for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      moment_id is not null
+      and public.is_family_circle_member(family_id)
+      and public.is_moment_shared_with_circle(family_id, moment_id)
+    )
+  );
 create policy voice_notes_insert on public.voice_notes for insert
   with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 create policy voice_notes_update_own on public.voice_notes for update
@@ -1108,13 +1271,25 @@ create policy voice_notes_delete_own on public.voice_notes for delete
   using (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 create policy moment_reactions_select on public.moment_reactions for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      public.is_family_circle_member(family_id)
+      and public.is_moment_shared_with_circle(family_id, moment_id)
+    )
+  );
 create policy moment_reactions_all on public.moment_reactions for all
   using (public.is_family_writer(family_id) and author_user_id = auth.uid())
   with check (public.is_family_writer(family_id) and author_user_id = auth.uid());
 
 create policy moment_tags_select on public.moment_tags for select
-  using (public.is_family_member(family_id));
+  using (
+    public.is_family_writer(family_id)
+    or (
+      public.is_family_circle_member(family_id)
+      and public.is_moment_shared_with_circle(family_id, moment_id)
+    )
+  );
 create policy moment_tags_all on public.moment_tags for all
   using (public.is_family_writer(family_id))
   with check (public.is_family_writer(family_id));
@@ -1130,3 +1305,42 @@ create policy scan_checkpoints_select on public.scan_checkpoints for select
 create policy scan_checkpoints_all on public.scan_checkpoints for all
   using (public.is_family_writer(family_id) and user_id = auth.uid())
   with check (public.is_family_writer(family_id) and user_id = auth.uid());
+
+-- storage.objects policies for private family media bucket
+create policy family_photos_select on storage.objects for select to authenticated
+  using (
+    bucket_id = 'family-photos'
+    and (
+      public.is_family_writer(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+      or (
+        public.is_family_circle_member(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+        and split_part(storage.objects.name, '/', 2) = 'moments'
+        and public.is_moment_shared_with_circle(
+          public.uuid_or_null(split_part(storage.objects.name, '/', 1)),
+          public.uuid_or_null(split_part(storage.objects.name, '/', 3))
+        )
+      )
+    )
+  );
+
+create policy family_photos_insert on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'family-photos'
+    and public.is_family_writer(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+  );
+
+create policy family_photos_update on storage.objects for update to authenticated
+  using (
+    bucket_id = 'family-photos'
+    and public.is_family_writer(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+  )
+  with check (
+    bucket_id = 'family-photos'
+    and public.is_family_writer(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+  );
+
+create policy family_photos_delete on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'family-photos'
+    and public.is_family_writer(public.uuid_or_null(split_part(storage.objects.name, '/', 1)))
+  );

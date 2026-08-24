@@ -1,0 +1,77 @@
+{
+  "outputs": [
+    {
+      "bytes": 26521,
+      "height": 180,
+      "mode": "RGBA",
+      "path": "apps/web/public/apple-touch-icon.png",
+      "public_path": "/apple-touch-icon.png",
+      "sha256": "9d0d18f10b6193c7a680de96f48e28aafd7b96f96775b4109e006b036c446637",
+      "width": 180
+    },
+    {
+      "bytes": 28883,
+      "height": 192,
+      "mode": "RGBA",
+      "path": "apps/web/public/assets/brand/icon-192.png",
+      "public_path": "/assets/brand/icon-192.png",
+      "sha256": "d8a70da6f72074b8903a08b3d67c9f7dd0ca48a6a539a2ec89c83d65cb37aafb",
+      "width": 192
+    },
+    {
+      "bytes": 88663,
+      "height": 512,
+      "mode": "RGBA",
+      "path": "apps/web/public/assets/brand/icon-512.png",
+      "public_path": "/assets/brand/icon-512.png",
+      "sha256": "65287b293db432dd82cd8e4071ead672d27eeae400ad2285f2e3d17f119378b9",
+      "width": 512
+    },
+    {
+      "bytes": 189817,
+      "height": 1024,
+      "mode": "RGBA",
+      "path": "apps/web/public/assets/brand/logo-mark-circle.png",
+      "public_path": "/assets/brand/logo-mark-circle.png",
+      "sha256": "a90e02e2ef2b5c6363a19679882af8634c50eb9665a967bef67379124b104c6b",
+      "width": 1024
+    },
+    {
+      "bytes": 64808,
+      "height": 630,
+      "mode": "RGB",
+      "path": "apps/web/public/assets/brand/social-preview-1200x630.png",
+      "public_path": "/assets/brand/social-preview-1200x630.png",
+      "sha256": "eb0be19f2b27ae586654b3dd8af9485de169a0977eb7d8124f068618057788ad",
+      "width": 1200
+    },
+    {
+      "bytes": 7563,
+      "path": "apps/web/public/favicon.ico",
+      "public_path": "/favicon.ico",
+      "sha256": "e3643f791df92c5fc5bbaac40d3c6c51d3fffba980a27eecef5ac221e870b835",
+      "sizes": [
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          48,
+          48
+        ]
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "height": 1024,
+    "mode": "RGBA",
+    "path": "apps/mobile/assets/brand/logo-mark-circle.png",
+    "sha256": "a90e02e2ef2b5c6363a19679882af8634c50eb9665a967bef67379124b104c6b",
+    "width": 1024
+  }
+}

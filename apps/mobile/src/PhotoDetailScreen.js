@@ -320,6 +320,7 @@ export default function PhotoDetailScreen() {
             value={note}
             onChangeText={setNote}
             placeholder="What happened in this moment?"
+            caption="Saved with this photo for the family archive."
           />
           <Spacer h={space.md} />
           <Button
@@ -415,7 +416,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   downloadTitle: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
   },

@@ -1,8 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Image, ScrollView } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
 
-import { Card, Button, Field, Brand, Hero, Title, Body, V, Spacer, GlassButton, space } from './ui';
+import {
+  Card,
+  Button,
+  Field,
+  Brand,
+  Hero,
+  Title,
+  Body,
+  V,
+  Spacer,
+  GlassButton,
+  Screen,
+  space,
+  useTheme,
+} from './ui';
 import { Family, Invites } from './families';
 import { useFamily } from './FamilyContext';
 import RelationshipRolePicker from './RelationshipRolePicker';
@@ -14,7 +29,9 @@ import RelationshipRolePicker from './RelationshipRolePicker';
  *      ourlittleworld://invite/CODE
  */
 export default function FamilyOnboardingScreen({ route }) {
+  const router = useRouter();
   const { refresh } = useFamily();
+  const theme = useTheme();
   const [mode, setMode] = useState('chooser');
   const [name, setName] = useState('');
   const [relationshipPreset, setRelationshipPreset] = useState('partner');
@@ -79,50 +96,58 @@ export default function FamilyOnboardingScreen({ route }) {
   };
 
   return (
-    <View style={styles.root}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <View style={[styles.root, { backgroundColor: theme.semantic.bg }]}>
+      <Screen
+        bare
+        scroll
+        keyboard
+        edges={{ top: false, bottom: true }}
+        contentStyle={styles.scrollContent}
+        statusBarStyle={theme.isDark ? 'light-content' : 'dark-content'}
+        statusBarBackgroundColor={theme.semantic.bg}
       >
         <V gap="lg" style={styles.content}>
-        <OnboardingHeader showBack={mode !== 'chooser'} onBack={goBackToChooser} />
+          <OnboardingHeader showBack={mode !== 'chooser'} onBack={goBackToChooser} />
 
-        {mode === 'chooser' ? (
-          <Chooser onCreate={() => setMode('create')} onJoin={() => setMode('join')} />
-        ) : null}
+          {mode === 'chooser' ? (
+            <Chooser onCreate={() => setMode('create')} onJoin={() => setMode('join')} />
+          ) : null}
 
-        {mode === 'create' ? (
-          <CreateFlow
-            name={name}
-            setName={setName}
-            relationshipPreset={relationshipPreset}
-            setRelationshipPreset={setRelationshipPreset}
-            customRelationshipLabel={customRelationshipLabel}
-            setCustomRelationshipLabel={setCustomRelationshipLabel}
-            error={error}
-            busy={busy}
-            onSubmit={onCreate}
-          />
-        ) : null}
+          {mode === 'create' ? (
+            <CreateFlow
+              name={name}
+              setName={setName}
+              relationshipPreset={relationshipPreset}
+              setRelationshipPreset={setRelationshipPreset}
+              customRelationshipLabel={customRelationshipLabel}
+              setCustomRelationshipLabel={setCustomRelationshipLabel}
+              error={error}
+              busy={busy}
+              onSubmit={onCreate}
+            />
+          ) : null}
 
-        {mode === 'join' ? (
-          <JoinFlow
-            code={code}
-            setCode={setCode}
-            name={name}
-            setName={setName}
-            relationshipPreset={relationshipPreset}
-            setRelationshipPreset={setRelationshipPreset}
-            customRelationshipLabel={customRelationshipLabel}
-            setCustomRelationshipLabel={setCustomRelationshipLabel}
-            error={error}
-            busy={busy}
-            onSubmit={onJoin}
-          />
-        ) : null}
+          {mode === 'join' ? (
+            <JoinFlow
+              code={code}
+              setCode={setCode}
+              name={name}
+              setName={setName}
+              relationshipPreset={relationshipPreset}
+              setRelationshipPreset={setRelationshipPreset}
+              customRelationshipLabel={customRelationshipLabel}
+              setCustomRelationshipLabel={setCustomRelationshipLabel}
+              error={error}
+              busy={busy}
+              onSubmit={onJoin}
+            />
+          ) : null}
+
+          <Button variant="quiet" onPress={() => router.push('/settings-menu')}>
+            Account settings
+          </Button>
         </V>
-      </ScrollView>
+      </Screen>
     </View>
   );
 }
@@ -214,6 +239,7 @@ function CreateFlow({
         value={name}
         onChangeText={setName}
         placeholder="Papa"
+        caption="Shown beside your letters, prompts, and saved memories."
         autoCapitalize="words"
         returnKeyType="done"
         onSubmitEditing={onSubmit}
@@ -270,6 +296,7 @@ function JoinFlow({
         value={code}
         onChangeText={(v) => setCode(v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
         placeholder="A1B2C3D4"
+        caption="Use the code or link your co-parent shared."
         autoCapitalize="characters"
         autoCorrect={false}
         maxLength={8}
@@ -287,6 +314,7 @@ function JoinFlow({
         value={name}
         onChangeText={setName}
         placeholder="Mama"
+        caption="Shown beside your letters, prompts, and saved memories."
         autoCapitalize="words"
         returnKeyType="done"
         onSubmitEditing={onSubmit}
@@ -326,7 +354,6 @@ function extractInviteCodeFromUrl(url) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#FAF4EE',
   },
   scrollContent: {
     flexGrow: 1,

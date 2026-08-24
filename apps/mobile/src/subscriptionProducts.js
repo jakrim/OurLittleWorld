@@ -1,0 +1,8 @@
+export const FAMILY_MONTHLY_PRODUCT_ID = 'olw.family.monthly';
+export const FAMILY_YEARLY_PRODUCT_ID = 'olw.family.yearly';
+export const VAULT_MONTHLY_PRODUCT_ID = 'olw.vault.monthly';
+export const VAULT_YEARLY_PRODUCT_ID = 'olw.vault.yearly';
+export const SUBSCRIPTION_GROUP_ID_IOS = '22207999';
+export const FAMILY_PRODUCT_IDS = [FAMILY_MONTHLY_PRODUCT_ID, FAMILY_YEARLY_PRODUCT_ID];
+export const VAULT_PRODUCT_IDS = [VAULT_MONTHLY_PRODUCT_ID, VAULT_YEARLY_PRODUCT_ID];
+export const SUBSCRIPTION_PRODUCT_IDS = [...FAMILY_PRODUCT_IDS, ...VAULT_PRODUCT_IDS];

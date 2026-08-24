@@ -1,12 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { hasEarnedAutoSaveTrust } from './photoIngestionTrustModel';
+import { buildScanAutoSaveGate } from './scanAutoSaveModel';
 import { supabase } from './supabase';
 
-export const REVIEW_THRESHOLD = 0.65;
-export const HIGH_CONFIDENCE_THRESHOLD = 0.75;
+export const REVIEW_THRESHOLD = 0.68;
+export const HIGH_CONFIDENCE_THRESHOLD = 0.8;
 export const DEFAULT_AUTO_SAVE_THRESHOLD = 0.9;
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const RECENT_AUTO_SAVE_LIMIT = 40;
 
 export function calibrationStorageKey({ familyId, userId }) {
@@ -15,6 +17,25 @@ export function calibrationStorageKey({ familyId, userId }) {
 
 export function recentAutoSavesStorageKey({ familyId, userId }) {
   return `olw:media-import-recent-auto-saves:${VERSION}:${familyId}:${userId}`;
+}
+
+export async function clearImportCalibration({ familyId, userId }) {
+  if (!familyId || !userId) return;
+  await AsyncStorage.multiRemove([
+    calibrationStorageKey({ familyId, userId }),
+    recentAutoSavesStorageKey({ familyId, userId }),
+    `olw:media-import-calibration:v1:${familyId}:${userId}`,
+    `olw:media-import-recent-auto-saves:v1:${familyId}:${userId}`,
+  ]);
+  try {
+    await supabase
+      .from('media_import_calibrations')
+      .delete()
+      .eq('family_id', familyId)
+      .eq('user_id', userId);
+  } catch {
+    // A local reset is still enough to prevent reuse on this device.
+  }
 }
 
 function normalizeCalibration(raw) {
@@ -101,6 +122,9 @@ function compactMatch(match, verdict) {
     mediaType: match.mediaType || 'image',
     score: Number(match.score || 0),
     faceCount: match.faceCount || 0,
+    captureQuality: match.captureQuality ?? null,
+    faceSizeRatio: match.faceSizeRatio ?? null,
+    sharpness: match.sharpness ?? null,
     creationTime: match.creationTime || null,
     frameTimeMs: match.frameTimeMs ?? null,
     verdict,
@@ -138,10 +162,9 @@ export async function recordCalibrationReview({ familyId, userId, accepted = [],
     ? Math.min(0.98, Math.max(DEFAULT_AUTO_SAVE_THRESHOLD, rejectedCeiling + 0.03))
     : Math.min(0.96, Math.max(DEFAULT_AUTO_SAVE_THRESHOLD, acceptedFloor - 0.02));
 
-  const autoSaveEnabled = acceptedHigh.length >= 5 && rejectedHigh.length === 0;
   const next = {
     ...previous,
-    autoSaveEnabled,
+    autoSaveEnabled: previous.autoSaveEnabled && rejectedHigh.length === 0,
     autoSaveThreshold,
     batchReviewMin: REVIEW_THRESHOLD,
     calibratedAt: new Date().toISOString(),
@@ -174,6 +197,31 @@ export async function recordNegativeExample({ familyId, userId, match }) {
   });
 }
 
+export async function setAutoSavePreference({ familyId, userId, enabled }) {
+  const previous = await getImportCalibration({ familyId, userId });
+  const nextEnabled = !!enabled;
+  if (nextEnabled && !hasEarnedAutoSaveTrust(previous)) {
+    return {
+      changed: false,
+      reason: 'trust-not-earned',
+      calibration: previous,
+    };
+  }
+  const next = await saveImportCalibration({
+    familyId,
+    userId,
+    calibration: {
+      ...previous,
+      autoSaveEnabled: nextEnabled,
+    },
+  });
+  return {
+    changed: previous.autoSaveEnabled !== next.autoSaveEnabled,
+    reason: null,
+    calibration: next,
+  };
+}
+
 export async function getRecentAutoSaves({ familyId, userId }) {
   if (!familyId || !userId) return [];
   const raw = await AsyncStorage.getItem(recentAutoSavesStorageKey({ familyId, userId }));
@@ -204,6 +252,9 @@ export async function recordRecentAutoSave({ familyId, userId, match }) {
       mediaType: match.mediaType || 'image',
       score: Number(match.score || 0),
       faceCount: match.faceCount || 0,
+      captureQuality: match.captureQuality ?? null,
+      faceSizeRatio: match.faceSizeRatio ?? null,
+      sharpness: match.sharpness ?? null,
       creationTime: match.creationTime || null,
       frameTimeMs: match.frameTimeMs ?? null,
       uri: match.uri || null,
@@ -226,16 +277,18 @@ export async function dismissRecentAutoSave({ familyId, userId, assetId }) {
 export function bucketForScore(score, calibration) {
   const value = Number(score || 0);
   const trust = normalizeCalibration(calibration);
-  if (trust.autoSaveEnabled && value >= trust.autoSaveThreshold) return 'auto-save';
+  const autoSaveGate = buildScanAutoSaveGate({ calibration: trust });
+  if (autoSaveGate.enabled && value >= autoSaveGate.threshold) return 'auto-save';
   if (value >= trust.batchReviewMin) return 'review';
   return 'ignore';
 }
 
 export async function getAutoSaveConfig({ familyId, userId }) {
   const calibration = await getImportCalibration({ familyId, userId });
-  if (!calibration.autoSaveEnabled) return null;
+  const gate = buildScanAutoSaveGate({ calibration });
+  if (!gate.enabled) return null;
   return {
-    threshold: calibration.autoSaveThreshold,
+    threshold: gate.threshold,
     calibration,
   };
 }

@@ -1,0 +1,58 @@
+# Earned-value subscription journey. Run on a seeded creator account whose
+# simulator Photos library contains authentic local test media. If the bounded
+# search finds no second candidate, the parent-confirmed reference is the honest
+# fallback. The flow stops before the sandbox sheet, so no payment is made.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://reference?source=first_value&autoSeed=1"
+- runFlow:
+    when:
+      visible: "Allow Full Access"
+    commands:
+      - tapOn: "Allow Full Access"
+- extendedWaitUntil:
+    visible:
+      text: "Yes, this is .*|Continue with this photo"
+    timeout: 60000
+- tapOn:
+    text: "Yes, this is .*|Continue with this photo"
+- extendedWaitUntil:
+    visible:
+      text: "Does this belong in your family world?|Continue with your photo"
+    timeout: 120000
+- runFlow:
+    when:
+      visible: "Continue with your photo"
+    commands:
+      - tapOn: "Continue with your photo"
+- extendedWaitUntil:
+    visible:
+      id: "first-value-proof-card"
+    timeout: 30000
+- assertVisible: "Does this belong in your family world?"
+- assertVisible: "Approving it does not upload or share it."
+- tapOn:
+    id: "approve-first-value"
+- extendedWaitUntil:
+    visible:
+      id: "paywall-first-value-proof"
+    timeout: 30000
+- assertVisible: "You chose this one"
+- assertVisible: "Your family’s story shouldn’t disappear in your camera roll."
+- assertVisible: "Annual Family"
+- assertVisible: "Monthly Family"
+- assertVisible: "Start my 14-day free trial"
+- assertNotVisible: "Start Vault"
+- assertNotVisible: "No introductory trial"
+- assertNotVisible: "Vault stays out"
+- assertVisible:
+    id: "renewal-disclosure"
+- scrollUntilVisible:
+    element:
+      id: "restore-purchases"
+    direction: DOWN
+- assertVisible:
+    id: "restore-purchases"
+- tapOn: "Close Family offer"
+- assertVisible: "You chose a real moment."
+- assertVisible: "Continue with Family"

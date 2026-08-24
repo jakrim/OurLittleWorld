@@ -1,0 +1,23 @@
+# Suggested Firsts (S5): Today surfaces a pending suggestion and routes it back
+# to Firsts, even when higher-priority blocking repair copy owns the main day
+# card on this fixture.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://firsts"
+- longPressOn: "Add a first"
+- scrollUntilVisible:
+    element:
+      text: "Possible first.*"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true
+- tapOn: "Today"
+- assertVisible: "Check: Possible first smile may belong with Firsts"
+- tapOn: "Check: Possible first smile may belong with Firsts"
+- assertVisible: "firsts so far."
+- scrollUntilVisible:
+    element:
+      text: "Possible first.*"
+    direction: DOWN
+    visibilityPercentage: 50
+    centerElement: true

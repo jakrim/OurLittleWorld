@@ -26,6 +26,13 @@ export default function LettersScreen() {
   const { family } = useFamily();
   const [letters, setLetters] = useState([]);
   const [members, setMembers] = useState({});
+  const goBackToWorld = useCallback(() => {
+    if (router.canGoBack?.()) {
+      router.back();
+      return;
+    }
+    router.push('/library');
+  }, [router]);
 
   const load = useCallback(async () => {
     if (!family?.id) return;
@@ -63,45 +70,41 @@ export default function LettersScreen() {
 
   return (
     <AppShell
-      active="letters"
+      active="world"
       title="letters for later."
-      subtitle={family?.babyName ? `for ${family.babyName}, one day.` : "open when they're eighteen."}
+      subtitle={family?.babyName ? `for ${family.babyName}, kept close.` : 'kept with your family story.'}
+      onBack={goBackToWorld}
     >
       <Card variant="muted">
         <Body style={[styles.script, { color: theme.semantic.primary }]}>
-          {family?.babyName ? `for ${family.babyName}, one day` : 'for one day'}
+          {family?.babyName ? `for ${family.babyName}` : 'for your child'}
         </Body>
-        <Title style={styles.heroTitle}>Letters they'll open when they're eighteen.</Title>
-        <Body>We open the next one on the eighteenth birthday, together.</Body>
+        <Title style={styles.heroTitle}>
+          {family?.babyName ? `Letters to ${family.babyName}, kept as long as you need.` : 'Letters kept as long as you need.'}
+        </Title>
+        <Body>Write the words you want kept with the rest of your private family story.</Body>
         <Caption style={styles.nudge}>{nudge}</Caption>
-        <Button
-          size="md"
-          fullWidth={false}
-          style={styles.heroButton}
-          onPress={() => router.push('/letter-compose')}
-          icon={<Ionicons name="mail-outline" size={16} color={theme.colors.onPrimary} />}
-        >
-          Write a letter
-        </Button>
       </Card>
       {childLetters.length ? childLetters.map((letter) => {
         const openable = isOpenable(letter.open_on);
+        const preview = openable ? firstLine(letter.body) : null;
         return (
           <Pressable
             key={letter.id}
             onPress={() => openLetter(letter)}
             accessibilityRole="button"
             accessibilityLabel={openable ? `Open letter: ${letter.title || 'Untitled letter'}` : `Sealed letter: ${letter.title || 'Untitled letter'}`}
-            accessibilityHint={!openable ? `Opens ${formatDate(letter.open_on)}.` : undefined}
+            accessibilityHint={!openable ? `Opens ${formatDate(letter.open_on)}.` : 'Opens the saved letter.'}
           >
             <Card padding="md" style={styles.letterCard}>
               <View style={[styles.letterIcon, !openable && styles.sealIcon, { backgroundColor: openable ? theme.colors.primarySoft : theme.semantic.cardAlt }]}>
                 <Ionicons name={openable ? 'mail-open-outline' : 'lock-closed-outline'} size={18} color={theme.semantic.primary} />
               </View>
               <View style={styles.letterBody}>
-                <Eyebrow>{openable ? 'Open now' : `sealed - ${timeUntilLabel(letter.open_on)}`}</Eyebrow>
+                <Eyebrow>{openable ? 'Open letter' : `sealed - ${timeUntilLabel(letter.open_on)}`}</Eyebrow>
                 <Title style={styles.letterTitle}>{letter.title || 'Untitled letter'}</Title>
-                <Caption>from {members[letter.author_user_id] || 'Family'} · opens {formatDate(letter.open_on)}</Caption>
+                <Caption>{letterDateCaption(letter, members[letter.author_user_id] || 'Family')}</Caption>
+                {preview ? <Caption numberOfLines={2}>{preview}</Caption> : null}
               </View>
             </Card>
           </Pressable>
@@ -113,40 +116,42 @@ export default function LettersScreen() {
           onPress={() => router.push('/letter-compose')}
         />
       )}
-      <Card variant="ghost" style={styles.footerPrompt}>
-        <View style={[styles.footerSeal, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name="mail-outline" size={18} color={theme.semantic.primary} />
-        </View>
-        <View style={styles.letterBody}>
-          <Title style={styles.letterTitle}>Leave one more line for later.</Title>
-          <Caption>A small note today becomes a time capsule for the eighteenth birthday.</Caption>
-        </View>
-        <Pressable
-          onPress={() => router.push('/letter-compose')}
-          accessibilityRole="button"
-          accessibilityLabel="Write another letter"
-          style={[styles.footerAdd, { backgroundColor: theme.semantic.primary }]}
-        >
-          <Ionicons name="add" size={17} color={theme.colors.onPrimary} />
-        </Pressable>
-      </Card>
+      {childLetters.length ? (
+        <Card variant="ghost" style={styles.footerPrompt}>
+          <View style={[styles.footerSeal, { backgroundColor: theme.colors.primarySoft }]}>
+            <Ionicons name="mail-outline" size={18} color={theme.semantic.primary} />
+          </View>
+          <View style={styles.letterBody}>
+            <Title style={styles.letterTitle}>Write another letter for their world.</Title>
+            <Caption>One small note today can stay with the family story.</Caption>
+          </View>
+          <Pressable
+            onPress={() => router.push('/letter-compose')}
+            accessibilityRole="button"
+            accessibilityLabel="Write another letter"
+            style={[styles.footerAdd, { backgroundColor: theme.semantic.primary }]}
+          >
+            <Ionicons name="add" size={17} color={theme.colors.onPrimary} />
+          </Pressable>
+        </Card>
+      ) : null}
     </AppShell>
   );
 }
 
 function LetterEmptyState({ babyName, theme, onPress }) {
   const title = babyName
-    ? `Seal the first letter for ${babyName}.`
-    : 'Seal the first letter for later.';
+    ? `Write the first letter for ${babyName}.`
+    : 'Write the first letter for later.';
   return (
     <Card variant="muted" style={styles.emptyLetter}>
       <View style={[styles.emptyLetterIcon, { backgroundColor: theme.colors.primarySoft }]}>
-        <Ionicons name="lock-closed-outline" size={19} color={theme.semantic.primary} />
+        <Ionicons name="mail-outline" size={19} color={theme.semantic.primary} />
       </View>
       <View style={styles.letterBody}>
-        <Eyebrow>First sealed letter</Eyebrow>
+        <Eyebrow>First letter</Eyebrow>
         <Title style={styles.emptyLetterTitle}>{title}</Title>
-        <Body>Write the version you would want them to find years from now: a detail, a hope, or the ordinary thing you do not want to lose.</Body>
+        <Body>One detail, one hope, or one ordinary thing you do not want to lose is enough.</Body>
         <Button
           size="md"
           fullWidth={false}
@@ -166,10 +171,12 @@ function memberName(member) {
 }
 
 function isOpenable(openOn) {
+  if (!openOn) return true;
   return new Date(`${openOn}T00:00:00`).getTime() <= Date.now();
 }
 
 function formatDate(value) {
+  if (!value) return 'open anytime';
   return new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -177,7 +184,18 @@ function formatDate(value) {
   });
 }
 
+function letterDateCaption(letter, author) {
+  if (!letter?.open_on) return `from ${author} · open anytime`;
+  const label = isOpenable(letter.open_on) ? 'opened' : 'opens';
+  return `from ${author} · ${label} ${formatDate(letter.open_on)}`;
+}
+
+function firstLine(value) {
+  return String(value || '').split(/\n+/).map((line) => line.trim()).find(Boolean) || '';
+}
+
 function timeUntilLabel(openOn) {
+  if (!openOn) return 'open now';
   const open = new Date(`${openOn}T00:00:00`);
   const now = new Date();
   if (open.getTime() <= now.getTime()) return 'open now';
@@ -206,9 +224,6 @@ const styles = StyleSheet.create({
   },
   nudge: {
     marginTop: space.md,
-  },
-  heroButton: {
-    marginTop: space.lg,
   },
   letterCard: {
     flexDirection: 'row',

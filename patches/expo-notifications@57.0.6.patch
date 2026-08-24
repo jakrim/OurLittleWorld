@@ -1,0 +1,83 @@
+diff --git a/ios/ExpoNotifications/Notifications/NotificationCenterManager.swift b/ios/ExpoNotifications/Notifications/NotificationCenterManager.swift
+index 156eee755fb8912185a501eb4d55a5c2c8d7d332..b2f0847b765a4a42d677bd726ca6cb9910098dca 100644
+--- a/ios/ExpoNotifications/Notifications/NotificationCenterManager.swift
++++ b/ios/ExpoNotifications/Notifications/NotificationCenterManager.swift
+@@ -45,6 +45,7 @@ public class NotificationCenterManager: NSObject,
+   var delegates: [NotificationDelegate] = []
+   var pendingResponses: [UNNotificationResponse] = []
+   let userNotificationCenter: UNUserNotificationCenter = UNUserNotificationCenter.current()
++  private let stateLock = NSRecursiveLock()
+
+   private override init() {
+     super.init()
+@@ -62,6 +63,8 @@ public class NotificationCenterManager: NSObject,
+   }
+
+   public func addDelegate(_ delegate: NotificationDelegate) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     delegates.append(delegate)
+     var handled = false
+     for pendingResponse in pendingResponses {
+@@ -73,6 +76,8 @@ public class NotificationCenterManager: NSObject,
+   }
+
+   public func removeDelegate(_ delegate: AnyObject) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     if let index = delegates.firstIndex(where: { $0 === delegate }) {
+       delegates.remove(at: index)
+     }
+@@ -81,12 +86,16 @@ public class NotificationCenterManager: NSObject,
+   // MARK: - Called by PushTokenAppDelegateSubscriber
+
+   public func didFailRegistration(_ error: any Error) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     for delegate in delegates {
+       delegate.didFailRegistration(error)
+     }
+   }
+
+   public func didRegister(_ deviceToken: String) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     for delegate in delegates {
+       delegate.didRegister(deviceToken)
+     }
+@@ -99,6 +108,8 @@ public class NotificationCenterManager: NSObject,
+     willPresent notification: UNNotification,
+     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+   ) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     var handled = false
+     for delegate in delegates {
+       handled = delegate.willPresent(notification, completionHandler: completionHandler) || handled
+@@ -113,6 +124,8 @@ public class NotificationCenterManager: NSObject,
+     didReceive response: UNNotificationResponse,
+     withCompletionHandler completionHandler: @escaping () -> Void
+   ) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     var handled = false
+     for delegate in delegates {
+       handled = delegate.didReceive(response, completionHandler: completionHandler) || handled
+@@ -124,6 +137,8 @@ public class NotificationCenterManager: NSObject,
+   }
+
+   public func userNotificationCenter(_ center: UNUserNotificationCenter, openSettingsFor notification: UNNotification?) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     for delegate in delegates {
+       delegate.openSettings(notification)
+     }
+@@ -131,6 +146,8 @@ public class NotificationCenterManager: NSObject,
+
+   // MARK: - Called from NotificationsAppDelegateSubscriber
+   public func didReceive(_ userInfo: [AnyHashable: Any], completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
++    stateLock.lock()
++    defer { stateLock.unlock() }
+     var handled = false
+     for delegate in delegates {
+       handled = delegate.didReceive(userInfo, completionHandler: completionHandler) || handled

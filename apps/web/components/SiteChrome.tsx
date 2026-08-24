@@ -2,18 +2,24 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import AnalyticsConsentControls from "./AnalyticsConsentControls";
+import CommercialAvailability from "./CommercialAvailability";
 import SiteEnhancer from "./SiteEnhancer";
+import WebsiteErrorMonitor from "./WebsiteErrorMonitor";
+import { primaryCommercialAction, publicCommercialConfig } from "@/lib/commercialConfig";
 
 const navItems = [
   { href: "/story/", label: "Story" },
   { href: "/pricing/", label: "Pricing" },
   { href: "/gift/", label: "Gift" },
-  { href: "/partners/", label: "Partners" },
+  { href: "/#launch-list", label: "App status" },
   { href: "/privacy/", label: "Privacy" },
   { href: "/terms/", label: "Terms" },
 ];
 
 export default function SiteChrome({ children }: { children: ReactNode }) {
+  const primaryAction = primaryCommercialAction(publicCommercialConfig);
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -22,7 +28,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
       <header className="site-nav">
         <div className="wrap nav-inner">
           <Link className="brand-link" href="/" aria-label="Our Little World home">
-            <Image src="/assets/brand/logo-mark.png" alt="" width={44} height={44} priority />
+            <Image src="/assets/brand/logo-mark-circle.png" alt="" width={44} height={44} priority />
             <span>our little world</span>
           </Link>
           <nav className="nav-links" data-nav-links aria-label="Primary navigation">
@@ -33,8 +39,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="nav-actions">
-            <Link className="button button-dark" href="/pricing/#chapter-one">
-              Start your baby book
+            <Link
+              className="button button-dark"
+              data-marketing-action={publicCommercialConfig.storeAvailability === "available" && !publicCommercialConfig.checkoutEnabled
+                ? "store-interest"
+                : publicCommercialConfig.checkoutEnabled ? "primary" : "launch-interest"}
+              href={primaryAction.href}
+            >
+              {primaryAction.label}
             </Link>
             <button
               className="nav-toggle"
@@ -56,7 +68,7 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
           <div className="footer-grid">
             <div className="footer-brand">
               <Link className="brand-link" href="/">
-                <Image src="/assets/brand/logo-mark.png" alt="" width={44} height={44} />
+                <Image src="/assets/brand/logo-mark-circle.png" alt="" width={44} height={44} />
                 <span>our little world</span>
               </Link>
               <p>A private baby book for photos, firsts, notes, and letters.</p>
@@ -67,13 +79,14 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
                 <Link href="/story/">Story</Link>
                 <Link href="/pricing/">Pricing</Link>
                 <Link href="/gift/">Gift</Link>
+                <Link href="/for/unfinished-baby-book/">Unfinished baby book</Link>
                 <Link href="/terms/">Terms</Link>
                 <Link href="/refunds/">Refunds</Link>
               </div>
               <div>
                 <p className="footer-h">Company</p>
-                <Link href="/partners/">Partners</Link>
                 <Link href="/privacy/">Privacy</Link>
+                <Link href="/email-preferences/">Email preferences</Link>
                 <a href="mailto:support@ourlittleworld.me">Contact</a>
               </div>
               <div>
@@ -88,10 +101,13 @@ export default function SiteChrome({ children }: { children: ReactNode }) {
             <span>Copyright 2026 Get Mentors, Inc.</span>
             <span>For two, for now, for later.</span>
           </div>
+          <CommercialAvailability compact surface="footer" />
         </div>
       </footer>
 
       <SiteEnhancer />
+      <WebsiteErrorMonitor />
+      <AnalyticsConsentControls compact />
     </>
   );
 }

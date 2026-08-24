@@ -8,7 +8,7 @@ export default function FirstsRoute() {
   return (
     <>
       <Stack.Screen options={{ animation: 'none' }} />
-      <ProtectedRoute>
+      <ProtectedRoute allowReadOnlyArchive>
         <FirstsScreen />
       </ProtectedRoute>
     </>

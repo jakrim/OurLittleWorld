@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy",
-  description:
-    "Our Little World privacy policy for private family spaces, baby memories, photo library access, subscriptions, gifts, and support.",
-};
+import AnalyticsConsentControls from "@/components/AnalyticsConsentControls";
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { metadataFor } from "@/lib/siteSeo";
+
+export const metadata: Metadata = metadataFor("privacy");
 
 export default function PrivacyPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="privacy" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -82,6 +83,23 @@ export default function PrivacyPage() {
             </p>
           </PolicyItem>
 
+          <PolicyItem title="Optional Product Analytics">
+            <p>
+              Analytics is off unless you choose to allow it. When allowed, we use a
+              dedicated Our Little World analytics project with person profiles disabled.
+              Events contain coarse actions and campaign labels only. They do not contain
+              child names, birthdays, captions, notes, letters, prompt answers, photos,
+              media identifiers, precise locations, contacts, checkout session IDs, or
+              gift and redemption codes.
+            </p>
+            <p>
+              You can deny analytics, change your choice, or revoke consent at any time.
+              Revoking clears the anonymous analytics identifier and campaign attribution
+              stored by this browser and stops future analytics delivery.
+            </p>
+            <AnalyticsConsentControls />
+          </PolicyItem>
+
           <PolicyItem title="Photo Library Access and Discovery">
             <p>
               Manual photo and video adds use the system photo picker or the permissions you grant
@@ -107,7 +125,8 @@ export default function PrivacyPage() {
 
           <PolicyItem title="Payments">
             <p>
-              App Store and Google Play process native subscriptions. Stripe processes website
+              Our Little World is not publicly listed in the App Store or Google Play yet. When
+              enabled, those stores process native subscriptions and Stripe processes website
               subscriptions and gift purchases. Payment providers may collect card, billing, tax,
               fraud-prevention, and transaction information under their own policies. Our Little
               World does not store full payment card numbers.
