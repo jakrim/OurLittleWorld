@@ -1,0 +1,14 @@
+# PRD Book export smoke: the print-preview route opens at the top, explains the
+# printable draft, and exposes Jump to top after the parent scrolls.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://library?segment=export"
+- assertVisible: "Printable book draft."
+- assertVisible: "Build draft PDF"
+- assertVisible: "Private summary"
+- swipe:
+    start: 50%,80%
+    end: 50%,25%
+- assertVisible: "Jump to top"
+- tapOn: "Jump to top"
+- assertVisible: "Printable book draft."

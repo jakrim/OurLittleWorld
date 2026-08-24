@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Our Little World — Curated Memory Library Review</title>
+  <style>
+    :root {
+      --ink: #251d1d;
+      --muted: #6f6260;
+      --paper: #fbf7f2;
+      --card: #fffdf9;
+      --line: #eadfd7;
+      --coral: #ca6848;
+      --coral-soft: #f7ded2;
+      --plum: #60494f;
+      --plum-soft: #eee5e7;
+      --sage: #3f6a58;
+      --sage-soft: #e5f0e9;
+      --amber: #8a5a17;
+      --amber-soft: #f6ead1;
+      --shadow: 0 18px 48px rgba(73, 45, 39, .10);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(202,104,72,.12), transparent 28rem),
+        linear-gradient(180deg, #f9eee7 0, var(--paper) 38rem);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+    }
+    a { color: var(--coral); }
+    .page { width: min(1160px, calc(100% - 36px)); margin: 0 auto; padding: 28px 0 80px; }
+    .hero {
+      min-height: 560px;
+      padding: 58px;
+      border-radius: 34px;
+      color: #fff9f3;
+      background:
+        radial-gradient(circle at 90% 15%, rgba(255,255,255,.16), transparent 20rem),
+        linear-gradient(135deg, #2d2224 0%, #594047 52%, #a6533d 100%);
+      box-shadow: var(--shadow);
+      display: grid;
+      align-content: space-between;
+      gap: 44px;
+    }
+    .kicker, .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: .16em;
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .kicker { color: #f2b7a3; }
+    .hero h1 {
+      max-width: 880px;
+      margin: 12px 0 18px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 400;
+      font-size: clamp(48px, 7vw, 86px);
+      line-height: .98;
+      letter-spacing: -.045em;
+    }
+    .hero .lede { max-width: 790px; margin: 0; color: #f2e3dc; font-size: 20px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; }
+    .hero-meta span { border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); padding: 8px 12px; border-radius: 999px; font-size: 13px; }
+    nav {
+      position: sticky;
+      top: 10px;
+      z-index: 5;
+      margin: 18px auto 0;
+      padding: 10px;
+      border: 1px solid rgba(234,223,215,.9);
+      border-radius: 999px;
+      background: rgba(255,253,249,.88);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 10px 28px rgba(73,45,39,.08);
+      display: flex;
+      gap: 5px;
+      overflow-x: auto;
+    }
+    nav a { color: var(--muted); text-decoration: none; white-space: nowrap; padding: 8px 13px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+    nav a:hover { color: var(--ink); background: var(--coral-soft); }
+    section { scroll-margin-top: 86px; margin-top: 62px; }
+    h2 { margin: 0 0 12px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(34px, 4.8vw, 54px); line-height: 1.06; letter-spacing: -.025em; font-weight: 400; }
+    h3 { margin: 0 0 8px; font-size: 20px; line-height: 1.25; }
+    .section-lede { max-width: 780px; margin: 0 0 26px; color: var(--muted); font-size: 18px; }
+    .card { border: 1px solid var(--line); background: rgba(255,253,249,.94); border-radius: 24px; padding: 26px; box-shadow: 0 10px 32px rgba(73,45,39,.055); }
+    .decision {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 18px;
+      margin-top: 26px;
+    }
+    .decision .primary { background: var(--coral-soft); border-color: #efc2b0; }
+    .decision blockquote { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 30px; line-height: 1.24; }
+    .decision ul, .plain-list { margin: 10px 0 0; padding-left: 20px; }
+    .decision li, .plain-list li { margin: 7px 0; }
+    .critical {
+      margin-top: 18px;
+      border-left: 7px solid var(--coral);
+      background: #fff2eb;
+      padding: 24px 26px;
+      border-radius: 18px;
+    }
+    .critical strong { color: #8d3e28; }
+    .scorecard { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; background: var(--card); box-shadow: 0 10px 30px rgba(73,45,39,.05); }
+    .scorecard th, .scorecard td { padding: 16px 18px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    .scorecard th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; background: #f7f0ea; }
+    .scorecard tr:last-child td { border-bottom: 0; }
+    .status { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .strong { color: var(--sage); background: var(--sage-soft); }
+    .partial { color: var(--amber); background: var(--amber-soft); }
+    .missing { color: #9b3f2b; background: var(--coral-soft); }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .number { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--plum); color: white; font-weight: 900; margin-bottom: 16px; }
+    .journey { padding: 28px; border-radius: 28px; color: #fff; background: linear-gradient(145deg, #403034, #76545d); }
+    .journey h3 { color: #ffd7c9; }
+    .journey p { color: #f4e6e1; }
+    .phone {
+      max-width: 380px;
+      margin: 22px auto 0;
+      border: 10px solid #2b2223;
+      border-radius: 44px;
+      overflow: hidden;
+      background: #f7d9cc;
+      box-shadow: 0 24px 52px rgba(0,0,0,.22);
+    }
+    .phone-photo { height: 310px; background: linear-gradient(150deg, #c7d9cc, #f2d4c1 45%, #8c6a69); position: relative; }
+    .phone-photo::after { content: "Photo or video"; position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.85); font-weight: 800; letter-spacing: .05em; }
+    .phone-body { padding: 22px; color: var(--ink); }
+    .phone-body .reason { display: inline-block; background: #fff6ef; border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 800; }
+    .phone-body h4 { margin: 14px 0 3px; font-family: Georgia, serif; font-size: 28px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 15px 0; }
+    .chip { background: #fff; border: 1px solid #e5c7bc; border-radius: 999px; padding: 7px 10px; font-size: 12px; }
+    .composer { display: flex; gap: 8px; align-items: center; background: white; border-radius: 16px; padding: 12px; color: var(--muted); font-size: 13px; }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 12px; align-items: stretch; }
+    .flow .step { position: relative; padding: 18px; border: 1px solid var(--line); background: var(--card); border-radius: 18px; }
+    .flow .step:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 50%; transform: translateY(-50%); color: var(--coral); font-size: 22px; font-weight: 900; z-index: 2; }
+    .flow b { display: block; margin-bottom: 5px; }
+    .flow span { color: var(--muted); font-size: 13px; }
+    .partner-rule { background: var(--plum-soft); border-color: #dfcfd3; }
+    .partner-rule .big { margin: 0 0 10px; font-family: Georgia, serif; font-size: 32px; line-height: 1.2; }
+    .roadmap { display: grid; gap: 14px; }
+    .release { display: grid; grid-template-columns: 120px 1fr 1fr; gap: 18px; align-items: start; }
+    .release-label { color: var(--coral); font-weight: 900; text-transform: uppercase; letter-spacing: .1em; font-size: 12px; }
+    .release ul { margin: 8px 0 0; padding-left: 18px; }
+    .release li { margin: 5px 0; }
+    .release .accept { border-left: 1px solid var(--line); padding-left: 18px; color: var(--muted); }
+    .metric { text-align: center; padding: 22px 16px; }
+    .metric .icon { font-size: 25px; }
+    .metric b { display: block; margin: 8px 0 5px; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .not-now { background: #2e2425; color: #fff7f2; }
+    .not-now .plain-list { color: #eadbd4; columns: 2; column-gap: 42px; }
+    .evidence { color: var(--muted); font-size: 13px; }
+    footer { margin-top: 62px; padding: 28px; border-top: 1px solid var(--line); color: var(--muted); display: flex; justify-content: space-between; gap: 24px; }
+    @media (max-width: 850px) {
+      .hero { padding: 34px 26px; min-height: 500px; }
+      .decision, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .flow .step:not(:last-child)::after { content: "↓"; top: auto; right: 50%; bottom: -22px; transform: translateX(50%); }
+      .release { grid-template-columns: 1fr; }
+      .release .accept { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
+      .scorecard { display: block; overflow-x: auto; }
+      .not-now .plain-list { columns: 1; }
+    }
+    @media print {
+      body { background: white; }
+      .page { width: 100%; padding: 0; }
+      nav { display: none; }
+      .hero, .card, .scorecard { box-shadow: none; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <div class="kicker">Product and codebase review · July 18, 2026</div>
+        <h1>Make remembering feel effortless.</h1>
+        <p class="lede">Our Little World has real curation, media, voice, and family-sharing foundations. The next step is to stop presenting them as separate tools and turn them into one calm nightly ritual: a few of the right memories, already sorted, ready for a parent to keep and color in.</p>
+      </div>
+      <div class="hero-meta">
+        <span>Mobile + Supabase audit</span>
+        <span>5,000-photo parent case</span>
+        <span>Daily + historical curation</span>
+        <span>Partner-safe production model</span>
+      </div>
+    </header>
+
+    <nav aria-label="Document sections">
+      <a href="#decision">Decision</a>
+      <a href="#state">Current state</a>
+      <a href="#gaps">Gaps</a>
+      <a href="#experience">Target experience</a>
+      <a href="#partner">Partner model</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#measures">Measures</a>
+    </nav>
+
+    <section id="decision">
+      <div class="eyebrow" style="color:var(--coral)">Executive decision</div>
+      <h2>The product direction is right. The experience is not assembled yet.</h2>
+      <p class="section-lede">The codebase contains most of the hard primitives. What it lacks is the durable system and focused flow that can turn a parent's entire library into a small, ongoing memory ritual.</p>
+      <div class="decision">
+        <article class="card primary">
+          <blockquote>“Each day, we quietly find a few memories worth keeping. You confirm what belongs; your family record organizes itself.”</blockquote>
+        </article>
+        <article class="card">
+          <h3>Keep the product centered on</h3>
+          <ul>
+            <li>Today: tonight's few best memories</li>
+            <li>Add: intentional capture</li>
+            <li>Our World: the durable family record</li>
+            <li>Print: optional output, never the habit</li>
+          </ul>
+        </article>
+      </div>
+      <div class="critical">
+        <strong>P0 finding:</strong> historical scan candidates are not a durable backlog. The scan controller keeps candidates in memory, while a completed scan advances its checkpoint. Later scans normally look back only three days. A terminated app can therefore lose unreviewed historical candidates and fail to pace them back out over future evenings. The first build must add a private on-device candidate ledger and separate “analyzed” from “reviewed.”
+      </div>
+    </section>
+
+    <section id="state">
+      <div class="eyebrow" style="color:var(--coral)">Where we are</div>
+      <h2>Strong plumbing, incomplete parent journey.</h2>
+      <p class="section-lede">The foundation is materially better than the screenshots suggest. The child-identity admission bug seen in physical build 1.1.6 was corrected in 1.1.7. The next risk is no longer only matching accuracy; it is whether the right candidates can survive, pace, and resurface.</p>
+      <table class="scorecard">
+        <thead><tr><th>Area</th><th>Status</th><th>What exists</th><th>What blocks the vision</th></tr></thead>
+        <tbody>
+          <tr><td>Child identity</td><td><span class="status strong">Strong base</span></td><td>On-device, age-diverse references and conservative consensus admission</td><td>Large-library calibration and ongoing false-positive measurement</td></tr>
+          <tr><td>Daily curation</td><td><span class="status strong">Strong model</span></td><td>One eligible anchor per day, distinct standouts, special videos, honest gaps</td><td>No durable unsaved day ledger or paced ritual</td></tr>
+          <tr><td>Lookalikes</td><td><span class="status strong">Strong base</span></td><td>Best frame first, perceptual comparison, originals remain recoverable</td><td>Needs event-level diversity and parent-preference learning</td></tr>
+          <tr><td>Historical catch-up</td><td><span class="status missing">Missing center</span></td><td>First scan can read from birth</td><td>No persistent queue, resurfacing, progress, or 5,000-photo resume guarantee</td></tr>
+          <tr><td>Tonight</td><td><span class="status partial">Placeholder</span></td><td>A model ranks up to three links to existing screens</td><td>No media session, pager, enrichment, scheduler, or completion state</td></tr>
+          <tr><td>Text + voice</td><td><span class="status strong">Strong base</span></td><td>Moments and letters can preserve writing and original audio</td><td>Not integrated into review; partner annotations need clearer authorship</td></tr>
+          <tr><td>Categories</td><td><span class="status partial">Early</span></td><td>Manual tags, months, Firsts, place/time/keyword heuristics</td><td>No true visual classification, automatic collections, or auto-filing</td></tr>
+          <tr><td>Life context</td><td><span class="status partial">Partial</span></td><td>Date, age, place, confirmed Firsts, factual templates</td><td>No source-linked milestone-adjacency engine</td></tr>
+          <tr><td>Video</td><td><span class="status strong">Strong base</span></td><td>Multi-frame child presence, playable uploads, swipe and full-screen playback</td><td>Better ranking, nightly presentation, and physical-device stress testing</td></tr>
+          <tr><td>Partner model</td><td><span class="status strong">Correct model</span></td><td>Each phone stays private; kept contributions become one shared archive</td><td>Post-save duplicate grouping and shared enrichment flow</td></tr>
+          <tr><td>Notifications</td><td><span class="status partial">Scaffolded</span></td><td>Preferences, quiet hours, daily cap, push and activity center</td><td>Tonight points to Digest and has no queue-ready scheduler</td></tr>
+          <tr><td>Measurement</td><td><span class="status partial">Incomplete</span></td><td>Privacy-safe contract and limited live calls</td><td>No review, trust, backlog, enrichment, or time-saved funnel</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="gaps">
+      <div class="eyebrow" style="color:var(--coral)">What must change</div>
+      <h2>Six product gaps are creating most of the friction.</h2>
+      <div class="grid-3">
+        <article class="card"><div class="number">1</div><h3>Persist the backlog</h3><p>Store private candidates, clusters, reasons, queue state, and decisions in local SQLite. Scanned cannot mean reviewed.</p></article>
+        <article class="card"><div class="number">2</div><h3>Turn Today into one ritual</h3><p>Today currently mixes nudges, prompts, digest, Tonight links, milestone, timeline, months, Places, and On This Day. Make one queue the clear primary action.</p></article>
+        <article class="card"><div class="number">3</div><h3>Replace photo administration</h3><p>The dense review grid is a useful advanced utility. The normal experience should be one media card at a time with the best decision already made.</p></article>
+        <article class="card"><div class="number">4</div><h3>Put enrichment in the flow</h3><p>Text, voice, emoji, tags, Firsts, and replies exist, but are fragmented across forms and detail screens. Bring them into the review pager.</p></article>
+        <article class="card"><div class="number">5</div><h3>Actually organize for parents</h3><p>The current “scene” layer uses time, location, and written keywords—not visual understanding. Add automatic collections with clear evidence and easy correction.</p></article>
+        <article class="card"><div class="number">6</div><h3>Ground developmental context</h3><p>Connect dates to parent-confirmed Firsts and events. Never turn an image guess or an age norm into family history.</p></article>
+      </div>
+    </section>
+
+    <section id="experience">
+      <div class="eyebrow" style="color:var(--coral)">Target experience</div>
+      <h2>Five calm cards, not five different tools.</h2>
+      <div class="grid-2">
+        <article class="journey">
+          <h3>The nightly flow</h3>
+          <p>At the chosen time, notify only when worthwhile media is ready. Open directly into three to seven photo or video cards. The app explains why each one matters; the parent confirms, speaks, types, reacts, or simply advances.</p>
+          <ol>
+            <li>Recent and historical picks are mixed.</li>
+            <li>Strong defaults arrive preselected after trust is earned.</li>
+            <li>Text, voice, and categories auto-save as drafts.</li>
+            <li>The native picker is always one tap away.</li>
+            <li>The final card says “That's tonight.” No streaks or guilt.</li>
+          </ol>
+        </article>
+        <div class="phone" aria-label="Conceptual Tonight memory card">
+          <div class="phone-photo"></div>
+          <div class="phone-body">
+            <span class="reason">Best of 14 similar shots</span>
+            <h4>July 17</h4>
+            <div style="color:var(--muted)">11 months, 25 days · At home</div>
+            <div class="chips"><span class="chip">♥ Favorite</span><span class="chip">Big expressions</span><span class="chip">With Mama</span></div>
+            <div class="composer">🎙 &nbsp; Add one line or a voice note…</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:26px" class="flow" aria-label="Target curation flow">
+        <div class="step"><b>Authorized Photos</b><span>Private to this phone</span></div>
+        <div class="step"><b>Candidate catalog</b><span>Identity, quality, clusters, days</span></div>
+        <div class="step"><b>Tonight queue</b><span>3–7 recent + historical picks</span></div>
+        <div class="step"><b>Parent confirms</b><span>Keep, skip, voice, text, emoji</span></div>
+        <div class="step"><b>Our World</b><span>Shared, organized family memory</span></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="eyebrow" style="color:var(--coral)">The first-year shape</div>
+      <h2>Use “top 500” as a target, not a hard limit.</h2>
+      <div class="grid-2">
+        <article class="card">
+          <h3>Recommended first-year target</h3>
+          <ul class="plain-list">
+            <li>Up to 365 daily anchors where eligible media exists</li>
+            <li>Roughly 100–200 distinct standouts and special videos</li>
+            <li>More on exceptional days; honest gaps on empty days</li>
+            <li>No weak media added merely to hit a number</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>Pace that fits real life</h3>
+          <p>Five historical candidates per active evening processes about 500 candidates in 100 sessions. “Keep going” can accelerate catch-up. After identity trust is earned and auto-save is explicitly enabled, the app can keep clear anchors automatically and use Tonight mainly for correction and context.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="partner">
+      <div class="eyebrow" style="color:var(--coral)">Production partner model</div>
+      <h2>One coherent family album without mirroring either camera roll.</h2>
+      <article class="card partner-rule">
+        <p class="big">Discovery is private to each phone. Memories become shared when a parent keeps them.</p>
+        <div class="grid-2">
+          <div><h3>From your phone</h3><p>Only that parent sees unsaved candidates, local asset IDs, face data, fingerprints, skips, and the private backlog.</p></div>
+          <div><h3>In your world</h3><p>Both parents see kept memories and can add separate text, voice, emoji, collection changes, and confirmed Firsts.</p></div>
+        </div>
+      </article>
+      <div class="grid-2" style="margin-top:18px">
+        <article class="card"><h3>If both parents own the same photo</h3><p>After saving, group likely duplicate uploads as one event presentation. Preserve both parents' originals and authored context; do not silently delete or destructively merge.</p></article>
+        <article class="card"><h3>If only one parent has a photo</h3><p>The other parent never sees the unsaved candidate. Once kept, it becomes an ordinary shared family moment that either writer can enrich.</p></article>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="eyebrow" style="color:var(--coral)">Architecture</div>
+      <h2>Keep private analysis local; share only the memory.</h2>
+      <div class="grid-2">
+        <article class="card">
+          <h3>New on-device state</h3>
+          <ul class="plain-list">
+            <li><code>discovery_candidates</code>: media facts, quality, day, reason, state</li>
+            <li><code>candidate_clusters</code>: burst/event representative and members</li>
+            <li><code>review_queue_items</code>: nightly rank, draft, commit and resume state</li>
+            <li><code>candidate_feedback</code>: loop-specific keep/skip/category corrections</li>
+          </ul>
+          <p class="evidence">The scan checkpoint records analysis progress. Review state is separate and cannot be erased by a successful scan.</p>
+        </article>
+        <article class="card">
+          <h3>Shared family state</h3>
+          <ul class="plain-list">
+            <li>Reuse moments, media, voice notes, reactions, Firsts, Letters, views, and replies</li>
+            <li>Add automatic and parent-created collections</li>
+            <li>Add separately authored text/voice annotations</li>
+            <li>Add source-linked factual context where useful</li>
+            <li>Add privacy-safe post-save event grouping</li>
+          </ul>
+          <p class="evidence">Unsaved media should not be sent to a remote AI service. Optional server enrichment begins only after a parent keeps the memory.</p>
+        </article>
+      </div>
+      <div class="critical">
+        <strong>Context rule:</strong> “Twelve days after the First ‘rolled over’ that you saved” is allowed because it derives from two confirmed dates. “They had just learned to roll” is not allowed because it converts an interpretation into history.
+      </div>
+    </section>
+
+    <section id="roadmap">
+      <div class="eyebrow" style="color:var(--coral)">Delivery sequence</div>
+      <h2>Build the reliable memory loop before the smarter layers.</h2>
+      <div class="roadmap">
+        <article class="card release">
+          <div class="release-label">Release 0</div>
+          <div><h3>Trustworthy backlog + product cut</h3><ul><li>Persistent candidates, clusters, queue, and decisions</li><li>Separate analyzed and reviewed state</li><li>Crash-safe resume and 5,000-item fixture</li><li>Simpler Today; remove misaligned reveal/book nudges</li></ul></div>
+          <div class="accept"><strong>Done when:</strong> an app termination cannot lose historical candidates or make them unreachable.</div>
+        </article>
+        <article class="card release">
+          <div class="release-label">Release 1</div>
+          <div><h3>Tonight's memories MVP</h3><ul><li>Full-screen photo/video pager</li><li>3–7 recent + historical cards</li><li>Keep, skip, choose another, favorite, text, voice</li><li>Queue-ready notification and end card</li></ul></div>
+          <div class="accept"><strong>Done when:</strong> a parent finishes five cards without visiting Add, Review, or Moment Detail.</div>
+        </article>
+        <article class="card release">
+          <div class="release-label">Release 2</div>
+          <div><h3>First-year catch-up engine</h3><ul><li>Coverage-aware selection</li><li>Distinct events and special videos</li><li>Adaptive pace and Keep going</li><li>iCloud, limited access, battery and deletion hardening</li></ul></div>
+          <div class="accept"><strong>Done when:</strong> a 5,000-item family grows its first-year record over repeated sessions without repeat or full rescan.</div>
+        </article>
+        <article class="card release">
+          <div class="release-label">Release 3</div>
+          <div><h3>Automatic collections</h3><ul><li>Factual and behavior-based collections</li><li>Validated on-device visual suggestions</li><li>Selected-by-default category chips</li><li>Correction learning isolated from identity</li></ul></div>
+          <div class="accept"><strong>Done when:</strong> most kept media requires zero filing actions and is still easy to find.</div>
+        </article>
+        <article class="card release">
+          <div class="release-label">Release 4</div>
+          <div><h3>Grounded context + shared enrichment</h3><ul><li>Confirmed-First adjacency</li><li>Separate partner annotations</li><li>Shared saved-memory lookbacks</li><li>Cross-parent duplicate event grouping</li></ul></div>
+          <div class="accept"><strong>Done when:</strong> every developmental statement has a source and neither parent can see the other's unsaved library.</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="measures">
+      <div class="eyebrow" style="color:var(--coral)">How we know it works</div>
+      <h2>Measure memories kept with less work—not media imported.</h2>
+      <div class="grid-3">
+        <article class="card metric"><div class="icon">⏱</div><b>Time to first value</b><span>Signup to first relevant memory kept</span></article>
+        <article class="card metric"><div class="icon">☾</div><b>Tonight completion</b><span>Opens, completed sessions, seconds per memory</span></article>
+        <article class="card metric"><div class="icon">✓</div><b>Default quality</b><span>Keep rate and one-tap completion</span></article>
+        <article class="card metric"><div class="icon">♡</div><b>Memory color</b><span>Text, voice, emoji and category enrichment</span></article>
+        <article class="card metric"><div class="icon">▣</div><b>Coverage</b><span>Eligible first-year days represented over time</span></article>
+        <article class="card metric"><div class="icon">⚠</div><b>Trust</b><span>Unrelated-person, duplicate, reversal and upload rates</span></article>
+      </div>
+    </section>
+
+    <section>
+      <article class="card not-now">
+        <div class="eyebrow" style="color:#f2b7a3">Decisions to hold</div>
+        <h2 style="font-size:40px">What not to build into the core loop</h2>
+        <ul class="plain-list">
+          <li>No wholesale camera-roll mirror</li>
+          <li>No manual chapter filing requirement</li>
+          <li>No fixed top-500 deletion cap</li>
+          <li>No image-inferred Firsts</li>
+          <li>No print or book-readiness daily nudge</li>
+          <li>No default 20-item nightly feed</li>
+          <li>No uncertain identity in the default keep lane</li>
+          <li>No category feedback contaminating identity matching</li>
+        </ul>
+      </article>
+    </section>
+
+    <section>
+      <div class="eyebrow" style="color:var(--coral)">Immediate build slice</div>
+      <h2>Prove the loop with the smallest complete release.</h2>
+      <div class="grid-2">
+        <article class="card">
+          <ol>
+            <li>Persist candidates and separate analyzed/reviewed state.</li>
+            <li>Generate a deterministic recent + historical queue.</li>
+            <li>Ship `/tonight` with keep, skip, and one-line text.</li>
+            <li>Resume safely after crash or relaunch.</li>
+            <li>Simplify Today and fix the Tonight notification link.</li>
+            <li>Validate with a 5,000-item fixture and real physical library.</li>
+          </ol>
+        </article>
+        <article class="card">
+          <h3>Then layer in</h3>
+          <p>Voice, automatic categories, partner annotations, and milestone context should follow on the same architecture. They should not delay proving that the app can reliably find, retain, pace, and resurface the right memories.</p>
+          <p><a href="../docs/curated-memory-library-plan.md">Open the full implementation plan →</a></p>
+        </article>
+      </div>
+    </section>
+
+    <footer>
+      <div>Our Little World · Curated Memory Library Review</div>
+      <div>Audit only · No production state changed</div>
+    </footer>
+  </main>
+</body>
+</html>

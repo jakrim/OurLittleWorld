@@ -24,7 +24,7 @@
  *   }
  *
  * Match shape:
- *   { assetId, mediaType, score, faceCount, creationTime, uri, accepted, saved }
+ *   { assetId, mediaType, score, faceCount, captureQuality, faceSizeRatio, sharpness, featureVector, creationTime, uri, accepted, saved }
  */
 
 import { useEffect, useState } from 'react';
@@ -35,11 +35,30 @@ import {
   fetchPhotosPage,
   fetchVideoFrameCandidatesPage,
 } from './photos';
-import { matchAgainstReferenceProfile, isNative } from './faceMatcher';
+import {
+  cancelNativeMatchBatch,
+  matchAgainstReferenceProfile,
+  isNative,
+} from './faceMatcher';
+import { buildDailyCurationPlan } from './dailyCurationModel';
+import {
+  collapseAnalyzedMediaCandidates,
+  collapseScoredMediaCandidates,
+  completelyAnalyzedMediaCandidates,
+} from './scanMediaMatchModel';
+import { HIGH_CONFIDENCE_THRESHOLD } from './recognitionTrust';
+import { CANDIDATE_LIVE_MATCH_LIMIT } from './candidateLedgerModel';
+import {
+  DEFAULT_SCAN_PHOTO_PAGE_SIZE,
+  resolveScanPhotoPageSize,
+} from './scanPacingModel';
+import { MIN_NATIVE_MATCH_BATCH_TIMEOUT_MS } from './faceMatcherModel';
 
 const initialState = () => ({
   phase: 'idle',
   seen: 0,
+  checked: 0,
+  skippedDuringAnalysis: 0,
   total: null,
   matches: [],
   // Incrementally maintained counters so screens never need to iterate
@@ -57,18 +76,28 @@ const initialState = () => ({
   startedAt: null,
   finishedAt: null,
   scanKey: null,
+  totalMatchCount: 0,
+  batchSize: 0,
+  batchStartedAt: null,
+  timedOutBatches: 0,
+  finishReason: null,
+  photoCursor: null,
+  photoHasNextPage: false,
+  photosComplete: false,
+  videoCursor: null,
+  videoHasNextPage: false,
+  videosComplete: false,
 });
 
-const HIGH_THRESHOLD = 0.75;
+const HIGH_THRESHOLD = HIGH_CONFIDENCE_THRESHOLD;
 const AUTO_SAVE_THRESHOLD_DEFAULT = 0.9;
 const AUTO_SAVE_CONCURRENCY = 3;
-const PAGE_SIZE = 60;
 const VIDEO_PAGE_SIZE = 8;
 
-function fetchPhotoPage(after, since) {
+function fetchPhotoPage(after, since, pageSize = DEFAULT_SCAN_PHOTO_PAGE_SIZE) {
   return fetchPhotosPage({
     after,
-    pageSize: PAGE_SIZE,
+    pageSize,
     createdAfterMs: since,
   });
 }
@@ -76,6 +105,7 @@ function fetchPhotoPage(after, since) {
 let state = initialState();
 const listeners = new Set();
 let abortFlag = null;
+let activeNativeBatchId = null;
 
 // Auto-save queue. Lives across the lifetime of a single scan (cleared in
 // reset()). Workers pull asset IDs off and call the saveFn provided to
@@ -85,6 +115,7 @@ let autoSaveQueue = [];
 let autoSaveSeen = new Set();
 let autoSaveFn = null;
 let autoSaveActiveWorkers = 0;
+let autoSavePlanMatches = [];
 const AUTO_SAVE_GLOBAL_CONCURRENCY = AUTO_SAVE_CONCURRENCY;
 
 // Throttled broadcaster. The native scan can land 60-photo batches in
@@ -148,6 +179,10 @@ export function isRunning() {
 
 export function abort() {
   if (abortFlag) abortFlag.aborted = true;
+  if (activeNativeBatchId) {
+    cancelNativeMatchBatch(activeNativeBatchId);
+    activeNativeBatchId = null;
+  }
   if (state.phase === 'scanning') setState({ phase: 'aborted' });
 }
 
@@ -157,6 +192,7 @@ export function reset() {
   autoSaveQueue = [];
   autoSaveSeen = new Set();
   autoSaveFn = null;
+  autoSavePlanMatches = [];
   notify({ immediate: true });
 }
 
@@ -186,8 +222,8 @@ async function runAutoSaveWorker() {
       // Mark as saved (this also bumps savedCount + drops acceptedCount)
       markSaved([assetId]);
       setState({ autoSavedCount: state.autoSavedCount + 1 });
-    } catch (e) {
-      console.warn('auto-save failed', assetId, e?.message);
+    } catch {
+      console.warn('auto-save failed', { mediaType: item?.mediaType === 'video' ? 'video' : 'image' });
       setState({ autoSaveErrors: state.autoSaveErrors + 1 });
     }
   }
@@ -275,6 +311,10 @@ export function markSaved(ids) {
  *     autoSave: { threshold?, save: async (assetId) => {} },
  *     excludeIds: Set<string>,
  *     onComplete: async (finalState) => {},
+ *     onICloudWait: async ({ assetIds }) => {},
+ *     onICloudReady: async ({ assetIds }) => {},
+ *     onCandidates: async ({ matches, scanKey }) => {},
+ *     onAssetsSeen: async ({ assetIds, scanKey }) => {},
  *   })
  *
  *   reference: { embedding: number[] }  – the baby's face embedding
@@ -297,6 +337,20 @@ export async function start({
   extraAssetIds,
   extraAssetCreatedAfterMs,
   onComplete,
+  onICloudWait,
+  onICloudReady,
+  onCandidates,
+  onAnalysis,
+  onAssetsSeen,
+  photoPageSize,
+  nativeBatchTimeoutMs,
+  maxPhotoAssets,
+  maxScanDurationMs,
+  includeVideos = true,
+  startAfterPhotoCursor,
+  startAfterVideoCursor,
+  startPhotosComplete = false,
+  startVideosComplete = false,
 } = {}) {
   if (state.phase === 'scanning') return state.scanKey;
 
@@ -309,19 +363,33 @@ export async function start({
   // explicitly if they want to flush a stale backlog.
   autoSaveQueue = [];
   autoSaveSeen = new Set();
+  autoSavePlanMatches = [];
   autoSaveFn = autoSave?.save || null;
   const autoSaveThreshold = autoSave?.threshold ?? AUTO_SAVE_THRESHOLD_DEFAULT;
   const skipSet = excludeIds instanceof Set
     ? excludeIds
     : new Set(Array.isArray(excludeIds) ? excludeIds : []);
   const extraIds = Array.isArray(extraAssetIds) ? extraAssetIds.filter(Boolean) : [];
+  const resolvedPhotoPageSize = resolveScanPhotoPageSize(photoPageSize);
+  const resolvedMaxPhotoAssets = Number.isInteger(Number(maxPhotoAssets))
+    ? Math.max(1, Number(maxPhotoAssets))
+    : null;
+  const resolvedMaxScanDurationMs = Number.isFinite(Number(maxScanDurationMs))
+    ? Math.max(1_000, Number(maxScanDurationMs))
+    : null;
   const visitedAssetIds = new Set();
+  let nativeBatchSequence = 0;
+  let photoAssetsRead = 0;
 
   state = {
     ...initialState(),
     phase: 'scanning',
     startedAt: Date.now(),
     scanKey,
+    photoCursor: startAfterPhotoCursor || null,
+    photosComplete: startPhotosComplete === true,
+    videoCursor: startAfterVideoCursor || null,
+    videosComplete: startVideosComplete === true,
   };
   notify();
 
@@ -330,7 +398,9 @@ export async function start({
     try {
       const [photoTotal, videoTotal] = await Promise.all([
         countPhotosInWindow({ createdAfterMs: since }),
-        countVideosInWindow({ createdAfterMs: since }),
+        includeVideos
+          ? countVideosInWindow({ createdAfterMs: since })
+          : Promise.resolve(0),
       ]);
       if (!me.aborted && state.scanKey === scanKey) {
         setState({ total: photoTotal + videoTotal + extraIds.length });
@@ -341,6 +411,29 @@ export async function start({
   try {
     const cutoff = threshold != null ? threshold : (isNative ? 0.6 : null);
 
+    const reportICloudStatus = async (assets = []) => {
+      if (!onICloudWait && !onICloudReady) return;
+      const waiting = [];
+      const ready = [];
+      for (const asset of assets) {
+        const status = asset?.downloadStatus;
+        if (!status && !asset?.cloudWaitOnly) continue;
+        const sourceId = asset.sourceAssetId || asset.id || asset.assetId;
+        if (!sourceId) continue;
+        if (status === 'ready') {
+          ready.push(sourceId);
+        } else if (asset.cloudWaitOnly || status === 'pending' || status === 'failed') {
+          waiting.push(sourceId);
+        }
+      }
+      try {
+        if (ready.length) await onICloudReady?.({ assetIds: ready });
+        if (waiting.length) await onICloudWait?.({ assetIds: waiting });
+      } catch {
+        console.warn('scan iCloud retry queue failed');
+      }
+    };
+
     const scoreAssets = async (assets = []) => {
       const freshAssets = [];
       for (const asset of assets) {
@@ -349,10 +442,23 @@ export async function start({
         visitedAssetIds.add(candidateId);
         freshAssets.push(asset);
       }
-      if (!freshAssets.length) return;
+      if (!freshAssets.length) return true;
+      await reportICloudStatus(freshAssets);
+      if (onAssetsSeen) {
+        const sourceAssetIds = [...new Set(
+          freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean),
+        )];
+        if (sourceAssetIds.length) await onAssetsSeen({ assetIds: sourceAssetIds, scanKey });
+      }
+      const seenSourceIds = new Set(
+        freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean),
+      );
+      if (!me.aborted && seenSourceIds.size) {
+        setState({ seen: state.seen + seenSourceIds.size });
+      }
 
       const candidates = freshAssets
-        .filter((a) => !skipSet.has(a.sourceAssetId || a.id))
+        .filter((a) => !a.cloudWaitOnly && (a.localUri || a.uri) && !skipSet.has(a.sourceAssetId || a.id))
         .map((a) => ({
           assetId: a.candidateId || a.id,
           sourceAssetId: a.sourceAssetId || a.id,
@@ -366,35 +472,63 @@ export async function start({
           fileName: a.fileName,
         }));
 
-      let scored = candidates.length
-        ? await matchAgainstReferenceProfile({
-          profile: referenceProfile,
-          birthdayISO,
-          fallbackReference: reference,
-          candidates,
-        })
-        : [];
-      if (cutoff != null) scored = scored.filter((s) => s.score >= cutoff);
-
-      const byId = new Map(candidates.map((c) => [c.assetId, c]));
-      const newMatchesRaw = scored.map((s) => {
-        const c = byId.get(s.assetId);
-        return {
-          assetId: c?.sourceAssetId || s.assetId,
-          candidateId: s.assetId,
-          mediaType: c?.mediaType || 'image',
-          score: s.score,
-          faceCount: s.faceCount,
-          creationTime: c?.creationTime,
-          uri: c?.previewUri || c?.localUri,
-          localUri: c?.localUri,
-          frameTimeMs: c?.frameTimeMs,
-          duration: c?.duration,
-          videoUri: c?.videoUri,
-          fileName: c?.fileName,
-          accepted: true,
-          saved: false,
-        };
+      let scored = [];
+      if (candidates.length) {
+        const remainingScanMs = resolvedMaxScanDurationMs == null
+          ? null
+          : resolvedMaxScanDurationMs - (Date.now() - state.startedAt);
+        if (
+          remainingScanMs != null
+          && remainingScanMs < MIN_NATIVE_MATCH_BATCH_TIMEOUT_MS
+        ) {
+          setState({
+            skippedDuringAnalysis: state.skippedDuringAnalysis + candidates.length,
+            finishReason: 'time-budget',
+          });
+          return false;
+        }
+        const effectiveBatchTimeoutMs = remainingScanMs == null
+          ? nativeBatchTimeoutMs
+          : Math.min(
+            Number(nativeBatchTimeoutMs) || remainingScanMs,
+            remainingScanMs,
+          );
+        nativeBatchSequence += 1;
+        const batchId = `${scanKey}:batch:${nativeBatchSequence}`;
+        activeNativeBatchId = batchId;
+        setState({
+          batchSize: candidates.length,
+          batchStartedAt: Date.now(),
+        });
+        try {
+          scored = await matchAgainstReferenceProfile({
+            profile: referenceProfile,
+            birthdayISO,
+            fallbackReference: reference,
+            candidates,
+            batchId,
+            timeoutMs: effectiveBatchTimeoutMs,
+          });
+        } finally {
+          if (activeNativeBatchId === batchId) activeNativeBatchId = null;
+        }
+      }
+      const batchTimedOut = scored?.batchSummary?.timedOut === true;
+      const processedAssetIds = Array.isArray(scored?.batchSummary?.processedAssetIds)
+        ? scored.batchSummary.processedAssetIds
+        : candidates.map((candidate) => candidate.assetId);
+      const processedCount = new Set(processedAssetIds.filter(Boolean)).size;
+      const skippedDuringAnalysis = Math.max(0, candidates.length - processedCount);
+      const analyzedRows = collapseAnalyzedMediaCandidates({
+        candidates,
+        scored,
+        processedAssetIds,
+      });
+      const completedCandidates = completelyAnalyzedMediaCandidates(candidates, processedAssetIds);
+      const newMatchesRaw = collapseScoredMediaCandidates({
+        candidates: completedCandidates,
+        scored,
+        cutoff,
       });
       const seenIds = new Set(state.matches.map((m) => m.assetId));
       const newMatches = [];
@@ -404,7 +538,21 @@ export async function start({
         newMatches.push(match);
       }
 
-      if (me.aborted) return;
+      if (me.aborted) return false;
+
+      // The durable private ledger owns both useful candidates and completed
+      // rejections. Progress advances only after this local write succeeds, so
+      // it always means analysis plus durable recovery state, never fetched files.
+      if (analyzedRows.length) await onAnalysis?.({ matches: analyzedRows, scanKey });
+      if (newMatches.length) await onCandidates?.({ matches: newMatches, scanKey });
+      if (me.aborted) return false;
+      setState({
+        checked: state.checked + processedCount,
+        skippedDuringAnalysis: state.skippedDuringAnalysis + skippedDuringAnalysis,
+        batchSize: 0,
+        batchStartedAt: null,
+        timedOutBatches: state.timedOutBatches + (batchTimedOut ? 1 : 0),
+      });
 
       // Update incremental counters so React screens don't have to.
       let addHigh = 0; let addBorder = 0;
@@ -414,32 +562,30 @@ export async function start({
 
       // Append in scan order (newest creationTime first), so the grid
       // grows naturally as the user scrolls.
-      const seenSourceIds = new Set(freshAssets.map((asset) => asset.sourceAssetId || asset.id).filter(Boolean));
+      const liveMatches = state.matches.concat(newMatches).slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
       setState({
-        seen: state.seen + seenSourceIds.size,
-        matches: state.matches.concat(newMatches),
+        matches: liveMatches,
+        totalMatchCount: state.totalMatchCount + newMatches.length,
         acceptedCount: state.acceptedCount + newMatches.length,
         highCount: state.highCount + addHigh,
         borderlineCount: state.borderlineCount + addBorder,
       });
 
-      // Auto-queue high-confidence matches for background upload. The
-      // borderline ones still get reviewed manually so the user gets
-      // final say on questionable shots.
       if (autoSaveFn && newMatches.length) {
-        const autoIds = [];
-        for (const m of newMatches) {
-          if ((m.score ?? 0) < autoSaveThreshold) continue;
-          if (autoSaveSeen.has(m.assetId)) continue;
-          autoSaveSeen.add(m.assetId);
-          autoIds.push(m);
-        }
-        if (autoIds.length) {
-          autoSaveQueue.push(...autoIds);
-          setState({ autoSaveQueueLength: autoSaveQueue.length });
-          pumpAutoSave();
-        }
+        const rollingPlan = buildDailyCurationPlan(autoSavePlanMatches.concat(newMatches), {
+          minIdentityScore: autoSaveThreshold,
+          autoSaveOnly: true,
+          autoSaveScoreThreshold: autoSaveThreshold,
+        });
+        autoSavePlanMatches = rollingPlan.selectedMatches.slice(0, CANDIDATE_LIVE_MATCH_LIMIT);
       }
+
+      // A page cursor is only durable when every locally available candidate
+      // in that page finished analysis. A timed-out partial batch deliberately
+      // leaves the page cursor in place; the next pass excludes ledger rows that
+      // were already completed and retries only the remaining candidates.
+      return processedCount === candidates.length;
+
     };
 
     if (extraIds.length) {
@@ -449,38 +595,120 @@ export async function start({
       if (!me.aborted) await scoreAssets(extraAssets);
     }
 
-    let page = await fetchPhotoPage(undefined, since);
+    const initialPhotoPageSize = resolvedMaxPhotoAssets
+      ? Math.min(resolvedPhotoPageSize, resolvedMaxPhotoAssets)
+      : resolvedPhotoPageSize;
+    let page = startPhotosComplete
+      ? { assets: [], endCursor: startAfterPhotoCursor || null, hasNextPage: false }
+      : await fetchPhotoPage(startAfterPhotoCursor || undefined, since, initialPhotoPageSize);
 
     while (true) {
       if (me.aborted) break;
+      if (
+        resolvedMaxScanDurationMs
+        && Date.now() - state.startedAt >= resolvedMaxScanDurationMs
+      ) {
+        setState({ finishReason: 'time-budget' });
+        break;
+      }
 
-      if (page.assets.length === 0) break;
+      if (page.assets.length === 0) {
+        setState({ photoHasNextPage: false, photosComplete: true });
+        break;
+      }
+      photoAssetsRead += page.assets.length;
+      const remainingPhotoAssets = resolvedMaxPhotoAssets
+        ? Math.max(0, resolvedMaxPhotoAssets - photoAssetsRead)
+        : null;
 
-      const nextPagePromise =
-        page.hasNextPage && !me.aborted ? fetchPhotoPage(page.endCursor, since) : null;
+      const pageCompleted = await scoreAssets(page.assets);
+      if (!me.aborted && pageCompleted) {
+        setState({
+          photoCursor: page.endCursor || state.photoCursor,
+          photoHasNextPage: !!page.hasNextPage,
+          photosComplete: !page.hasNextPage,
+        });
+      }
 
-      await scoreAssets(page.assets);
+      if (!pageCompleted) break;
 
+      if (
+        resolvedMaxScanDurationMs
+        && Date.now() - state.startedAt >= resolvedMaxScanDurationMs
+      ) {
+        setState({ finishReason: 'time-budget' });
+        break;
+      }
+      if (remainingPhotoAssets === 0) {
+        setState({ finishReason: 'item-budget' });
+        break;
+      }
       if (!page.hasNextPage) break;
-      if (!nextPagePromise) break;
-      page = await nextPagePromise;
+      page = await fetchPhotoPage(
+        page.endCursor,
+        since,
+        remainingPhotoAssets == null
+          ? resolvedPhotoPageSize
+          : Math.min(resolvedPhotoPageSize, remainingPhotoAssets),
+      );
     }
 
-    let videoPage = await fetchVideoFrameCandidatesPage({
-      pageSize: VIDEO_PAGE_SIZE,
-      createdAfterMs: since,
-    });
-
-    while (true) {
-      if (me.aborted) break;
-
-      if (videoPage.assets.length) await scoreAssets(videoPage.assets);
-      if (!videoPage.hasNextPage) break;
-      videoPage = await fetchVideoFrameCandidatesPage({
-        after: videoPage.endCursor,
+    if (includeVideos && !me.aborted && state.photosComplete && !state.finishReason) {
+      let videoPage = await fetchVideoFrameCandidatesPage({
+        after: startAfterVideoCursor || undefined,
         pageSize: VIDEO_PAGE_SIZE,
         createdAfterMs: since,
       });
+
+      while (true) {
+        if (me.aborted) break;
+
+        if (
+          resolvedMaxScanDurationMs
+          && Date.now() - state.startedAt >= resolvedMaxScanDurationMs
+        ) {
+          setState({ finishReason: 'time-budget' });
+          break;
+        }
+
+        const pageCompleted = videoPage.assets.length
+          ? await scoreAssets(videoPage.assets)
+          : true;
+        if (!me.aborted && pageCompleted) {
+          setState({
+            videoCursor: videoPage.endCursor || state.videoCursor,
+            videoHasNextPage: !!videoPage.hasNextPage,
+            videosComplete: !videoPage.hasNextPage,
+          });
+        }
+        if (!pageCompleted) break;
+        if (!videoPage.hasNextPage) break;
+        videoPage = await fetchVideoFrameCandidatesPage({
+          after: videoPage.endCursor,
+          pageSize: VIDEO_PAGE_SIZE,
+          createdAfterMs: since,
+        });
+      }
+    } else if ((!includeVideos || startVideosComplete) && state.photosComplete) {
+      setState({ videosComplete: true });
+    }
+
+    // Curate only after every page and sampled video has been compared.
+    // This prevents an early soft frame from saving before the strongest
+    // daily representative is known.
+    if (!me.aborted && autoSaveFn && autoSavePlanMatches.length) {
+      const autoPlan = buildDailyCurationPlan(autoSavePlanMatches, {
+        minIdentityScore: autoSaveThreshold,
+        autoSaveOnly: true,
+        autoSaveScoreThreshold: autoSaveThreshold,
+      });
+      const autoMatches = autoPlan.selectedMatches.filter((match) => !autoSaveSeen.has(match.assetId));
+      for (const match of autoMatches) autoSaveSeen.add(match.assetId);
+      if (autoMatches.length) {
+        autoSaveQueue.push(...autoMatches);
+        setState({ autoSaveQueueLength: autoSaveQueue.length });
+        pumpAutoSave();
+      }
     }
 
     if (me.aborted) {
@@ -494,8 +722,8 @@ export async function start({
 
   try {
     await onComplete?.(state);
-  } catch (e) {
-    console.warn('scan onComplete failed', e?.message);
+  } catch {
+    console.warn('scan completion callback failed');
   }
 
   return scanKey;

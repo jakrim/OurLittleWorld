@@ -1,0 +1,25 @@
+appId: com.jessekrim.ourlittleworld
+name: Product recovery photo-first visual proof
+---
+- tapOn:
+    text: "Continue"
+    optional: true
+- tapOn:
+    text: "Go home"
+    optional: true
+- tapOn:
+    text: "Our Little World, http://.*:8081"
+    optional: true
+- waitForAnimationToEnd
+- openLink: "ourlittleworld://timeline?qa=photo-first"
+- assertVisible: "Review Tonight. 4 memories ready."
+- assertVisible: "Our World"
+- tapOn: "Review Tonight. 4 memories ready."
+- assertVisible: "1 of 4"
+- assertVisible: "Keep"
+- assertVisible: "Skip"
+- assertVisible: "Choose another memory from Photos"
+- openLink: "ourlittleworld://library?qa=large-no-firsts"
+- assertVisible: "Our World"
+- assertVisible: "Open latest kept memory from Jul 9, 2026"
+- assertVisible: "ACROSS THE DAYS"

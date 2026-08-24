@@ -2,8 +2,38 @@ import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
-import { getAssetDetails } from './photos';
+import { getAssetDetails, normalizeMediaLibraryAssetId } from './photos';
 import * as mediaDb from './mediaDb';
+import {
+  assertCanonicalMediaIdentity,
+  canonicalMediaProviderIdentity,
+  confirmCanonicalKeepPreparation,
+  ensureCanonicalMoment,
+  finalizeCanonicalProviderUpload,
+  reconcileCanonicalKeepSideEffect,
+  resolveCanonicalPosterResult,
+  resumeCanonicalProviderUpload,
+} from './canonicalMediaKeepModel.js';
+import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
+import { clearICloudWait, recordICloudWait } from './iCloudRetryQueue';
+import { markLocalAssetDeletedMetadata } from './localAssetDeletion';
+import { mediaUploadMetadata } from './mediaUploadMetadataModel';
+import {
+  assertCanonicalVideoPublication,
+  assertLegacyQueuedKeepResolved,
+  canonicalizeUploadJob,
+  canonicalImageKeepRecovery,
+  canonicalPosterKeepComplete,
+  canonicalVideoKeepComplete,
+  legacyImageRowsMatch,
+  legacyDirectVideoRowsMatch,
+  legacyPosterVideoRowsMatch,
+  legacyRemoteAssetIdentityFromRows,
+  reconcileLegacyImageUpload,
+  reconcileLegacyDirectVideoUpload,
+  reconcileLegacyPosterVideoUpload,
+  resumeCanonicalObjectUpload,
+} from './mediaUploadRecoveryModel.js';
 import {
   assertVideoWithinPlan,
   fileSizeOf,
@@ -20,6 +50,10 @@ import {
   uploadToStream,
 } from './mediaSession';
 import { uuid } from './moments';
+import {
+  isMissingPostgrestRelationship,
+  readChronologicalPostgrestRelationshipCompatible,
+} from './postgrestCompatibility';
 import { supabase } from './supabase';
 
 // SQLite cache calls must never break the network path.
@@ -57,6 +91,8 @@ const VIDEO_POSTER_QUALITY = 0.8;
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
 
 const signedUrlCache = new Map(); // key -> { url, expiresAt }
+const silentRepairAttemptedAt = new Map();
+const SILENT_REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
 
 function normalizeLocation(location) {
   const latitude = Number(location?.latitude);
@@ -106,7 +142,7 @@ function posterTimeForVideo(info, match) {
 }
 
 async function createVideoPoster({ info, match }) {
-  const sourceFrame = match?.localUri || match?.uri;
+  const sourceFrame = match?.previewUri || match?.uri;
   if (sourceFrame && !String(sourceFrame).startsWith('ph://')) {
     const poster = await resize(sourceFrame, VIDEO_POSTER_MAX_DIM, VIDEO_POSTER_QUALITY);
     return {
@@ -133,45 +169,362 @@ async function createVideoPoster({ info, match }) {
   };
 }
 
+async function prepareVideoPoster({ info, match, posterPath, posterId, required = false }) {
+  try {
+    const poster = await createVideoPoster({ info, match });
+    return {
+      ...poster,
+      posterPath,
+      posterId,
+      metadata: {
+        posterPath,
+        posterTimeMs: poster.timeMs,
+        posterWidth: poster.width,
+        posterHeight: poster.height,
+        posterSource: poster.source,
+      },
+    };
+  } catch (error) {
+    if (required) throw error;
+    return {
+      uri: null,
+      posterPath,
+      posterId,
+      metadata: {
+        posterStatus: 'failed',
+        posterError: String(error?.message || error),
+      },
+    };
+  }
+}
+
+async function uploadPreparedVideoPoster(poster) {
+  if (!poster?.uri) return { posterObject: null, posterMetadata: poster?.metadata || {} };
+  try {
+    await uploadBuffer(poster.posterPath, poster.uri, 'image/jpeg');
+    return { posterObject: poster.posterId, posterMetadata: poster.metadata || {} };
+  } catch (error) {
+    return {
+      posterObject: null,
+      posterMetadata: {
+        posterStatus: 'failed',
+        posterError: String(error?.message || error),
+      },
+    };
+  }
+}
+
+async function uploadVideoPoster({ info, match, posterPath, posterId }) {
+  const poster = await prepareVideoPoster({ info, match, posterPath, posterId });
+  return uploadPreparedVideoPoster(poster);
+}
+
+async function publishVideoReadyRows({
+  familyId,
+  userId,
+  remoteAssetKey,
+  momentId,
+  mediaId,
+  fullId,
+  streamUid,
+  sourceBytes,
+  optimizedBytes = sourceBytes,
+  durationSec,
+  metadata,
+  posterResult,
+  storageProvider,
+  quotaClass,
+}) {
+  const posterObject = posterResult?.posterObject || null;
+  const [tagDone, mediaDone] = await Promise.all([
+    supabase
+      .from('photo_tags')
+      .update({
+        storage_object: fullId,
+        thumb_object: posterObject,
+        upload_status: 'ready',
+        upload_error: null,
+        moment_id: momentId,
+        moment_media_id: mediaId,
+      })
+      .eq('family_id', familyId)
+      .eq('asset_owner_user_id', userId)
+      .eq('asset_id', remoteAssetKey)
+      .select('family_id, asset_owner_user_id, asset_id, moment_id, moment_media_id, upload_status')
+      .maybeSingle(),
+    supabase
+      .from('moment_media')
+      .update({
+        full_object: fullId,
+        poster_object: posterObject,
+        metadata: { ...metadata, ...(posterResult?.posterMetadata || {}) },
+        upload_status: 'ready',
+        upload_error: null,
+        quota_class: quotaClass,
+        storage_provider: storageProvider,
+        playback_provider: streamUid ? 'stream' : storageProvider,
+        stream_uid: streamUid,
+        source_bytes: sourceBytes,
+        optimized_bytes: optimizedBytes,
+        playback_seconds: durationSec ? Math.round(durationSec) : null,
+      })
+      .eq('id', mediaId)
+      .eq('family_id', familyId)
+      .eq('owner_user_id', userId)
+      .select('id, family_id, owner_user_id, moment_id, upload_status')
+      .maybeSingle(),
+  ]);
+  if (tagDone.error) throw tagDone.error;
+  if (mediaDone.error) throw mediaDone.error;
+  assertCanonicalVideoPublication({
+    tagRow: tagDone.data,
+    mediaRow: mediaDone.data,
+    familyId,
+    ownerUserId: userId,
+    remoteAssetKey,
+    momentId,
+    mediaId,
+  });
+}
+
+async function prepareCanonicalKeep({ familyId, userId, remoteIdentity, capturedAt, location }) {
+  const { data: existingTag, error: existingTagError } = await supabase
+    .from('photo_tags')
+    .select('moment_id, moment_media_id, storage_object, thumb_object, original_width, original_height, upload_status')
+    .eq('family_id', familyId)
+    .eq('asset_owner_user_id', userId)
+    .eq('asset_id', remoteIdentity.remoteAssetKey)
+    .maybeSingle();
+  if (existingTagError) throw existingTagError;
+
+  const momentId = existingTag?.moment_id || remoteIdentity.momentId;
+  const mediaId = existingTag?.moment_media_id || remoteIdentity.mediaId;
+  const expectedMoment = {
+    id: momentId,
+    family_id: familyId,
+    author_user_id: userId,
+    captured_at: capturedAt,
+    latitude: location?.latitude ?? null,
+    longitude: location?.longitude ?? null,
+    shared_with: [],
+  };
+  await ensureCanonicalMoment({
+    expected: expectedMoment,
+    read: async (id) => {
+      const { data, error } = await supabase
+        .from('moments')
+        .select('id, family_id, author_user_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    },
+    insert: async (moment) => {
+      const { error } = await supabase.from('moments').insert(moment);
+      if (error) throw error;
+    },
+  });
+
+  const { data: existingMedia, error: existingMediaError } = await supabase
+    .from('moment_media')
+    .select('id, moment_id, family_id, owner_user_id, local_identifier, media_type, full_object, thumb_object, poster_object, stream_uid, width, height, upload_status, metadata, storage_provider, source_bytes, optimized_bytes, playback_seconds')
+    .eq('id', mediaId)
+    .maybeSingle();
+  if (existingMediaError) throw existingMediaError;
+  assertCanonicalMediaIdentity(existingMedia, {
+    id: mediaId,
+    moment_id: momentId,
+    family_id: familyId,
+    owner_user_id: userId,
+    local_identifier: remoteIdentity.remoteAssetKey,
+  });
+  return {
+    existingTag,
+    existingMedia,
+    momentId,
+    mediaId,
+    providerIdentity: canonicalMediaProviderIdentity({ mediaId, existingMedia, existingTag }),
+  };
+}
+
+export async function reconcileCanonicalKeepSideEffects({ familyId, ownerUserId, assetId }) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData?.user?.id;
+  if (!userId || userId !== ownerUserId) throw new Error('Canonical Keep reconciliation is not authorized');
+  if (!familyId || !assetId) throw new Error('Canonical Keep reconciliation scope is incomplete');
+
+  const identity = mediaDb.getRemoteAssetIdentity({
+    familyId,
+    ownerUserId,
+    localAssetId: assetId,
+  });
+  if (!identity) return false;
+  if (identity.canonicalSideEffectStarted) return true;
+
+  const readOne = async (query) => {
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || null;
+  };
+  const readReservation = async () => {
+    if (!identity.providerUpload?.reservationId && !identity.mediaId) return null;
+    let query = supabase
+      .from('media_upload_reservations')
+      .select('id, status, provider, provider_object_id, canonical_media_id, transport')
+      .eq('family_id', familyId)
+      .eq('user_id', userId)
+      .in('status', ['reserved', 'finalized']);
+    query = identity.providerUpload?.reservationId
+      ? query.eq('id', identity.providerUpload.reservationId)
+      : query.eq('canonical_media_id', identity.mediaId);
+    const { data, error } = await query.limit(1);
+    if (error) throw error;
+    return data?.[0] || null;
+  };
+
+  return reconcileCanonicalKeepSideEffect({
+    readMoment: () => identity.momentId
+      ? readOne(supabase
+        .from('moments')
+        .select('id')
+        .eq('id', identity.momentId)
+        .eq('family_id', familyId)
+        .eq('author_user_id', userId)
+        .maybeSingle())
+      : null,
+    readMedia: () => identity.mediaId
+      ? readOne(supabase
+        .from('moment_media')
+        .select('id')
+        .eq('id', identity.mediaId)
+        .eq('family_id', familyId)
+        .eq('owner_user_id', userId)
+        .maybeSingle())
+      : null,
+    readTag: () => identity.remoteAssetKey
+      ? readOne(supabase
+        .from('photo_tags')
+        .select('moment_id, moment_media_id')
+        .eq('family_id', familyId)
+        .eq('asset_owner_user_id', userId)
+        .eq('asset_id', identity.remoteAssetKey)
+        .maybeSingle())
+      : null,
+    readReservation,
+    markStarted: (evidence) => {
+      if (identity.remoteAssetKey && (evidence.tag?.moment_id || evidence.tag?.moment_media_id)) {
+        mediaDb.recordRemoteAssetTarget({
+          familyId,
+          ownerUserId: userId,
+          localAssetId: assetId,
+          remoteAssetKey: identity.remoteAssetKey,
+          momentId: evidence.tag?.moment_id || identity.momentId,
+          mediaId: evidence.tag?.moment_media_id || identity.mediaId,
+        });
+      }
+      mediaDb.recordCanonicalSideEffectStarted({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: assetId,
+      });
+    },
+  });
+}
+
 /**
  * Tags a photo and uploads thumb + full to Storage. Atomic from the user's
  * point of view: the tag row exists immediately (status='pending'), then
  * upload + status='ready' happen async.
  */
-export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false }) {
+export async function uploadForTag({ familyId, assetId, match = null, videoPosterOnly = false, source = null }) {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
   if (!userId) throw new Error('Not signed in');
   if (!familyId) throw new Error('No family');
 
-  const info = await getAssetDetails(assetId, { downloadFromNetwork: true });
-  if (!info) throw new Error('Could not load media from library');
-  const localUri = info.localUri || info.uri;
-  if (!localUri) {
-    throw new Error(info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.');
+  // The Photos identifier is a private device key. Only the opaque mapping is
+  // allowed to cross the shared archive boundary, and it must exist before the
+  // first retryable remote write.
+  const existingIdentity = mediaDb.getRemoteAssetIdentity({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+  });
+  const sourceJob = mediaDb.getPendingUploadJob({ familyId, localAssetId: assetId });
+  let legacyIdentity = null;
+  try {
+    legacyIdentity = !existingIdentity && sourceJob
+      ? await readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId: assetId })
+      : null;
+    assertLegacyQueuedKeepResolved({ sourceJob, existingIdentity, legacyIdentity });
+  } catch (error) {
+    safeCache(() => mediaDb.markUploadJob(sourceJob?.id, 'failed', String(error?.message || error)));
+    throw error;
   }
+  const remoteIdentity = mediaDb.getOrCreateRemoteAssetIdentity({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    proposedRemoteKey: legacyIdentity?.remoteAssetKey || uuid(),
+    proposedMomentId: legacyIdentity?.momentId || uuid(),
+    proposedMediaId: legacyIdentity?.mediaId || uuid(),
+  });
+  const { remoteAssetKey } = remoteIdentity;
 
-  // Persist the job so interrupted uploads survive an app restart.
-  const jobId = `${familyId}:${assetId}`;
+  const jobId = `${familyId}:${remoteAssetKey}`;
+  await canonicalizeUploadJob({
+    sourceJob,
+    canonicalJobId: jobId,
+    rekey: ({ sourceJobId, canonicalJobId }) => mediaDb.rekeyUploadJob({
+      sourceJobId,
+      canonicalJobId,
+      familyId,
+      localAssetId: assetId,
+    }),
+  });
   safeCache(() => mediaDb.enqueueUploadJob({
     id: jobId,
     familyId,
     localAssetId: assetId,
-    mediaType: info.mediaType === 'video' ? 'video' : 'image',
+    mediaType: match?.mediaType === 'video' ? 'video' : 'image',
     videoPosterOnly,
   }));
 
   try {
+    const info = await getAssetDetails(assetId, { downloadFromNetwork: true });
+    if (!info) throw new Error('Could not load media from library');
+    const localUri = info.localUri || info.uri;
+    if (!localUri) {
+      const message = info.downloadError || 'Could not download this media from iCloud. Try again after it finishes downloading in Photos.';
+      await recordICloudWait({
+        familyId,
+        userId,
+        assetIds: [assetId],
+        source: 'upload',
+        reason: message,
+      }).catch(() => {});
+      throw new Error(message);
+    }
+    await clearICloudWait({ familyId, userId, assetIds: [assetId] }).catch(() => {});
+    safeCache(() => mediaDb.enqueueUploadJob({
+      id: jobId,
+      familyId,
+      localAssetId: assetId,
+      mediaType: info.mediaType === 'video' ? 'video' : 'image',
+      videoPosterOnly,
+    }));
+
     let result;
     if (info.mediaType === 'video') {
       result = videoPosterOnly
-        ? await savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match })
-        : await uploadVideoForTag({ familyId, assetId, userId, info, match });
+        ? await savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, userId, info, match, source })
+        : await uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, info, match, source });
     } else {
-      result = await uploadImageForTag({ familyId, assetId, userId, info, match });
+      result = await uploadImageForTag({ familyId, assetId, remoteIdentity, userId, info, match, source });
     }
     safeCache(() => mediaDb.markUploadJob(jobId, 'done'));
-    return result;
+    return { ...result, remoteAssetKey };
   } catch (err) {
     // Plan rejections are decisions, not retryable failures.
     safeCache(() => mediaDb.markUploadJob(jobId, isMediaPolicyError(err) ? 'done' : 'failed', String(err?.message || err)));
@@ -179,186 +532,252 @@ export async function uploadForTag({ familyId, assetId, match = null, videoPoste
   }
 }
 
-async function uploadImageForTag({ familyId, assetId, userId, info, match }) {
+async function readLegacyKeptRemoteAssetIdentity({ familyId, userId, localAssetId }) {
+  const pageSize = 500;
+  const tags = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('photo_tags')
+      .select('family_id, asset_owner_user_id, asset_id, moment_id, moment_media_id, upload_status')
+      .eq('family_id', familyId)
+      .eq('asset_owner_user_id', userId)
+      .order('asset_id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    tags.push(...(data || []));
+    if ((data || []).length < pageSize) break;
+  }
+  const matchingTags = tags.filter((row) => row?.asset_id === localAssetId);
+  if (matchingTags.length !== 1 || !matchingTags[0]?.moment_media_id) return null;
+  const { data: media, error: mediaError } = await supabase
+    .from('moment_media')
+    .select('id, moment_id, family_id, owner_user_id, local_identifier, upload_status')
+    .eq('id', matchingTags[0].moment_media_id)
+    .eq('family_id', familyId)
+    .eq('owner_user_id', userId)
+    .maybeSingle();
+  if (mediaError) throw mediaError;
+  return legacyRemoteAssetIdentityFromRows({
+    familyId,
+    ownerUserId: userId,
+    localAssetId,
+    tags: matchingTags,
+    media,
+  });
+}
+
+async function uploadImageForTag({ familyId, assetId, remoteIdentity, userId, info, match, source }) {
+  const { remoteAssetKey, momentId: mappedMomentId, mediaId: mappedMediaId } = remoteIdentity;
   const localUri = info.localUri || info.uri;
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', assetId)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || uuid();
-  const mediaId = existingTag?.moment_media_id || uuid();
-  const fullId = uuid();
-  const thumbId = uuid();
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
+  });
+  const { momentId, mediaId, existingMedia, existingTag } = canonical;
+  const fullId = canonical.providerIdentity.fullObjectId;
+  const thumbId = canonical.providerIdentity.thumbObjectId;
   const fullPath = `${familyId}/full/${fullId}.jpg`;
   const thumbPath = `${familyId}/thumb/${thumbId}.jpg`;
+  mediaDb.recordRemoteAssetTarget({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    remoteAssetKey,
+    momentId,
+    mediaId,
+  });
 
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
-    });
-    if (momentErr) throw momentErr;
+  const recovery = canonicalImageKeepRecovery({
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    fullObjectId: fullId,
+    thumbObjectId: thumbId,
+  });
+  if (recovery.complete) {
+    await resumeCanonicalObjectUpload({ complete: true });
+    return { fullId, thumbId, momentId, mediaId };
   }
 
-  const { error: mediaErr } = await supabase.from('moment_media').upsert(
-    {
+  const persistTransfer = async (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  let transferContext = remoteIdentity.providerUpload;
+  if (!transferContext && legacyImageRowsMatch({
+    existingMedia,
+    existingTag,
+    momentId,
+    mediaId,
+    fullObjectId: fullId,
+    thumbObjectId: thumbId,
+  })) {
+    transferContext = await reconcileLegacyImageUpload({
+      existingMedia,
+      existingTag,
+      momentId,
+      mediaId,
+      fullObjectId: fullId,
+      thumbObjectId: thumbId,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_image_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_full_storage_path: fullPath,
+          p_thumb_storage_path: thumbPath,
+        });
+        if (error) throw error;
+        return (Array.isArray(data) ? data[0] : data) || null;
+      },
+      persist: persistTransfer,
+    });
+  }
+
+  let full = null;
+  let thumb = null;
+  if (recovery.remoteReady) {
+    await resumeCanonicalObjectUpload({ complete: true });
+  } else {
+    let fullBuf = null;
+    let thumbBuf = null;
+    if (transferContext?.state !== 'finalized') {
+      full = await resize(localUri, FULL_MAX_DIM, FULL_QUALITY);
+      thumb = await resize(full.uri, THUMB_MAX_DIM, THUMB_QUALITY);
+      [fullBuf, thumbBuf] = await Promise.all([
+        readAsArrayBuffer(full.uri),
+        readAsArrayBuffer(thumb.uri),
+      ]);
+    }
+    const derivativeBytes = (fullBuf?.byteLength || 0) + (thumbBuf?.byteLength || 0);
+    await resumeCanonicalObjectUpload({
+      context: transferContext,
+      reserve: () => reserveMediaUpload({
+        familyId,
+        mediaType: 'image',
+        bytes: derivativeBytes,
+        canonicalMediaId: mediaId,
+        transport: 'image',
+        required: true,
+      }),
+      persist: persistTransfer,
+      upload: async () => {
+        if (!fullBuf || !thumbBuf) throw new Error('Canonical image upload source is unavailable');
+        const opts = { contentType: 'image/jpeg', upsert: true };
+        const [fullRes, thumbRes] = await Promise.all([
+          supabase.storage.from(BUCKET).upload(fullPath, fullBuf, opts),
+          supabase.storage.from(BUCKET).upload(thumbPath, thumbBuf, opts),
+        ]);
+        if (fullRes.error) throw fullRes.error;
+        if (thumbRes.error) throw thumbRes.error;
+      },
+      finalize: (current) => finalizeMediaUpload(current.reservationId, { bytes: derivativeBytes }),
+      abandon: releaseMediaUpload,
+    });
+  }
+
+  const width = full?.width || existingMedia?.width || existingTag?.original_width || info.width || null;
+  const height = full?.height || existingMedia?.height || existingTag?.original_height || info.height || null;
+  const metadata = recovery.remoteReady && existingMedia?.metadata
+    ? existingMedia.metadata
+    : mediaUploadMetadata({
+      source: source || 'library-review',
+      fullPath,
+      thumbPath,
+    }, match);
+  const [mediaReady, tagReady] = await Promise.all([
+    supabase.from('moment_media').upsert({
       id: mediaId,
       moment_id: momentId,
       family_id: familyId,
       owner_user_id: userId,
       media_type: 'image',
-      local_identifier: assetId,
+      local_identifier: remoteAssetKey,
       mime_type: 'image/jpeg',
       full_object: fullId,
       thumb_object: thumbId,
-      width: info.width || null,
-      height: info.height || null,
-      metadata: {
-        source: 'library-review',
-        localAssetId: assetId,
-        fullPath,
-        thumbPath,
-      },
-      upload_status: 'uploading',
+      width,
+      height,
+      metadata,
+      upload_status: 'ready',
       upload_error: null,
       sort_order: 0,
-    },
-    { onConflict: 'id' },
-  );
-  if (mediaErr) throw mediaErr;
-
-  // 1. Insert (or refresh) the tag row in pending state
-  const { error: upsertErr } = await supabase.from('photo_tags').upsert(
-    {
+    }, { onConflict: 'id' }),
+    supabase.from('photo_tags').upsert({
       family_id: familyId,
       asset_owner_user_id: userId,
-      asset_id: assetId,
+      asset_id: remoteAssetKey,
       tagged_by_user_id: userId,
       tagged_at: nowIso,
       creation_time: creationTime,
-      original_width: info.width || null,
-      original_height: info.height || null,
+      original_width: width,
+      original_height: height,
       latitude: location?.latitude ?? null,
       longitude: location?.longitude ?? null,
       location_fetched_at: nowIso,
-      upload_status: 'uploading',
+      storage_object: fullId,
+      thumb_object: thumbId,
+      upload_status: 'ready',
       upload_error: null,
       moment_id: momentId,
       moment_media_id: mediaId,
-    },
-    { onConflict: 'family_id,asset_owner_user_id,asset_id' },
-  );
-  if (upsertErr) throw upsertErr;
+    }, { onConflict: 'family_id,asset_owner_user_id,asset_id' }),
+  ]);
+  if (mediaReady.error) throw mediaReady.error;
+  if (tagReady.error) throw tagReady.error;
 
-  let reservationId = null;
-  try {
-    // Chain: decode the (often 12MP) original once, downscale to "full"
-    // size, then downscale that result to "thumb". Halves the JPEG decode
-    // cost compared to running both resizes against the original.
-    const full = await resize(localUri, FULL_MAX_DIM, FULL_QUALITY);
-    const thumb = await resize(full.uri, THUMB_MAX_DIM, THUMB_QUALITY);
-
-    const [fullBuf, thumbBuf] = await Promise.all([
-      readAsArrayBuffer(full.uri),
-      readAsArrayBuffer(thumb.uri),
-    ]);
-
-    const derivativeBytes = (fullBuf.byteLength || 0) + (thumbBuf.byteLength || 0);
-    reservationId = await reserveMediaUpload({ familyId, mediaType: 'image', bytes: derivativeBytes });
-
-    const opts = { contentType: 'image/jpeg', upsert: true };
-    const [fullRes, thumbRes] = await Promise.all([
-      supabase.storage.from(BUCKET).upload(fullPath, fullBuf, opts),
-      supabase.storage.from(BUCKET).upload(thumbPath, thumbBuf, opts),
-    ]);
-    if (fullRes.error) throw fullRes.error;
-    if (thumbRes.error) throw thumbRes.error;
-
-    await finalizeMediaUpload(reservationId, { bytes: derivativeBytes });
-    reservationId = null;
-
-    const [tagDone, mediaDone] = await Promise.all([
-      supabase
-        .from('photo_tags')
-        .update({
-          storage_object: fullId,
-          thumb_object: thumbId,
-          original_width: full.width,
-          original_height: full.height,
-          upload_status: 'ready',
-          upload_error: null,
-          moment_id: momentId,
-          moment_media_id: mediaId,
-        })
-        .eq('family_id', familyId)
-        .eq('asset_owner_user_id', userId)
-        .eq('asset_id', assetId),
-      supabase
-        .from('moment_media')
-        .update({
-          width: full.width,
-          height: full.height,
-          upload_status: 'ready',
-          upload_error: null,
-        })
-        .eq('id', mediaId),
-    ]);
-    if (tagDone.error) throw tagDone.error;
-    if (mediaDone.error) throw mediaDone.error;
-
-    return { fullId, thumbId };
-  } catch (err) {
-    await releaseMediaUpload(reservationId);
-    await Promise.all([
-      supabase
-        .from('photo_tags')
-        .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
-        .eq('family_id', familyId)
-        .eq('asset_owner_user_id', userId)
-        .eq('asset_id', assetId),
-      supabase
-        .from('moment_media')
-        .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
-        .eq('id', mediaId),
-    ]);
-    throw err;
+  if (full?.uri) {
+    await registerReadySavedFileFingerprint({
+      familyId,
+      momentId,
+      mediaId,
+      fileUri: full.uri,
+    }).catch(() => null);
   }
+
+  return { fullId, thumbId, momentId, mediaId };
 }
 
-async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
+async function uploadVideoForTag({ familyId, assetId, remoteIdentity, userId, info, match, source }) {
+  const { remoteAssetKey, momentId: mappedMomentId, mediaId: mappedMediaId } = remoteIdentity;
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
   const sourceBytes = fileSizeOf(info.localUri || info.uri);
-  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
 
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', assetId)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || uuid();
-  const mediaId = existingTag?.moment_media_id || uuid();
-  const fullId = uuid();
-  const posterId = uuid();
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
+  });
+  const { momentId, mediaId, existingMedia } = canonical;
+  const fullId = canonical.providerIdentity.fullObjectId;
+  const posterId = canonical.providerIdentity.posterObjectId;
   const ext = extensionForVideo(info);
   const mimeType = mimeTypeForVideo(ext);
   // New playable videos go to Cloudflare Stream; sources past the simple
@@ -366,28 +785,78 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
   const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
   const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const metadata = {
-    source: 'library-review',
-    localAssetId: assetId,
+  const metadata = mediaUploadMetadata({
+    source: source || 'library-review',
     ...(fullPath ? { fullPath } : {}),
     posterPath,
     recognitionFrameTimeMs: match?.frameTimeMs ?? null,
-    recognitionCandidateId: match?.candidateId || null,
     originalFileName: info.fileName || match?.fileName || null,
-  };
-
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
+  }, match);
+  let streamUid = existingMedia?.stream_uid || remoteIdentity.providerUpload?.uid || null;
+  let providerContext = remoteIdentity.providerUpload
+    || (existingMedia?.stream_uid ? { uid: existingMedia.stream_uid, state: 'uploaded' } : null);
+  const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  if (!useStream && !providerContext && legacyDirectVideoRowsMatch({
+    existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    fullObjectId: fullId,
+  })) {
+    let storageObjectPresent = false;
+    providerContext = await reconcileLegacyDirectVideoUpload({
+      context: providerContext,
+      existingMedia,
+      existingTag: canonical.existingTag,
+      momentId,
+      mediaId,
+      fullObjectId: fullId,
+      sourceBytes,
+      durationSec,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_media_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_transport: 'video-direct',
+          p_storage_path: fullPath,
+        });
+        if (error) throw error;
+        const row = Array.isArray(data) ? data[0] : data;
+        storageObjectPresent = !!row?.storage_present;
+        return row || null;
+      },
+      hasStorageObject: async () => storageObjectPresent,
+      persist: persistTransfer,
     });
-    if (momentErr) throw momentErr;
   }
+  const providerPublished = remoteIdentity.providerUpload?.state === 'published'
+    && remoteIdentity.providerUpload.uid === existingMedia?.stream_uid;
+  const directPublished = providerContext?.kind === 'video-direct'
+    && providerContext.state === 'published';
+
+  if (canonicalVideoKeepComplete({
+    existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    requireStream: useStream,
+    providerPublished: useStream ? providerPublished : directPublished,
+  })) {
+    return {
+      fullId: useStream ? null : fullId,
+      streamUid: existingMedia.stream_uid || null,
+      posterId: existingMedia.poster_object || null,
+      momentId,
+      mediaId,
+    };
+  }
+
+  await assertVideoWithinPlan({ familyId, durationSec, sourceBytes });
 
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {
@@ -396,11 +865,11 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
       family_id: familyId,
       owner_user_id: userId,
       media_type: 'video',
-      local_identifier: assetId,
+      local_identifier: remoteAssetKey,
       file_name: info.fileName || match?.fileName || null,
       mime_type: mimeType,
       full_object: useStream ? null : fullId,
-      poster_object: null,
+      poster_object: posterId,
       width: info.width || null,
       height: info.height || null,
       duration_sec: info.duration ? Number(info.duration) / 1000 : null,
@@ -417,7 +886,7 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     {
       family_id: familyId,
       asset_owner_user_id: userId,
-      asset_id: assetId,
+      asset_id: remoteAssetKey,
       tagged_by_user_id: userId,
       tagged_at: nowIso,
       creation_time: creationTime,
@@ -434,95 +903,108 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
     { onConflict: 'family_id,asset_owner_user_id,asset_id' },
   );
   if (upsertErr) throw upsertErr;
+  mediaDb.recordRemoteAssetTarget({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    remoteAssetKey,
+    momentId,
+    mediaId,
+  });
 
-  let reservationId = null;
-  let streamUid = null;
   try {
+    const publish = (current) => publishVideoReadyRows({
+      familyId,
+      userId,
+      remoteAssetKey,
+      momentId,
+      mediaId,
+      fullId: useStream ? null : fullId,
+      streamUid: useStream ? current.uid : null,
+      sourceBytes,
+      durationSec,
+      metadata,
+      posterResult: current.result,
+      storageProvider: useStream ? 'stream' : 'supabase',
+      quotaClass: 'optimized',
+    });
+
     if (useStream) {
-      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
-      reservationId = upload.reservationId;
-      streamUid = upload.uid;
-      await uploadToStream({
-        uploadURL: upload.uploadURL,
-        uri: info.localUri || info.uri,
-        fileName: info.fileName || match?.fileName,
-        mimeType,
+      providerContext = await resumeCanonicalProviderUpload({
+        context: providerContext,
+        prepare: (current) => createStreamUpload({
+          familyId,
+          mediaId,
+          durationSec,
+          sourceBytes,
+          context: current,
+        }),
+        persist: persistTransfer,
+        upload: (prepared) => uploadToStream({
+          uploadURL: prepared.uploadURL,
+          uri: info.localUri || info.uri,
+          fileName: info.fileName || match?.fileName,
+          mimeType,
+        }),
+      });
+      streamUid = providerContext.uid;
+      const posterResult = await resolveCanonicalPosterResult({
+        contextResult: providerContext.result,
+        existingMedia,
+        existingTag: canonical.existingTag,
+        upload: () => uploadVideoPoster({ info, match, posterPath, posterId }),
+      });
+      providerContext = await finalizeCanonicalProviderUpload({
+        context: { ...providerContext, result: posterResult },
+        finalize: (current) => finalizeMediaUpload(current.reservationId, { bytes: sourceBytes, durationSec }),
+        persist: persistTransfer,
+        publish,
       });
     } else {
-      reservationId = await reserveMediaUpload({
-        familyId,
-        mediaType: 'video',
-        bytes: sourceBytes || 0,
-        durationSec: durationSec || 0,
+      const poster = await prepareVideoPoster({ info, match, posterPath, posterId });
+      providerContext = await resumeCanonicalObjectUpload({
+        kind: 'video-direct',
+        context: providerContext,
+        reserve: () => reserveMediaUpload({
+          familyId,
+          mediaType: 'video',
+          bytes: sourceBytes || 0,
+          durationSec: durationSec || 0,
+          canonicalMediaId: mediaId,
+          transport: 'video-direct',
+          required: true,
+        }),
+        persist: persistTransfer,
+        upload: async () => {
+          await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
+          return uploadPreparedVideoPoster(poster);
+        },
+        finalize: (current) => finalizeMediaUpload(current.reservationId, { bytes: sourceBytes, durationSec }),
+        publish,
+        abandon: releaseMediaUpload,
       });
-      await uploadBuffer(fullPath, info.localUri || info.uri, mimeType);
     }
-
-    let posterObject = null;
-    let posterMetadata = {};
-    try {
-      const poster = await createVideoPoster({ info, match });
-      await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
-      posterObject = posterId;
-      posterMetadata = {
-        posterPath,
-        posterTimeMs: poster.timeMs,
-        posterWidth: poster.width,
-        posterHeight: poster.height,
-        posterSource: poster.source,
-      };
-    } catch (posterErr) {
-      posterMetadata = {
-        posterStatus: 'failed',
-        posterError: String(posterErr?.message || posterErr),
-      };
-    }
-
-    const [tagDone, mediaDone] = await Promise.all([
-      supabase
-        .from('photo_tags')
-        .update({
-          storage_object: useStream ? null : fullId,
-          thumb_object: posterObject,
-          upload_status: 'ready',
-          upload_error: null,
-          moment_id: momentId,
-          moment_media_id: mediaId,
-        })
-        .eq('family_id', familyId)
-        .eq('asset_owner_user_id', userId)
-        .eq('asset_id', assetId),
-      supabase
-        .from('moment_media')
-        .update({
-          poster_object: posterObject,
-          metadata: { ...metadata, ...posterMetadata },
-          upload_status: 'ready',
-          upload_error: null,
-          quota_class: 'optimized',
-          storage_provider: useStream ? 'stream' : 'supabase',
-          playback_provider: useStream ? 'stream' : 'supabase',
-          stream_uid: streamUid,
-          source_bytes: sourceBytes,
-          optimized_bytes: sourceBytes,
-          playback_seconds: durationSec ? Math.round(durationSec) : null,
-        })
-        .eq('id', mediaId),
-    ]);
-    if (tagDone.error) throw tagDone.error;
-    if (mediaDone.error) throw mediaDone.error;
-
-    await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
-    return { fullId: useStream ? null : fullId, streamUid, posterId: posterObject };
+    await registerReadySavedFileFingerprint({
+      familyId,
+      momentId,
+      mediaId,
+      fileUri: info.localUri || info.uri,
+    }).catch(() => null);
+    return {
+      fullId: useStream ? null : fullId,
+      streamUid,
+      posterId: providerContext?.result?.posterObject || null,
+      momentId,
+      mediaId,
+    };
   } catch (err) {
-    await releaseMediaUpload(reservationId);
     await Promise.all([
       supabase
         .from('photo_tags')
         .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
         .eq('family_id', familyId)
         .eq('asset_owner_user_id', userId)
-        .eq('asset_id', assetId),
+        .eq('asset_id', remoteAssetKey),
       supabase
         .from('moment_media')
         .update({ upload_status: 'failed', upload_error: String(err?.message || err) })
@@ -537,45 +1019,80 @@ async function uploadVideoForTag({ familyId, assetId, userId, info, match }) {
  * now, no source upload. The user can promote it to a playable video later
  * (uploadForTag without videoPosterOnly reuses the same moment/media ids).
  */
-async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, match }) {
+async function savePosterOnlyVideoForTag({ familyId, assetId, remoteIdentity, userId, info, match, source }) {
+  const { remoteAssetKey, momentId: mappedMomentId, mediaId: mappedMediaId } = remoteIdentity;
   const location = normalizeLocation(info.location);
   const nowIso = new Date().toISOString();
   const creationTime = info.creationTime ? new Date(info.creationTime).toISOString() : null;
   const durationSec = info.duration ? Number(info.duration) / 1000 : null;
-  const { data: existingTag, error: existingErr } = await supabase
-    .from('photo_tags')
-    .select('moment_id, moment_media_id')
-    .eq('family_id', familyId)
-    .eq('asset_owner_user_id', userId)
-    .eq('asset_id', assetId)
-    .maybeSingle();
-  if (existingErr) throw existingErr;
-
-  const momentId = existingTag?.moment_id || uuid();
-  const mediaId = existingTag?.moment_media_id || uuid();
-  const posterId = uuid();
+  const canonical = await confirmCanonicalKeepPreparation({
+    prepare: () => prepareCanonicalKeep({
+      familyId,
+      userId,
+      remoteIdentity: { ...remoteIdentity, momentId: mappedMomentId, mediaId: mappedMediaId },
+      capturedAt: creationTime || nowIso,
+      location,
+    }),
+    markStarted: () => mediaDb.recordCanonicalSideEffectStarted({
+      familyId,
+      ownerUserId: userId,
+      localAssetId: assetId,
+    }),
+  });
+  const { momentId, mediaId } = canonical;
+  const posterId = canonical.providerIdentity.posterObjectId;
   const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-
-  if (!existingTag?.moment_id) {
-    const { error: momentErr } = await supabase.from('moments').insert({
-      id: momentId,
-      family_id: familyId,
-      author_user_id: userId,
-      captured_at: creationTime || nowIso,
-      latitude: location?.latitude ?? null,
-      longitude: location?.longitude ?? null,
-      shared_with: [],
+  const persistTransfer = (next) => mediaDb.recordRemoteProviderUpload({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    providerUpload: next,
+  });
+  let transferContext = remoteIdentity.providerUpload;
+  if (!transferContext && legacyPosterVideoRowsMatch({
+    existingMedia: canonical.existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    posterObjectId: posterId,
+  })) {
+    transferContext = await reconcileLegacyPosterVideoUpload({
+      context: transferContext,
+      existingMedia: canonical.existingMedia,
+      existingTag: canonical.existingTag,
+      momentId,
+      mediaId,
+      posterObjectId: posterId,
+      readReservation: async () => {
+        const { data, error } = await supabase.rpc('reconcile_legacy_canonical_media_upload', {
+          target_family_id: familyId,
+          p_canonical_media_id: mediaId,
+          p_transport: 'video-poster',
+          p_storage_path: posterPath,
+        });
+        if (error) throw error;
+        return (Array.isArray(data) ? data[0] : data) || null;
+      },
+      persist: persistTransfer,
     });
-    if (momentErr) throw momentErr;
   }
 
-  const poster = await createVideoPoster({ info, match });
-  await uploadBuffer(posterPath, poster.uri, 'image/jpeg');
+  if (canonicalPosterKeepComplete({
+    existingMedia: canonical.existingMedia,
+    existingTag: canonical.existingTag,
+    momentId,
+    mediaId,
+    transferPublished: transferContext?.kind === 'video-poster'
+      && transferContext.state === 'published',
+  })) {
+    return { posterId: canonical.existingMedia.poster_object, posterOnly: true, momentId, mediaId };
+  }
+
+  const poster = await prepareVideoPoster({ info, match, posterPath, posterId, required: true });
   const posterBytes = fileSizeOf(poster.uri);
 
-  const metadata = {
-    source: 'scan-auto-save',
-    localAssetId: assetId,
+  const metadata = mediaUploadMetadata({
+    source: source || 'scan-auto-save',
     posterPath,
     posterTimeMs: poster.timeMs,
     posterWidth: poster.width,
@@ -584,7 +1101,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
     posterOnly: true,
     sourceDurationSec: durationSec,
     originalFileName: info.fileName || match?.fileName || null,
-  };
+  }, match);
 
   const { error: mediaErr } = await supabase.from('moment_media').upsert(
     {
@@ -593,7 +1110,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
       family_id: familyId,
       owner_user_id: userId,
       media_type: 'video',
-      local_identifier: assetId,
+      local_identifier: remoteAssetKey,
       file_name: info.fileName || match?.fileName || null,
       mime_type: mimeTypeForVideo(extensionForVideo(info)),
       full_object: null,
@@ -602,7 +1119,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
       height: info.height || null,
       duration_sec: durationSec,
       metadata,
-      upload_status: 'ready',
+      upload_status: 'uploading',
       upload_error: null,
       quota_class: 'poster_only',
       optimized_bytes: posterBytes,
@@ -616,7 +1133,7 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
     {
       family_id: familyId,
       asset_owner_user_id: userId,
-      asset_id: assetId,
+      asset_id: remoteAssetKey,
       tagged_by_user_id: userId,
       tagged_at: nowIso,
       creation_time: creationTime,
@@ -626,8 +1143,8 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
       longitude: location?.longitude ?? null,
       location_fetched_at: location ? nowIso : null,
       storage_object: null,
-      thumb_object: posterId,
-      upload_status: 'ready',
+      thumb_object: null,
+      upload_status: 'uploading',
       upload_error: null,
       moment_id: momentId,
       moment_media_id: mediaId,
@@ -635,18 +1152,75 @@ async function savePosterOnlyVideoForTag({ familyId, assetId, userId, info, matc
     { onConflict: 'family_id,asset_owner_user_id,asset_id' },
   );
   if (upsertErr) throw upsertErr;
+  mediaDb.recordRemoteAssetTarget({
+    familyId,
+    ownerUserId: userId,
+    localAssetId: assetId,
+    remoteAssetKey,
+    momentId,
+    mediaId,
+  });
 
-  return { posterId, posterOnly: true };
+  const transfer = await resumeCanonicalObjectUpload({
+    kind: 'video-poster',
+    context: transferContext,
+    reserve: () => reserveMediaUpload({
+      familyId,
+      mediaType: 'image',
+      bytes: posterBytes || 0,
+      canonicalMediaId: mediaId,
+      transport: 'video-poster',
+      required: true,
+    }),
+    persist: persistTransfer,
+    upload: async () => {
+      const result = await uploadPreparedVideoPoster(poster);
+      if (!result.posterObject) throw new Error('Video poster could not be saved');
+      return result;
+    },
+    finalize: (current) => finalizeMediaUpload(current.reservationId, { bytes: posterBytes }),
+    publish: (current) => publishVideoReadyRows({
+      familyId,
+      userId,
+      remoteAssetKey,
+      momentId,
+      mediaId,
+      fullId: null,
+      streamUid: null,
+      sourceBytes: null,
+      durationSec,
+      metadata,
+      posterResult: current.result,
+      storageProvider: 'supabase',
+      quotaClass: 'poster_only',
+      optimizedBytes: posterBytes,
+    }),
+    abandon: releaseMediaUpload,
+  });
+
+  await registerReadySavedFileFingerprint({
+    familyId,
+    momentId,
+    mediaId,
+    fileUri: poster.uri,
+  }).catch(() => null);
+
+  return { posterId: transfer.result?.posterObject || posterId, posterOnly: true, momentId, mediaId };
 }
 
 export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
+  const remoteAssetKey = mediaDb.resolveRemoteAssetKey({
+    familyId,
+    ownerUserId: assetOwnerUserId,
+    localAssetId: assetId,
+  }) || assetId;
   // Look up the tag to find storage objects
   const { data: row, error: selErr } = await supabase
     .from('photo_tags')
-    .select('storage_object, thumb_object, moment_id, moment_media_id, moment_media(metadata)')
+    .select('storage_object, thumb_object, moment_id, moment_media_id, moment_media:moment_media!photo_tags_media_family_fkey(metadata)')
     .eq('family_id', familyId)
     .eq('asset_owner_user_id', assetOwnerUserId)
-    .eq('asset_id', assetId)
+    .eq('asset_id', remoteAssetKey)
     .maybeSingle();
   if (selErr) throw selErr;
 
@@ -676,14 +1250,20 @@ export async function deleteForTag({ familyId, assetOwnerUserId, assetId }) {
     .delete()
     .eq('family_id', familyId)
     .eq('asset_owner_user_id', assetOwnerUserId)
-    .eq('asset_id', assetId);
+    .eq('asset_id', remoteAssetKey);
   if (delErr) throw delErr;
 
   if (row?.moment_id) {
     await deleteEmptyMoment({ familyId, momentId: row.moment_id });
   }
 
-  safeCache(() => mediaDb.removeCachedMedia({ familyId, assetOwnerUserId, assetId }));
+  safeCache(() => mediaDb.removeCachedMedia({ familyId, assetOwnerUserId, assetId: remoteAssetKey }));
+  safeCache(() => mediaDb.removeRemoteAssetMapping({
+    familyId,
+    ownerUserId: assetOwnerUserId,
+    localAssetId: remoteAssetKey === assetId ? null : assetId,
+    remoteAssetKey,
+  }));
 }
 
 /**
@@ -704,15 +1284,32 @@ export async function resumePendingUploadJobs({ familyId }) {
       await uploadForTag({
         familyId,
         assetId: job.local_asset_id,
-        videoPosterOnly: job.target_plan_key === 'poster_only' || job.media_type === 'video',
+        videoPosterOnly: job.target_plan_key === 'poster_only',
       });
       resumed += 1;
     } catch (err) {
       failed += 1;
-      console.warn('resume upload job failed', job.id, err?.message);
+      console.warn('resume upload job failed', err?.message);
     }
   }
   return { resumed, failed };
+}
+
+export async function silentlyRepairUploadsForOwner({ familyId, nowMs = Date.now() } = {}) {
+  if (!familyId) return { attempted: false, reason: 'missing-family' };
+  const previous = Number(silentRepairAttemptedAt.get(familyId) || 0);
+  if (nowMs - previous < SILENT_REPAIR_COOLDOWN_MS) {
+    return { attempted: false, reason: 'cooldown' };
+  }
+  silentRepairAttemptedAt.set(familyId, nowMs);
+
+  const local = await resumePendingUploadJobs({ familyId }).catch(() => ({ resumed: 0, failed: 0 }));
+  const remote = await backfillPendingForOwner({ familyId }).catch(() => ({ uploaded: 0, skipped: 0 }));
+  return {
+    attempted: true,
+    repaired: Number(local.resumed || 0) + Number(remote.uploaded || 0),
+    remaining: Number(local.failed || 0) + Number(remote.skipped || 0),
+  };
 }
 
 async function deleteEmptyMoment({ familyId, momentId }) {
@@ -738,7 +1335,8 @@ async function deleteEmptyMoment({ familyId, momentId }) {
   if (error) console.warn('deleteEmptyMoment', error.message);
 }
 
-const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media(media_type, duration_sec, quota_class, stream_uid, metadata)';
+const TAGGED_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id, moment_media:moment_media!photo_tags_media_family_fkey(media_type, duration_sec, quota_class, stream_uid, metadata)';
+const TAGGED_BASE_SELECT = 'family_id, asset_owner_user_id, asset_id, tagged_by_user_id, tagged_at, creation_time, storage_object, thumb_object, original_width, original_height, latitude, longitude, location_fetched_at, upload_status, moment_id, moment_media_id';
 
 function quoteFilterValue(value) {
   return `"${String(value).replace(/"/g, '')}"`;
@@ -760,18 +1358,80 @@ function normalizeTaggedRow(familyId, row) {
  * creation_time come last as their own cursor region. Returns raw rows —
  * call hydrateMediaUrls() to sign only the variant the view needs.
  */
-export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60 } = {}) {
+export async function listSharedTaggedPage(familyId, {
+  cursor = null,
+  limit = 60,
+  capturedOnOrAfter = null,
+  capturedBefore = null,
+} = {}) {
   if (!familyId) return { rows: [], nextCursor: null };
+  const dateFiltered = !!(capturedOnOrAfter || capturedBefore);
 
+  let { data, error } = await buildTaggedPageQuery({
+    familyId,
+    select: TAGGED_SELECT,
+    cursor,
+    limit,
+    capturedOnOrAfter,
+    capturedBefore,
+  });
+  if (error && isMissingPostgrestRelationship(error)) {
+    ({ data, error } = await buildTaggedPageQuery({
+      familyId,
+      select: TAGGED_BASE_SELECT,
+      cursor,
+      limit,
+      capturedOnOrAfter,
+      capturedBefore,
+    }));
+    if (!error) {
+      try {
+        data = await attachTaggedMediaWithoutEmbed(familyId, data || []);
+      } catch (attachError) {
+        error = attachError;
+      }
+    }
+  }
+  if (error) {
+    console.warn('listSharedTaggedPage', error.message);
+    return { rows: [], nextCursor: null };
+  }
+
+  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
+  const last = rows[rows.length - 1];
+  let nextCursor = null;
+  if (rows.length === limit && last) {
+    nextCursor = cursor?.nullRegion || !last.creation_time
+      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
+      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
+  } else if (!cursor?.nullRegion && !dateFiltered) {
+    // Non-null region ran dry — the null-creation_time stragglers come next.
+    // Date-filtered reads skip the null region: a null creation_time can't match.
+    nextCursor = { nullRegion: true, o: '', a: '' };
+  }
+  return { rows, nextCursor };
+}
+
+function buildTaggedPageQuery({
+  familyId,
+  select,
+  cursor,
+  limit,
+  capturedOnOrAfter,
+  capturedBefore,
+}) {
   let query = supabase
     .from('photo_tags')
-    .select(TAGGED_SELECT)
+    .select(select)
     .eq('family_id', familyId)
     .eq('upload_status', 'ready')
     .order('creation_time', { ascending: false, nullsFirst: false })
     .order('asset_owner_user_id', { ascending: true })
     .order('asset_id', { ascending: true })
     .limit(limit);
+
+  if (capturedOnOrAfter) query = query.gte('creation_time', capturedOnOrAfter);
+  if (capturedBefore) query = query.lt('creation_time', capturedBefore);
 
   if (cursor?.nullRegion) {
     query = query.is('creation_time', null);
@@ -791,24 +1451,23 @@ export async function listSharedTaggedPage(familyId, { cursor = null, limit = 60
     }
   }
 
-  const { data, error } = await query;
-  if (error) {
-    console.warn('listSharedTaggedPage', error.message);
-    return { rows: [], nextCursor: null };
-  }
+  return query;
+}
 
-  const rows = (data || []).map((row) => normalizeTaggedRow(familyId, row));
-  const last = rows[rows.length - 1];
-  let nextCursor = null;
-  if (rows.length === limit && last) {
-    nextCursor = cursor?.nullRegion || !last.creation_time
-      ? { nullRegion: true, o: last.asset_owner_user_id, a: last.asset_id }
-      : { t: last.creation_time, o: last.asset_owner_user_id, a: last.asset_id };
-  } else if (!cursor?.nullRegion) {
-    // Non-null region ran dry — the null-creation_time stragglers come next.
-    nextCursor = { nullRegion: true, o: '', a: '' };
-  }
-  return { rows, nextCursor };
+async function attachTaggedMediaWithoutEmbed(familyId, rows) {
+  const ids = [...new Set((rows || []).map((row) => row.moment_media_id).filter(Boolean))];
+  if (!ids.length) return rows;
+  const { data, error } = await supabase
+    .from('moment_media')
+    .select('id, media_type, duration_sec, quota_class, stream_uid, metadata')
+    .eq('family_id', familyId)
+    .in('id', ids);
+  if (error) throw error;
+  const byId = new Map((data || []).map((media) => [media.id, media]));
+  return (rows || []).map((row) => ({
+    ...row,
+    moment_media: byId.get(row.moment_media_id) || null,
+  }));
 }
 
 /**
@@ -916,6 +1575,31 @@ export async function listSharedTagged(familyId, { limit = 5000, pageSize = 500,
   return hydrateMediaUrls(all, { variant });
 }
 
+export async function listSharedTaggedChronological(familyId, {
+  limit = 60,
+  capturedOnOrAfter = null,
+  capturedBefore = null,
+  variant = 'thumb',
+} = {}) {
+  if (!familyId) return [];
+  try {
+    const data = await readChronologicalPostgrestRelationshipCompatible({
+      familyId,
+      embeddedSelect: TAGGED_SELECT,
+      baseSelect: TAGGED_BASE_SELECT,
+      createQuery: (select) => supabase.from('photo_tags').select(select),
+      attachRelations: attachTaggedMediaWithoutEmbed,
+      limit,
+      capturedOnOrAfter,
+      capturedBefore,
+    });
+    return hydrateMediaUrls(data.map((row) => normalizeTaggedRow(familyId, row)), { variant });
+  } catch (error) {
+    console.warn('listSharedTaggedChronological', error?.message);
+    return [];
+  }
+}
+
 function pathForTaggedFull(familyId, row) {
   return row?.moment_media?.metadata?.fullPath
     || (row?.storage_object ? `${familyId}/full/${row.storage_object}.jpg` : null);
@@ -925,6 +1609,44 @@ function pathForTaggedThumb(familyId, row) {
   return row?.moment_media?.metadata?.thumbPath
     || row?.moment_media?.metadata?.posterPath
     || (row?.thumb_object ? `${familyId}/thumb/${row.thumb_object}.jpg` : null);
+}
+
+export async function markLocalAssetsDeleted({ familyId, ownerUserId, assetIds, deletedAt = new Date().toISOString() }) {
+  const ids = uniqueAssetIds(assetIds);
+  if (!familyId || !ownerUserId || !ids.length) return { marked: 0 };
+
+  let marked = 0;
+  for (let i = 0; i < ids.length; i += 100) {
+    const slice = ids.slice(i, i + 100)
+      .map((localAssetId) => mediaDb.resolveRemoteAssetKey({ familyId, ownerUserId, localAssetId }))
+      .filter(Boolean);
+    if (!slice.length) continue;
+    const { data, error } = await supabase
+      .from('moment_media')
+      .select('id, metadata')
+      .eq('family_id', familyId)
+      .eq('owner_user_id', ownerUserId)
+      .in('local_identifier', slice);
+    if (error) {
+      console.warn('markLocalAssetsDeleted select', error.message);
+      continue;
+    }
+
+    for (const row of data || []) {
+      const metadata = markLocalAssetDeletedMetadata(row.metadata, deletedAt);
+      const { error: updateErr } = await supabase
+        .from('moment_media')
+        .update({ metadata })
+        .eq('family_id', familyId)
+        .eq('id', row.id);
+      if (updateErr) {
+        console.warn('markLocalAssetsDeleted update', updateErr.message);
+        continue;
+      }
+      marked += 1;
+    }
+  }
+  return { marked };
 }
 
 /**
@@ -953,6 +1675,18 @@ export async function listSavedAssetIds({ familyId, ownerUserId }) {
     for (const r of rows) if (r.asset_id) out.add(r.asset_id);
     if (rows.length < chunk) break;
     from += chunk;
+  }
+  return mediaDb.listMappedLocalAssetIds({ familyId, ownerUserId, remoteAssetKeys: Array.from(out) });
+}
+
+function uniqueAssetIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const value of ids || []) {
+    const assetId = normalizeMediaLibraryAssetId(value?.id || value?.assetId || value?.localIdentifier || value);
+    if (!assetId || seen.has(assetId)) continue;
+    seen.add(assetId);
+    out.push(assetId);
   }
   return out;
 }
@@ -1024,11 +1758,20 @@ export async function backfillPendingForOwner({ familyId }) {
   let uploaded = 0;
   let skipped = 0;
   for (const r of rows || []) {
+    const localAssetId = mediaDb.resolveLocalAssetId({
+      familyId,
+      ownerUserId: userId,
+      remoteAssetKey: r.asset_id,
+    });
+    if (!localAssetId) {
+      skipped += 1;
+      continue;
+    }
     try {
-      await uploadForTag({ familyId, assetId: r.asset_id });
+      await uploadForTag({ familyId, assetId: localAssetId });
       uploaded += 1;
     } catch (err) {
-      console.warn('backfill skipped', r.asset_id, err.message);
+      console.warn('backfill skipped', err.message);
       skipped += 1;
     }
   }

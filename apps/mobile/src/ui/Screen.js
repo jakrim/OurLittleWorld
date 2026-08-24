@@ -30,6 +30,7 @@ export default function Screen({
   keyboardVerticalOffset = 0,
   keyboardBehavior,
   scrollBounce = false,
+  onScroll,
 }) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
@@ -126,6 +127,7 @@ export default function Screen({
         contentInsetAdjustmentBehavior="never"
         onScroll={(event) => {
           scrollYRef.current = event.nativeEvent.contentOffset.y;
+          onScroll?.(event);
         }}
         scrollEventThrottle={16}
       >

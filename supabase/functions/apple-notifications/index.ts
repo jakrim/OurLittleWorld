@@ -8,6 +8,7 @@ import {
   restSelect,
   rpc,
 } from '../_shared/billing.ts';
+import { verifyAppleNotification } from '../_shared/appleSignedData.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
@@ -15,12 +16,15 @@ Deno.serve(async (req) => {
 
   try {
     const body = await readJson(req);
-    const notification = decodeJwsPayload(String(body.signedPayload || '')) || body;
-    const data = notification.data || {};
-    const transaction = decodeJwsPayload(String(data.signedTransactionInfo || '')) || {};
+    const verified = await verifyAppleNotification(String(body.signedPayload || ''), {
+      bundleId: 'com.jessekrim.ourlittleworld',
+      appAppleId: 6781823693,
+    });
+    const notification = verified.notification as Record<string, any>;
+    const transaction = verified.transaction as Record<string, any>;
     const originalId = String(transaction.originalTransactionId || '');
     const eventId = String(notification.notificationUUID || crypto.randomUUID());
-    const status = mapAppleNotificationStatus(notification.notificationType, notification.subtype);
+    const status = mapAppleNotificationStatus(notification.notificationType, notification.subtype, transaction);
 
     await recordBillingEvent({
       provider: 'apple',
@@ -68,7 +72,8 @@ Deno.serve(async (req) => {
   }
 });
 
-function mapAppleNotificationStatus(type?: string, subtype?: string) {
+function mapAppleNotificationStatus(type?: string, subtype?: string, transaction: Record<string, any> = {}) {
+  if (type === 'SUBSCRIBED' && Number(transaction.offerType) === 1) return 'trialing';
   if (type === 'DID_RENEW' || type === 'SUBSCRIBED' || type === 'DID_CHANGE_RENEWAL_STATUS') return 'active';
   if (type === 'DID_FAIL_TO_RENEW' && subtype === 'GRACE_PERIOD') return 'grace_period';
   if (type === 'DID_FAIL_TO_RENEW') return 'past_due';
@@ -76,17 +81,4 @@ function mapAppleNotificationStatus(type?: string, subtype?: string) {
   if (type === 'REFUND' || type === 'REFUND_REVERSED') return type === 'REFUND' ? 'refunded' : 'active';
   if (type === 'REVOKE') return 'refunded';
   return null;
-}
-
-function decodeJwsPayload(jws: string) {
-  const payload = jws.split('.')[1];
-  if (!payload) return null;
-  try {
-    const padded = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=');
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return null;
-  }
 }

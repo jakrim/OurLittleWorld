@@ -1,0 +1,53 @@
+{
+  "evidenceType": "privacy-safe physical-device proof receipt",
+  "source": {
+    "commit": "5df728ccdce633551cb4712594674d036435ed2b",
+    "iosBuildNumber": "1.1.14",
+    "ipaSha256": "8578188433352d8083697731613dd7873b0f52174cf06a42c04867af829cdf18",
+    "distribution": "local no-push ad-hoc Release proof"
+  },
+  "physicalReadOnlyProof": {
+    "status": "completed",
+    "checks": [
+      "Today",
+      "Tonight",
+      "Our World",
+      "Add",
+      "cancellation",
+      "relaunch"
+    ]
+  },
+  "candidateMetrics": {
+    "scope": "aggregate-only",
+    "status": "completed without retained numeric values",
+    "totalReviewed": null,
+    "usefulChildPrecision": null,
+    "adultOnlyFalsePositives": null,
+    "duplicates": null,
+    "weak": null,
+    "note": "The physical review displayed aggregate-only metrics. Numeric values were not supplied to this source receipt and were not reconstructed."
+  },
+  "externalGates": {
+    "physicalCandidateKeep": "blocked and not executed against production at this evidence point",
+    "productionPushProvisioning": "not performed",
+    "authorizedNonProductionCandidateKeep": "not performed",
+    "testFlightSubmission": "not submitted at this evidence point",
+    "twoCaregiverDeviceProof": "not part of this receipt"
+  },
+  "privacy": {
+    "familyMediaRetained": false,
+    "familyIdentifiersRetained": false,
+    "candidateIdentityEvidenceRetained": false,
+    "productionMutationOccurred": false
+  },
+  "productionChanges": {
+    "database": false,
+    "supabaseEdge": false,
+    "cloudflare": false,
+    "providers": false,
+    "secrets": false,
+    "billing": false,
+    "ota": false,
+    "publicRelease": false
+  }
+}

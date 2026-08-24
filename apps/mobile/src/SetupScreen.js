@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { ensureLibraryPermission, getLibraryPermissionStatus } from './photos';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
@@ -11,6 +11,7 @@ import {
   Button,
   Field,
   Brand,
+  BrandedBackHeader,
   Hero,
   Title,
   Body,
@@ -22,7 +23,6 @@ import {
   useTheme,
   space,
   radius,
-  shadow,
 } from './ui';
 import BirthDatePicker, { isValidBirthIso } from './ui/BirthDatePicker';
 import { Family, RELATIONSHIP_PRESETS } from './families';
@@ -30,6 +30,9 @@ import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
 import { supabase } from './supabase';
 import RelationshipRolePicker from './RelationshipRolePicker';
+import { isNative } from './faceMatcher';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform, childAgeBand } from './analyticsProductContext';
 
 /**
  * Dual-purpose screen at `/setup`:
@@ -38,10 +41,12 @@ import RelationshipRolePicker from './RelationshipRolePicker';
  */
 export default function SetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family, refresh } = useFamily();
   const { user } = useAuth();
   const isFirstSetup = !family?.babyName || !family?.babyBirthday;
+  const onboardingTracked = useRef(false);
   const childName = family?.babyName || 'your little one';
 
   const [name, setName] = useState(family?.babyName || '');
@@ -58,6 +63,15 @@ export default function SetupScreen() {
     setRelationshipPreset(relationship.preset);
     setCustomRelationshipLabel(relationship.custom);
   }, [family?.babyName, family?.babyBirthday, family?.me?.relationshipLabel]);
+
+  useEffect(() => {
+    if (!isFirstSetup || onboardingTracked.current) return;
+    onboardingTracked.current = true;
+    trackAnalyticsEvent('onboarding_started', {
+      surface: 'setup',
+      entry_type: 'fresh_install',
+    }, analyticsContext(family, Platform.OS));
+  }, [family, isFirstSetup]);
 
   const refreshPermission = useCallback(async () => {
     const { granted, accessPrivileges, canAskAgain } = await getLibraryPermissionStatus();
@@ -81,6 +95,12 @@ export default function SetupScreen() {
       accessPrivileges: result.accessPrivileges,
       canAskAgain: result.canAskAgain !== false,
     });
+    if (result.granted) {
+      trackAnalyticsEvent('photo_permission_granted', {
+        surface: 'setup',
+        permission_scope: result.accessPrivileges === 'limited' ? 'limited' : 'full',
+      }, analyticsContext(family, Platform.OS));
+    }
     if (!result.granted && result.canAskAgain === false) {
       Alert.alert(
         'Photo access blocked',
@@ -94,6 +114,16 @@ export default function SetupScreen() {
   };
 
   const onBack = () => {
+    if (params.source === 'first_value') {
+      router.replace({
+        pathname: '/reference',
+        params: {
+          source: 'first_value',
+          ...(params.resumeDiscovery === '1' ? { autoSeed: 'resume' } : {}),
+        },
+      });
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace('/timeline');
   };
@@ -119,7 +149,16 @@ export default function SetupScreen() {
       });
       await refresh();
       if (isFirstSetup) {
-        router.replace(permission.granted ? '/reference' : '/timeline');
+        trackAnalyticsEvent('child_profile_created', {
+          surface: 'setup',
+          child_age_band: childAgeBand(birthday.trim()),
+          has_birthday: true,
+        }, analyticsContext(family, Platform.OS));
+        router.replace(
+          isNative && permission.granted
+            ? { pathname: '/reference', params: { autoSeed: '1', source: 'first_value' } }
+            : { pathname: '/reference', params: { source: 'first_value' } },
+        );
       } else {
         onBack();
       }
@@ -133,7 +172,7 @@ export default function SetupScreen() {
   const onSignOut = async () => {
     Alert.alert(
       'Sign out?',
-      "You can sign back in any time. Your moments stay safe in the cloud.",
+      "You can sign back in any time. Saved moments stay in Our Little World; private drafts and on-device discovery are cleared from this device.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -152,10 +191,11 @@ export default function SetupScreen() {
       <V gap="lg" style={{ paddingTop: space.lg, paddingBottom: space.xxl }}>
 	        {isFirstSetup ? (
 	          <IntroHeader
-	            hero={'Tell us about\nyour little one.'}
+	            hero={'Start your private\nfamily world.'}
 	            body={
-	              "Just three small things and we're in. Their name, their birth date "
-	              + '(required), plus optional photo access if you want automatic discovery.'
+	              'Add their name and birth date. If you allow photo access, we start '
+	              + 'from that day to look for likely moments; you approve what belongs, '
+	              + 'and your shared family record grows.'
 	            }
 	          />
         ) : (
@@ -163,7 +203,6 @@ export default function SetupScreen() {
             hero={'Tell us about\nyour little one.'}
             body={`Manage ${childName}'s name, birthday, photo access, and account.`}
             topLeft={{
-              icon: 'chevron-back',
               onPress: onBack,
               accessibilityLabel: 'Go back',
             }}
@@ -240,18 +279,28 @@ export default function SetupScreen() {
           {isFirstSetup ? 'Continue' : 'Save changes'}
         </Button>
 
-        {!isFirstSetup ? (
-          <Card variant="muted">
-            <Eyebrow>Account</Eyebrow>
-            <Spacer h={space.md} />
-            <Body>Signed in as {user?.email || '—'}</Body>
-            <Spacer h={space.lg} />
-            <Button variant="ghost" onPress={onSignOut}>Sign out</Button>
-          </Card>
-        ) : null}
+        <Card variant="muted">
+          <Eyebrow>Account</Eyebrow>
+          <Spacer h={space.md} />
+          <Body>Signed in as {user?.email || '—'}</Body>
+          <Spacer h={space.lg} />
+          <Button variant="ghost" onPress={onSignOut}>Sign out</Button>
+          <Spacer h={space.sm} />
+          <Button variant="quiet" onPress={() => router.push('/delete-account')}>Delete account</Button>
+        </Card>
       </V>
     </Screen>
   );
+}
+
+function analyticsContext(family, platform) {
+  return {
+    family_id: family?.id || null,
+    actor_role: family?.me?.role || 'creator',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(platform),
+    environment: analyticsEnvironment(),
+  };
 }
 
 function RelationshipCard({ eyebrow, title, preset, onChangePreset, customValue, onChangeCustomValue }) {
@@ -295,15 +344,15 @@ function RitualSettingsCard({ onInvite, onLetters, onLibrary }) {
       />
       <SettingsRow
         icon="mail-outline"
-        title="Time capsules"
-        detail="Letters sealed for later."
+        title="Letters to baby"
+        detail="Words, photos, and voice kept for your child."
         theme={theme}
         onPress={onLetters}
       />
       <SettingsRow
-        icon="book-outline"
-        title="Family archive"
-        detail="Photos, places, and saved milestones live in Library."
+        icon="albums-outline"
+        title="Our World"
+        detail="Photos, notes, voice, letters, and milestones live together."
         theme={theme}
         onPress={onLibrary}
       />
@@ -354,35 +403,19 @@ function relationshipValue(preset, customValue) {
  * Onboarding-style screen intro: brand row, optional leading chip, hero + body.
  */
 function IntroHeader({ hero, body, topLeft }) {
-  const theme = useTheme();
-
   return (
     <>
-      <View style={styles.introTopRow}>
-        {topLeft ? (
-          <Pressable
-            onPress={topLeft.onPress}
-            style={[
-              styles.introIconBtn,
-              styles.introIconBtnLeading,
-              {
-                backgroundColor: theme.semantic.card,
-                borderColor: theme.semantic.border,
-              },
-            ]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={topLeft.accessibilityLabel}
-          >
-            <Ionicons
-              name={topLeft.icon}
-              size={topLeft.iconSize ?? 20}
-              color={theme.semantic.textSoft}
-            />
-          </Pressable>
-        ) : null}
-        <Brand style={[styles.introBrand, topLeft && styles.introBrandWithLeading]}>our little world</Brand>
-      </View>
+      {topLeft ? (
+        <BrandedBackHeader
+          onBack={topLeft.onPress}
+          accessibilityLabel={topLeft.accessibilityLabel}
+          style={styles.introTopRow}
+        />
+      ) : (
+        <View style={styles.introTopRow}>
+          <Brand>our little world</Brand>
+        </View>
+      )}
       <Hero>{hero}</Hero>
       <Body>{body}</Body>
       <Spacer h={space.md} />
@@ -401,6 +434,7 @@ function ProfileCard({ eyebrow, title, name, onChangeName }) {
         value={name}
         onChangeText={onChangeName}
         placeholder="e.g. Noa"
+        caption="Used across prompts, firsts, letters, and photo ages."
         autoCapitalize="words"
         returnKeyType="next"
         size="lg"
@@ -421,7 +455,7 @@ function BirthdayCard({ eyebrow, title, caption, birthday, onChangeBirthday, val
       <BirthDatePicker
         value={birthday}
         onChange={onChangeBirthday}
-        caption={null}
+        caption="This powers age labels, first suggestions, monthiversaries, and photo discovery."
         error={
           birthday && !validBirthday
             ? 'Pick a real calendar date between 1970 and today.'
@@ -484,28 +518,7 @@ function PhotoAccessCard({
 
 const styles = StyleSheet.create({
   introTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: space.md,
-  },
-  introBrand: {
-    flex: 1,
-  },
-  introBrandWithLeading: {
-    textAlign: 'right',
-  },
-  introIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.whisper,
-  },
-  introIconBtnLeading: {
-    marginRight: space.md,
   },
   accessStatus: {
     flexDirection: 'row',
@@ -535,7 +548,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsRowTitle: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
   },

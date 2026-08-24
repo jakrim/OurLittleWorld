@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -7,26 +8,34 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router/react-navigation';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { Body, Button, Caption, Field, Screen, Title, radius, space, useTheme } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { notifyPartnerPromptAnswered } from './notificationEvents';
+import { PROMPT_STARTER_BUTTON_LABEL, promptStarterForToday } from './promptStarterModel';
 import { DailyPrompts } from './rituals';
-import { patchCachedPromptState, readCachedPromptState } from './useRitualHomeData';
+import { patchCachedPromptState, readCachedPromptState, readCachedSharedPhotos } from './useRitualHomeData';
 import { createMomentWithMedia } from './moments';
+import { bestPromptPhoto } from './familyPhotoPresentationModel';
 
 export default function PromptSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
+  const routePromptDate = useMemo(() => promptDateParam(params.promptDate), [params.promptDate]);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
   const [value, setValue] = useState('');
   const [promptText, setPromptText] = useState('');
+  const [activePromptDate, setActivePromptDate] = useState(null);
+  const [starter, setStarter] = useState('');
+  const [promptPhoto, setPromptPhoto] = useState(null);
   const [voice, setVoice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [audioBusy, setAudioBusy] = useState(false);
@@ -40,23 +49,39 @@ export default function PromptSheetScreen() {
     useCallback(() => {
       let alive = true;
       if (family?.id) {
-        readCachedPromptState({ familyId: family.id, userId: user?.id })
-          .then((cached) => {
-            if (alive && cached?.mine?.response_text) setValue(cached.mine.response_text);
-          })
-          .catch(() => {});
-        DailyPrompts.getToday({ familyId: family.id })
+        if (!routePromptDate) {
+          readCachedPromptState({ familyId: family.id, userId: user?.id })
+            .then((cached) => {
+              if (alive && cached?.mine?.response_text) setValue(cached.mine.response_text);
+            })
+            .catch(() => {});
+        }
+        DailyPrompts.getForDate({
+          familyId: family.id,
+          babyBirthday: family.babyBirthday,
+          promptDate: routePromptDate,
+        })
           .then((state) => {
             if (!alive) return;
             setPromptText(state?.prompt?.text || '');
+            setActivePromptDate(state?.promptDate || routePromptDate || null);
             setValue(state?.mine?.response_text || '');
+          })
+          .catch(() => {});
+        // Use only an already-saved family photo. This is context, not a claim
+        // that the photo answers the prompt.
+        readCachedSharedPhotos({ familyId: family.id, userId: user?.id })
+          .then((photos) => {
+            if (!alive) return;
+            setPromptPhoto(bestPromptPhoto(photos, { promptDate: routePromptDate }));
+            setStarter(routePromptDate ? '' : promptStarterForToday({ sharedPhotos: photos }));
           })
           .catch(() => {});
       }
       return () => {
         alive = false;
       };
-    }, [family?.id, user?.id]),
+    }, [family?.babyBirthday, family?.id, routePromptDate, user?.id]),
   );
 
   const startRecording = async () => {
@@ -102,18 +127,30 @@ export default function PromptSheetScreen() {
     if (!family?.id || (!value.trim() && !voice?.uri)) return;
     setSaving(true);
     try {
+      const promptDate = activePromptDate || routePromptDate || null;
       let momentId = null;
       if (voice?.uri) {
         const moment = await createMomentWithMedia({
           familyId: family.id,
-          title: "Today's prompt",
+          title: promptMomentTitle(promptDate),
           note: value.trim() || promptText,
           tags: ['prompt'],
           voice,
         });
         momentId = moment.id;
       }
-      const row = await DailyPrompts.saveResponse({ familyId: family.id, responseText: value, momentId });
+      const row = await DailyPrompts.saveResponse({
+        familyId: family.id,
+        responseText: value,
+        momentId,
+        babyBirthday: family.babyBirthday,
+        promptDate,
+      });
+      notifyPartnerPromptAnswered({
+        familyId: family.id,
+        actorUserId: user?.id,
+        promptDate: row?.prompt_date,
+      }).catch((err) => console.warn('notify partner prompt answer', err?.message));
       await patchCachedPromptState({ familyId: family.id, userId: user?.id, promptRow: row });
       close();
     } catch (err) {
@@ -131,15 +168,53 @@ export default function PromptSheetScreen() {
   return (
     <Screen bare>
       <View style={[styles.root, { backgroundColor: theme.semantic.card }]}>
-        <Title>today's note</Title>
+        <Title>{routePromptDate ? 'catch-up note' : "today's note"}</Title>
+        {routePromptDate ? <Caption style={styles.promptDate}>From {formatPromptDateLabel(routePromptDate)}</Caption> : null}
         {promptText ? <Body style={styles.prompt}>{promptText}</Body> : null}
+        {promptPhoto?.thumbUrl || promptPhoto?.fullUrl ? (
+          <Pressable
+            onPress={() => {
+              if (promptPhoto.moment_id) {
+                router.push({ pathname: '/moment/[momentId]', params: { momentId: promptPhoto.moment_id } });
+              }
+            }}
+            disabled={!promptPhoto.moment_id}
+            accessibilityRole="button"
+            accessibilityLabel="Open the suggested photo from this day"
+            accessibilityState={{ disabled: !promptPhoto.moment_id }}
+            style={[styles.photoContext, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}
+          >
+            <Image
+              source={{ uri: promptPhoto.thumbUrl || promptPhoto.fullUrl }}
+              style={styles.photoContextImage}
+              contentFit="cover"
+            />
+            <View style={styles.photoContextText}>
+              <Caption style={{ color: theme.semantic.primary }}>From this day</Caption>
+              <Body numberOfLines={2}>A clear saved photo to write beside, if it helps.</Body>
+            </View>
+            {promptPhoto.moment_id ? <Ionicons name="chevron-forward" size={17} color={theme.semantic.textMuted} /> : null}
+          </Pressable>
+        ) : null}
         <Field
           as="textarea"
           value={value}
           onChangeText={setValue}
-          placeholder={voice?.uri ? 'Add a few lines, optional.' : 'A few lines are enough.'}
+          placeholder="A few lines are enough."
+          caption="Answer in text, voice, or both."
           autoFocus
         />
+        {starter && !value.trim() ? (
+          <Button
+            size="sm"
+            fullWidth={false}
+            variant="ghost"
+            onPress={() => setValue(starter)}
+            accessibilityLabel={PROMPT_STARTER_BUTTON_LABEL}
+          >
+            {PROMPT_STARTER_BUTTON_LABEL}
+          </Button>
+        ) : null}
         <View style={[styles.voiceCard, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
           <Ionicons name="mic-outline" size={18} color={theme.semantic.primary} />
           <View style={styles.voiceText}>
@@ -187,6 +262,27 @@ const styles = StyleSheet.create({
   prompt: {
     marginTop: -space.sm,
   },
+  promptDate: {
+    marginTop: -space.md,
+  },
+  photoContext: {
+    minHeight: 82,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  photoContextImage: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.md,
+  },
+  photoContextText: {
+    flex: 1,
+    gap: 2,
+  },
   voiceCard: {
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -210,6 +306,31 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 });
+
+function promptDateParam(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const date = String(raw || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+function promptMomentTitle(promptDate) {
+  if (!promptDate || promptDate === localIsoDate()) return "Today's prompt";
+  return `Prompt from ${formatPromptDateLabel(promptDate)}`;
+}
+
+function formatPromptDateLabel(promptDate) {
+  const value = new Date(`${promptDate}T12:00:00`);
+  if (Number.isNaN(value.getTime())) return promptDate;
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(value);
+}
+
+function localIsoDate(date = new Date()) {
+  const value = new Date(date);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function buildWaveform(seedSeconds) {
   const base = Math.max(1, Math.min(30, Number(seedSeconds || 8)));

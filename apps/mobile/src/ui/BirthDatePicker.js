@@ -79,11 +79,12 @@ export default function BirthDatePicker({
   caption,
   placeholder = 'Choose birth date',
   accessibilityLabel = 'Baby birth date',
+  defaultDate = null,
 }) {
   const theme = useTheme();
   const [showIOSPicker, setShowIOSPicker] = useState(false);
   const [showAndroid, setShowAndroid] = useState(false);
-  const [iosDraft, setIosDraft] = useState(() => localDateFromIso(value) || defaultSuggestionDate());
+  const [iosDraft, setIosDraft] = useState(() => localDateFromIso(value) || localDateFromIso(defaultDate) || defaultSuggestionDate());
 
   const maxDate = useMemo(() => endOfToday(), []);
 
@@ -99,11 +100,11 @@ export default function BirthDatePicker({
   }, [value]);
 
   const open = useCallback(() => {
-    const base = localDateFromIso(value) || defaultSuggestionDate();
+    const base = localDateFromIso(value) || localDateFromIso(defaultDate) || defaultSuggestionDate();
     setIosDraft(clampToBirthBounds(base));
     if (Platform.OS === 'android') setShowAndroid(true);
     else if (Platform.OS === 'ios') setShowIOSPicker((current) => !current);
-  }, [value]);
+  }, [defaultDate, value]);
 
   const onIOSPickerChange = useCallback((_, selected) => {
     if (!selected) return;

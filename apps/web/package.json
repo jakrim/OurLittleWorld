@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit --incremental false",
-    "test": "tsc --noEmit --incremental false"
+    "test": "node --experimental-strip-types --test tests/*.test.ts && tsc --noEmit --incremental false"
   },
   "dependencies": {
     "lucide": "^0.468.0",

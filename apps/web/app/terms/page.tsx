@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { exportPolicyCopy } from "@/content/exportPolicy";
+
 export const metadata: Metadata = {
   title: "Terms of Service",
   description:
@@ -11,6 +14,7 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="terms" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -79,15 +83,16 @@ export default function TermsPage() {
 
           <PolicyItem title="Subscriptions and Payments">
             <p>
-              One family subscription currently covers one private family space for one child and
-              the included caregiver features in the app. The Family plan is $7.99 monthly or
-              $69.99 yearly. The Vault plan is $14.99 monthly or $149.99 yearly, unless another
-              price is shown at checkout.
+              The launch model covers one private family space for one child and the included
+              caregiver features in the app. Planned Family pricing is $7.99 monthly or $69.99
+              yearly. Planned Vault pricing is $14.99 monthly or $149.99 yearly. A purchase is
+              available only when the website or an official app-store listing shows an enabled,
+              verified checkout with the final price and billing interval.
             </p>
             <p>
-              Native app subscriptions are managed by Apple App Store or Google Play. Website
-              subscriptions and gift purchases are processed by Stripe. Our Little World does not
-              store full card numbers.
+              When native subscriptions become publicly available, they will be managed by Apple
+              App Store or Google Play. Enabled website subscriptions and gift purchases are
+              processed by Stripe. Our Little World does not store full card numbers.
             </p>
           </PolicyItem>
 
@@ -112,6 +117,7 @@ export default function TermsPage() {
               account. Stripe website subscriptions can be managed through the website billing
               portal from the app, when available, or through support.
             </p>
+            <p>{exportPolicyCopy.lapsedVault}</p>
             <p>
               See the <Link href="/refunds/">Cancellation and Refund Policy</Link> for refund,
               duplicate purchase, gift, partner code, and billing owner details.
@@ -120,7 +126,7 @@ export default function TermsPage() {
 
           <PolicyItem title="Gifts and Partner Codes">
             <p>
-              Gift and partner codes are single-use unless we state otherwise. They cannot be
+              Purchased gift codes are single-use unless we state otherwise. They cannot be
               redeemed into multiple family spaces, exchanged for cash, resold, or transferred
               after redemption without support approval. We may revoke codes that are refunded,
               issued in error, expired, misused, or obtained through fraud.
@@ -129,9 +135,10 @@ export default function TermsPage() {
 
           <PolicyItem title="Exports and Printed Keepsakes">
             <p>
-              The app may let you export or preview parts of your family archive. You are responsible
-              for reviewing exports before printing or sharing. Printed books and physical keepsakes,
-              if offered, may have separate pricing, production, shipping, and refund terms.
+              The app may let you export or preview parts of your family archive. {exportPolicyCopy.exportScope}{" "}
+              {exportPolicyCopy.previewLimits} You are responsible for reviewing exports before
+              printing or sharing. Printed books and physical keepsakes, if offered, may have
+              separate pricing, production, shipping, and refund terms.
             </p>
           </PolicyItem>
 

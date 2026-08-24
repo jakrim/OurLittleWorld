@@ -4,9 +4,11 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import { glass, radius, useTheme } from './theme';
+import { glassButtonIconColor } from '../themeStyleContractModel.js';
 
 export default function GlassButton({ icon, onPress, accessibilityLabel, style }) {
   const theme = useTheme();
+  const iconColor = glassButtonIconColor(theme);
   return (
     <Pressable
       onPress={onPress}
@@ -15,7 +17,7 @@ export default function GlassButton({ icon, onPress, accessibilityLabel, style }
       style={[styles.root, { borderColor: theme.isDark ? glass.glassBorderMuted : glass.glassBorderStrong }, style]}
     >
       <BlurView intensity={36} tint={theme.isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-      <Ionicons name={icon} size={19} color={theme.isDark ? theme.colors.bg : theme.colors.ink} />
+      <Ionicons name={icon} size={19} color={iconColor} />
     </Pressable>
   );
 }

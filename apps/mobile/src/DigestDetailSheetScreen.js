@@ -1,11 +1,12 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
   Body,
+  Button,
   Caption,
   Card,
   Eyebrow,
@@ -18,19 +19,73 @@ import {
 } from './ui';
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
+import { markDigestRead } from './digestReadState';
+import { countLabel } from './plural';
+import { maybePromptForPushNotifications } from './pushNotifications';
 import { useRitualHomeData } from './useRitualHomeData';
+import { buildPrivateDigestSharePayload } from './privateRecapShareModel';
+import { buildDigestViewStatusLabel } from './secondParentStateModel';
+import { distinctDigestRepresentativeMedia } from './digestModel';
 
 export default function DigestDetailSheetScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { family } = useFamily();
   const { user } = useAuth();
-  const { digest } = useRitualHomeData({ familyId: family?.id, userId: user?.id });
+  const { digest } = useRitualHomeData({
+    familyId: family?.id,
+    userId: user?.id,
+    babyBirthday: family?.babyBirthday,
+    babyName: family?.babyName,
+  });
+
+  useEffect(() => {
+    if (family?.id && digest?.weekStart) markDigestRead(family.id, digest.weekStart);
+  }, [digest?.weekStart, family?.id]);
+
+  useEffect(() => {
+    if (!family?.id || !user?.id || !digest?.weekStart) return;
+    maybePromptForPushNotifications({
+      familyId: family.id,
+      userId: user.id,
+      reason: 'digest-view',
+    }).catch((err) => console.warn('push prompt after digest view', err?.message));
+  }, [digest?.weekStart, family?.id, user?.id]);
 
   const openMoment = (momentId) => {
     if (!momentId) return;
     router.push({ pathname: '/moment/[momentId]', params: { momentId } });
   };
+  const summaryText = digestSummary(digest, family?.babyName);
+  const sharePrivateDigest = async () => {
+    try {
+      const payload = buildPrivateDigestSharePayload({
+        family,
+        digest,
+        summary: summaryText,
+      });
+      await Share.share({
+        title: payload.title,
+        message: payload.message,
+      });
+    } catch (err) {
+      Alert.alert('Could not share recap', err?.message || String(err));
+    }
+  };
+  const writeLetterFromDigest = () => {
+    const seed = letterSeedFromDigest(digest, family?.babyName);
+    const params = {
+      title: seed.title,
+      body: seed.body,
+    };
+    if (digest?.weekStart) params.sourceDigestWeekStart = digest.weekStart;
+    router.push({ pathname: '/letter-compose', params });
+  };
+  const representativeMedia = distinctDigestRepresentativeMedia(
+    (digest.representativeMedia || []).filter((media) => media.thumbUrl || media.fullUrl),
+    { limit: 4 },
+  );
+  const digestViewLabel = buildDigestViewStatusLabel({ openedHere: true });
 
   return (
     <Screen bare>
@@ -56,27 +111,28 @@ export default function DigestDetailSheetScreen() {
         <Card variant="muted">
           <Eyebrow>{formatWeek(digest.weekStart, digest.weekEnd)}</Eyebrow>
           <Title style={styles.heroTitle}>{digest.headline}</Title>
-          <Body>{digestSummary(digest, family?.babyName)}</Body>
+          <Body>{summaryText}</Body>
+          <Caption style={styles.digestViewStatus}>{digestViewLabel}</Caption>
         </Card>
 
         <View style={styles.metricGrid}>
-          <DigestMetric label="moments" value={digest.momentCount ?? digest.photoCount} />
-          <DigestMetric label="milestones" value={digest.milestoneCount ?? digest.firstsCount} />
+          <DigestMetric label={countLabel(digest.momentCount ?? digest.photoCount, 'moment')} value={digest.momentCount ?? digest.photoCount} />
+          <DigestMetric label={countLabel(digest.milestoneCount ?? digest.firstsCount, 'milestone')} value={digest.milestoneCount ?? digest.firstsCount} />
           <DigestMetric label="voice" value={digest.voiceNoteCount || 0} />
-          <DigestMetric label="letters" value={digest.letterCount} />
+          <DigestMetric label={countLabel(digest.letterCount, 'letter')} value={digest.letterCount} />
         </View>
 
         <Card>
           <View style={styles.sectionHeader}>
             <View>
               <Eyebrow>Representative moments</Eyebrow>
-              <Title style={styles.sectionTitle}>A small read-only recap.</Title>
+              <Title style={styles.sectionTitle}>One clear photo from each event.</Title>
             </View>
             <Ionicons name="book-outline" size={20} color={theme.semantic.primary} />
           </View>
-          {digest.representativeMedia?.length ? (
+          {representativeMedia.length ? (
             <View style={styles.mediaGrid}>
-              {digest.representativeMedia.slice(0, 8).map((media, index) => (
+              {representativeMedia.slice(0, 8).map((media, index) => (
                 <Pressable
                   key={media.mediaId || `${media.momentId}:${index}`}
                   onPress={() => openMoment(media.momentId)}
@@ -108,14 +164,51 @@ export default function DigestDetailSheetScreen() {
             <View style={[styles.emptyPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
               <Ionicons name="albums-outline" size={22} color={theme.semantic.primary} />
               <Body style={styles.emptyCopy}>No representative media landed in this week yet.</Body>
+              <Button
+                size="sm"
+                fullWidth={false}
+                onPress={() => router.push('/add')}
+              >
+                Add a moment from this week
+              </Button>
             </View>
           )}
         </Card>
 
         <Card variant="ghost">
+          <Eyebrow>Private share</Eyebrow>
+          <Body>
+            Share only this weekly recap. It is a private family share, not a feed.
+          </Body>
+          <Button
+            size="sm"
+            fullWidth={false}
+            onPress={sharePrivateDigest}
+            icon={<Ionicons name="share-outline" size={16} color={theme.colors.onPrimary} />}
+          >
+            Share recap
+          </Button>
+        </Card>
+
+        <Card variant="ghost">
+          <Eyebrow>Letters</Eyebrow>
+          <Body>
+            Save a note from this week with the rest of your family record.
+          </Body>
+          <Button
+            size="sm"
+            fullWidth={false}
+            onPress={writeLetterFromDigest}
+            icon={<Ionicons name="mail-outline" size={16} color={theme.colors.onPrimary} />}
+          >
+            Write letter from this week
+          </Button>
+        </Card>
+
+        <Card variant="ghost">
           <Eyebrow>Read-only</Eyebrow>
           <Body>
-            This digest is assembled from saved moments, firsts, voice notes, and sealed letters. Edit the original Moment or ritual item to change what appears here.
+            This digest is assembled from saved moments, firsts, voice notes, and letters. Edit the original Moment or ritual item to change what appears here.
           </Body>
         </Card>
       </ScrollView>
@@ -142,9 +235,16 @@ function digestSummary(digest, babyName) {
   if (moments) parts.push(`${moments} saved ${moments === 1 ? 'moment' : 'moments'}`);
   if (milestones) parts.push(`${milestones} ${milestones === 1 ? 'first' : 'firsts'}`);
   if (voice) parts.push(`${voice} voice ${voice === 1 ? 'note' : 'notes'}`);
-  if (letters) parts.push(`${letters} sealed ${letters === 1 ? 'letter' : 'letters'}`);
+  if (letters) parts.push(`${letters} ${letters === 1 ? 'letter' : 'letters'}`);
   if (!parts.length) return `A quiet week for ${name}, still kept in one place.`;
   return `For ${name}, this week gathered ${joinParts(parts)}.`;
+}
+
+function letterSeedFromDigest(digest, babyName) {
+  return {
+    title: 'A note from this week',
+    body: `${digestSummary(digest || {}, babyName)}\n\n`,
+  };
 }
 
 function joinParts(parts) {
@@ -200,6 +300,9 @@ const styles = StyleSheet.create({
     fontSize: 27,
     lineHeight: 33,
     marginVertical: space.sm,
+  },
+  digestViewStatus: {
+    marginTop: space.sm,
   },
   metricGrid: {
     flexDirection: 'row',

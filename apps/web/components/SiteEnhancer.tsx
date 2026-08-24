@@ -4,26 +4,28 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { createIcons, icons } from "lucide";
 
+import { giftOfferCopy } from "@/content/giftOffer";
+import {
+  checkoutAttributionPayload,
+  marketingTarget,
+  trackMarketingEvent,
+} from "@/lib/marketingAnalytics";
+import { publicCommercialConfig } from "@/lib/commercialConfig";
+
 const contactEmail = process.env.NEXT_PUBLIC_OLW_CONTACT_EMAIL || "support@ourlittleworld.me";
-const checkoutLinks = {
-  monthly: process.env.NEXT_PUBLIC_OLW_CHECKOUT_MONTHLY || "",
-  annual: process.env.NEXT_PUBLIC_OLW_CHECKOUT_ANNUAL || "",
-  gift: process.env.NEXT_PUBLIC_OLW_CHECKOUT_GIFT || "",
-};
 const supabaseFunctionsBase = process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL
   || (process.env.NEXT_PUBLIC_SUPABASE_URL ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1` : "");
 const functionUrl = (name: string) => (supabaseFunctionsBase ? `${supabaseFunctionsBase}/${name}` : "");
 const checkoutEndpoint = process.env.NEXT_PUBLIC_OLW_CHECKOUT_ENDPOINT || functionUrl("stripe-create-checkout");
 const giftCheckoutEndpoint = process.env.NEXT_PUBLIC_OLW_GIFT_CHECKOUT_ENDPOINT || functionUrl("stripe-create-gift-checkout");
-const partnerInquiryEndpoint = process.env.NEXT_PUBLIC_OLW_PARTNER_INQUIRY_ENDPOINT || functionUrl("partner-inquiry");
 
 const prices: Record<string, string> = {
   family_monthly: "$7.99 monthly",
   family_yearly: "$69.99 yearly",
   vault_monthly: "$14.99 monthly",
   vault_yearly: "$149.99 yearly",
-  gift_year: "$70 gift year",
-  gift_vault_year: "$150 Vault gift year",
+  gift_year: giftOfferCopy.family.pillLabel,
+  gift_vault_year: giftOfferCopy.vault.pillLabel,
 };
 
 const planSummaries: Record<string, string> = {
@@ -31,29 +33,12 @@ const planSummaries: Record<string, string> = {
   family_yearly: "Family plan, billed yearly",
   vault_monthly: "Vault plan, billed monthly",
   vault_yearly: "Vault plan, billed yearly",
-  gift_year: "Gift year of Our Little World",
-  gift_vault_year: "Vault gift year of Our Little World",
+  gift_year: giftOfferCopy.family.summary,
+  gift_vault_year: giftOfferCopy.vault.summary,
 };
 
 function formPayload(form: HTMLFormElement) {
   return Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
-}
-
-function appendParams(url: string, params: Record<string, string | undefined>) {
-  const nextUrl = new URL(url, window.location.href);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) nextUrl.searchParams.set(key, value);
-  });
-  return nextUrl.toString();
-}
-
-function mailtoUrl(subject: string, payload: Record<string, string>) {
-  const body = Object.entries(payload)
-    .filter(([, value]) => value)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join("\n");
-
-  return `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function setStatus(
@@ -99,6 +84,7 @@ export default function SiteEnhancer() {
 
   useEffect(() => {
     const cleanup: Array<() => void> = [];
+    const currentPath = pathname || "/";
     const on = <K extends keyof HTMLElementEventMap>(
       element: Element | null,
       eventName: K,
@@ -114,6 +100,25 @@ export default function SiteEnhancer() {
       attrs: {
         "stroke-width": 1.8,
       },
+    });
+
+    void trackMarketingEvent("landing_view", {
+      path: pathname || "/",
+      surface: "marketing_site",
+    });
+
+    document.querySelectorAll<HTMLAnchorElement>("a.button").forEach((link) => {
+      on(link, "click", () => {
+        void trackMarketingEvent("primary_cta_clicked", {
+          path: pathname || "/",
+          surface: "marketing_site",
+          target: marketingTarget(link.getAttribute("href")),
+        });
+      });
+    });
+
+    on(document.querySelector("[data-analytics-preferences]"), "click", () => {
+      window.dispatchEvent(new Event("olw:open-analytics-preferences"));
     });
 
     const navToggle = document.querySelector("[data-menu-toggle]");
@@ -132,11 +137,11 @@ export default function SiteEnhancer() {
       navToggle.setAttribute("aria-expanded", "false");
     });
 
-    const currentPath = pathname || "/";
     document.querySelectorAll("[data-nav-link]").forEach((link) => {
       link.removeAttribute("aria-current");
       const href = link.getAttribute("href");
       if (!href) return;
+      if (href.includes("#")) return;
 
       const normalized = new URL(href, window.location.origin).pathname;
       if (
@@ -197,6 +202,19 @@ export default function SiteEnhancer() {
     });
     updateGiftPreview();
 
+    document.querySelectorAll<HTMLElement>("[data-plan-choice]").forEach((choice) => {
+      on(choice, "click", () => {
+        if (!planSelect) return;
+        const plan = choice.getAttribute("data-plan-choice");
+        if (!plan || !prices[plan]) return;
+        planSelect.value = plan;
+        document.querySelectorAll<HTMLElement>("[data-segment]").forEach((segment) => {
+          segment.setAttribute("aria-pressed", String(segment.getAttribute("data-segment") === plan));
+        });
+        planSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    });
+
     document.querySelectorAll<HTMLFormElement>("[data-conversion-form]").forEach((form) => {
       const status = form.querySelector("[data-form-status]");
 
@@ -215,10 +233,36 @@ export default function SiteEnhancer() {
         }
 
         const kind = form.getAttribute("data-conversion-form");
-        const payload = formPayload(form);
+        if ((kind === "self" || kind === "gift") && !publicCommercialConfig.checkoutEnabled) {
+          setStatus(status, "Purchases are not publicly available yet. Join the launch list for a verified availability update.", {
+            label: "Join the launch list",
+            href: "/#launch-list",
+          });
+          return;
+        }
+        if (form.dataset.submitting === "true") return;
+        form.dataset.submitting = "true";
+        const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        const unlock = () => {
+          delete form.dataset.submitting;
+          if (submitButton) submitButton.disabled = false;
+        };
+        const checkoutAttemptId = form.dataset.checkoutAttemptId || crypto.randomUUID();
+        form.dataset.checkoutAttemptId = checkoutAttemptId;
+        const payload: Record<string, string> = {
+          ...formPayload(form),
+          ...checkoutAttributionPayload(),
+          checkout_attempt_id: checkoutAttemptId,
+        };
 
         if (kind === "self") {
           const plan = payload.plan || "family_yearly";
+          void trackMarketingEvent("checkout_started", {
+            path: pathname || "/pricing",
+            surface: "web_pricing",
+            product_key: plan,
+          });
           if (checkoutEndpoint) {
             try {
               setStatus(status, "Opening secure checkout...");
@@ -229,38 +273,38 @@ export default function SiteEnhancer() {
               }
               setStatus(status, "Checkout could not be prepared. Please try email instead.", {
                 label: "Email us to start",
-                href: mailtoUrl("Start Our Little World", payload),
+                href: `mailto:${contactEmail}?subject=${encodeURIComponent("Our Little World purchase support")}`,
               });
+              unlock();
             } catch {
+              void trackMarketingEvent("checkout_failed", {
+                path: pathname || "/pricing",
+                surface: "web_pricing",
+                product_key: plan,
+              });
               setStatus(status, "Checkout could not be prepared. Please try email instead.", {
                 label: "Email us to start",
-                href: mailtoUrl("Start Our Little World", payload),
+                href: `mailto:${contactEmail}?subject=${encodeURIComponent("Our Little World purchase support")}`,
               });
+              unlock();
             }
-            return;
-          }
-
-          const checkoutUrl = checkoutLinks[plan as keyof typeof checkoutLinks];
-          if (checkoutUrl) {
-            setStatus(status, "Opening secure checkout...");
-            window.location.href = appendParams(checkoutUrl, {
-              prefilled_email: payload.email,
-              client_reference_id: `self-${Date.now()}`,
-              olw_name: payload.name,
-              olw_stage: payload.stage,
-              olw_plan: plan,
-            });
             return;
           }
 
           setStatus(status, "Online checkout is not available yet. Email us and we can help you start.", {
             label: "Email us to start",
-            href: mailtoUrl("Start Our Little World", payload),
+            href: `mailto:${contactEmail}?subject=${encodeURIComponent("Our Little World purchase support")}`,
           });
+          unlock();
           return;
         }
 
         if (kind === "gift") {
+          void trackMarketingEvent("gift_started", {
+            path: pathname || "/gift",
+            surface: "web_gift",
+            product_key: payload.plan || "gift_year",
+          });
           if (giftCheckoutEndpoint) {
             try {
               setStatus(status, "Preparing gift checkout...");
@@ -270,55 +314,30 @@ export default function SiteEnhancer() {
                 return;
               }
               setStatus(status, "Gift details were received. We will follow up with checkout.");
+              unlock();
             } catch {
-              setStatus(status, "Gift checkout could not be prepared. Please try email instead.", {
-                label: "Email gift details",
-                href: mailtoUrl("Gift Our Little World", payload),
+              void trackMarketingEvent("checkout_failed", {
+                path: pathname || "/gift",
+                surface: "web_gift",
+                product_key: payload.plan || "gift_year",
               });
+              setStatus(status, "Gift checkout could not be prepared. Please try email instead.", {
+                label: "Email gift support",
+                href: `mailto:${contactEmail}?subject=${encodeURIComponent("Our Little World gift support")}`,
+              });
+              unlock();
             }
-            return;
-          }
-
-          if (checkoutLinks.gift) {
-            setStatus(status, "Opening gift checkout...");
-            window.location.href = appendParams(checkoutLinks.gift, {
-              prefilled_email: payload.giver_email,
-              client_reference_id: `gift-${Date.now()}`,
-              giver_name: payload.giver_name,
-              recipient_name: payload.recipient_name,
-              recipient_email: payload.recipient_email,
-              delivery_day: payload.delivery_day,
-            });
             return;
           }
 
           setStatus(status, "Online gift checkout is not available yet. Email us and we can help prepare the gift.", {
-            label: "Email gift details",
-            href: mailtoUrl("Gift Our Little World", payload),
+            label: "Email gift support",
+            href: `mailto:${contactEmail}?subject=${encodeURIComponent("Our Little World gift support")}`,
           });
+          unlock();
           return;
         }
-
-        if (kind === "partner") {
-          if (partnerInquiryEndpoint) {
-            try {
-              setStatus(status, "Sending partner inquiry...");
-              await postJson(partnerInquiryEndpoint, payload);
-              setStatus(status, "Partner inquiry sent. We will follow up with package options.");
-            } catch {
-              setStatus(status, "Partner inquiry could not be sent. Please try email instead.", {
-                label: "Email partner details",
-                href: mailtoUrl("Our Little World partnership inquiry", payload),
-              });
-            }
-            return;
-          }
-
-          setStatus(status, "Partner inquiry is not connected to a form endpoint yet.", {
-            label: "Email partner details",
-            href: mailtoUrl("Our Little World partnership inquiry", payload),
-          });
-        }
+        unlock();
       });
     });
 

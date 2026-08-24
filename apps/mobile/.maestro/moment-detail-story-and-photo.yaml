@@ -1,0 +1,48 @@
+# Non-mutating Moment-detail UX smoke: actions are explicit, the default
+# co-parent audience is not repeated, photo focus is reversible, and promoting
+# a moment opens a seeded First draft without saving on Cancel.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://moment/qa-moment-1?qa=large-no-firsts"
+- tapOn:
+    text: "Show moment details"
+    optional: true
+- extendedWaitUntil:
+    visible: "Add to the story"
+    timeout: 30000
+- assertVisible: "Mark a first: Save this moment as a milestone."
+- assertVisible: "Write letter: Start a letter from this moment."
+- assertNotVisible: "Shared with"
+- tapOn: "Show full photo"
+- assertVisible: "Show moment details"
+- assertNotVisible: "Add to the story"
+- waitForAnimationToEnd
+- tapOn: "Show moment details"
+- assertVisible: "Add to the story"
+- waitForAnimationToEnd
+- swipe:
+    start: "215,550"
+    end: "215,850"
+    duration: 400
+- waitForAnimationToEnd
+- assertVisible: "Show moment details"
+- swipe:
+    start: "215,830"
+    end: "215,600"
+    duration: 400
+- waitForAnimationToEnd
+- assertVisible: "Add to the story"
+- tapOn: "Mark a first: Save this moment as a milestone."
+- extendedWaitUntil:
+    visible: "Milestone date"
+    timeout: 30000
+- assertVisible: "Date from this saved moment.*"
+- assertVisible: "Already attached from this moment."
+- assertNotVisible: "Attach a photo, optional"
+- assertNotVisible: "Source"
+- scrollUntilVisible:
+    element:
+      text: "Cancel"
+    direction: DOWN
+- tapOn: "Cancel"
+- assertVisible: "Add to the story"

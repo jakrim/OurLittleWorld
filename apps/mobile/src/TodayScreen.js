@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from 'expo-router/react-navigation';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 
 import {
@@ -9,972 +11,383 @@ import {
   Body,
   Button,
   Caption,
-  Card,
   Eyebrow,
-  PhotoPlaceholder,
-  SegmentedControl,
-  Title,
-  glass,
+  EntranceView,
+  Hero,
   radius,
   space,
   useTheme,
 } from './ui';
-import { useFamily } from './FamilyContext';
 import { useAuth } from './AuthContext';
-import { ageAt, formatAge } from './photos';
-import { deleteForTag } from './photoSync';
-import PhotoActionSheet from './PhotoActionSheet';
-import { useRitualHomeData } from './useRitualHomeData';
-import { buildPlaceClusters } from './visionSceneLabeler';
-import { describeMediaLibraryChange, useMediaLibraryChangeObserver } from './mediaLibraryChanges';
+import { useBilling } from './BillingContext';
+import { useFamily } from './FamilyContext';
+import { ageAt, formatAge } from './ageModel';
+import {
+  ensureNightlySession,
+  getTonightSummary,
+} from './candidateLedgerStore';
+import { useMediaLibraryChangeObserver } from './mediaLibraryChanges';
+import { getNotificationPreferences } from './notificationSettings';
+import {
+  photoFirstHomeMediaHeight,
+  selectPhotoFirstHome,
+} from './photoFirstHomeModel';
+import { getFamilyRitualSettings } from './ritualSettings';
+import { refreshFamilySavedDayCoverage } from './savedDayCoverage';
 import * as Scan from './scanController';
+import { maybeScheduleTonightNotification } from './tonightNotifications';
+import { useRitualHomeData } from './useRitualHomeData';
+import { trackAnalyticsEvent } from './analytics';
+import { bucketCount } from './analyticsEventsModel';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
+import { localDayInTimeZone } from './firstYearCatchupModel';
+import { parentReasonLabel } from './nightlyQueueModel';
+import { buildTodayManualQaFixture, todayManualQaRouteParams } from './todayManualQaFixtures';
+import { isManualQaRuntime } from './manualQaRuntime';
 
 export default function TodayScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
+  const { height: viewportHeight } = useWindowDimensions();
   const { family } = useFamily();
   const { user } = useAuth();
-  const [segment, setSegment] = useState('timeline');
-  const [actionPhoto, setActionPhoto] = useState(null);
-  const { pendingChange } = useMediaLibraryChangeObserver({
+  const { entitlement, loading: billingLoading } = useBilling();
+  const writer = ['creator', 'partner'].includes(family?.me?.role);
+  const canUsePrivateDiscovery = !billingLoading
+    && entitlement?.isActive === true
+    && writer
+    && !!family?.id
+    && !!user?.id;
+  const [tonightSession, setTonightSession] = useState(null);
+  const [tonightSummary, setTonightSummary] = useState(null);
+  const manualQaFixture = useMemo(
+    () => (isManualQaRuntime() ? buildTodayManualQaFixture(params.qa) : null),
+    [params.qa],
+  );
+  const scanState = Scan.useScanState();
+
+  useMediaLibraryChangeObserver({
     familyId: family?.id,
     userId: user?.id,
-    enabled: !!family?.id && !!user?.id,
+    enabled: canUsePrivateDiscovery,
   });
-  const {
-    status,
-    promptState,
-    digest,
-    sharedPhotos,
-    recentPhotos,
-    todayMatches,
-    firstsSummary,
-    refresh,
-    snoozePrompt: snoozePromptCached,
-  } = useRitualHomeData({ familyId: family?.id, userId: user?.id });
 
-  const ageInfo = useMemo(() => {
-    if (!family?.babyBirthday) return { label: '', badge: '' };
-    const value = ageAt(family.babyBirthday, Date.now());
-    if (!value) return { label: '', badge: '' };
-    const badge = value.years > 0
-      ? String(value.years)
-      : value.months > 0
-        ? String(value.months)
-        : String(Math.max(0, value.totalDays));
-    return { label: formatAge(value), badge };
-  }, [family?.babyBirthday]);
+  const { sharedPhotos, membersById } = useRitualHomeData({
+    familyId: family?.id,
+    userId: user?.id,
+    babyBirthday: family?.babyBirthday,
+    babyName: family?.babyName,
+  });
 
-  const snoozePrompt = async () => {
-    if (!family?.id) return;
-    try {
-      await snoozePromptCached();
-    } catch (err) {
-      Alert.alert('Could not snooze', err?.message || String(err));
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    if (manualQaFixture) {
+      setTonightSession(manualQaFixture.session);
+      setTonightSummary(manualQaFixture.summary);
+      return () => { alive = false; };
     }
-  };
+    if (!canUsePrivateDiscovery) {
+      setTonightSession(null);
+      setTonightSummary(null);
+      return () => { alive = false; };
+    }
+    (async () => {
+      try {
+        const [preferences, ritualSettings] = await Promise.all([
+          getNotificationPreferences({ familyId: family.id, userId: user.id }),
+          getFamilyRitualSettings({ familyId: family.id, family }),
+        ]);
+        await refreshFamilySavedDayCoverage({
+          familyId: family.id,
+          timezone: ritualSettings.timezone,
+        }).catch(() => null);
+        if (!alive) return;
+        const session = ensureNightlySession({
+          familyId: family.id,
+          userId: user.id,
+          timezone: ritualSettings.timezone === 'local' ? undefined : ritualSettings.timezone,
+        });
+        setTonightSession(session);
+        setTonightSummary(getTonightSummary({
+          familyId: family.id,
+          userId: user.id,
+          timezone: session?.timezone,
+        }));
+        if (session?.status === 'active' && !session.completed) {
+          try {
+            const scheduled = await maybeScheduleTonightNotification({
+              familyId: family.id,
+              userId: user.id,
+              session,
+              preferences,
+              role: family.me.role,
+              entitlementActive: entitlement.isActive,
+              timezone: session.timezone || ritualSettings.timezone,
+              targetTime: ritualSettings.dailyPromptTime,
+            });
+            if (scheduled?.scheduled) {
+              const timezone = session.timezone || ritualSettings.timezone;
+              trackAnalyticsEvent('tonight_notification_scheduled', {
+                surface: 'notification',
+                queue_count_bucket: bucketCount(session.items?.length || 0),
+                schedule_day: localDayInTimeZone(scheduled.triggerDate, timezone) === session.localDay
+                  ? 'same_local_day'
+                  : 'next_local_day',
+              }, {
+                family_id: family.id,
+                actor_role: family.me.role,
+                plan_state: 'active',
+                platform: analyticsPlatform('ios'),
+                environment: analyticsEnvironment(),
+              });
+            }
+          } catch {
+            // Tonight is local product value. Optional notification delivery
+            // must never erase or replace a ready memory on Today.
+            console.warn('tonight notification unavailable');
+          }
+        }
+      } catch {
+        console.warn('tonight queue summary unavailable');
+        if (alive) {
+          setTonightSession(null);
+          setTonightSummary(null);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [canUsePrivateDiscovery, entitlement?.isActive, family, manualQaFixture, user?.id]));
 
-  const openPhoto = (photo) => {
-    if (!photo?.asset_id) return;
-    if (photo.moment_id) {
-      router.push({ pathname: '/moment/[momentId]', params: { momentId: photo.moment_id } });
+  const home = useMemo(
+    () => selectPhotoFirstHome({ tonightSession, sharedPhotos, membersById }),
+    [membersById, sharedPhotos, tonightSession],
+  );
+  const memoryAge = useMemo(() => {
+    if (!home.capturedAt || !family?.babyBirthday) return '';
+    const value = ageAt(family.babyBirthday, home.capturedAt.getTime());
+    return value ? formatAge(value) : '';
+  }, [family?.babyBirthday, home.capturedAt]);
+  const mediaHeight = photoFirstHomeMediaHeight(viewportHeight);
+  const title = family?.babyName ? `${family.babyName}'s world` : 'Today';
+  const queueCount = tonightSummary?.status === 'active'
+    ? tonightSummary.count
+    : home.remaining;
+
+  const openHero = () => {
+    if (home.kind === 'tonight') {
+      router.push({
+        pathname: '/tonight',
+        params: todayManualQaRouteParams(manualQaFixture),
+      });
       return;
     }
-    const params = { assetId: photo.asset_id };
-    if (photo.asset_owner_user_id) params.ownerUserId = photo.asset_owner_user_id;
-    const previewUri = photo.thumbUrl || photo.fullUrl;
-    if (previewUri) params.uri = previewUri;
-    if (photo.creation_time) params.creationTime = String(new Date(photo.creation_time).getTime());
-    router.push({ pathname: '/photo/[assetId]', params });
-  };
-
-  const onLongPressPhoto = (photo) => {
-    setActionPhoto(photo);
-  };
-
-  const removePhoto = async () => {
-    if (!family?.id || !actionPhoto) return;
-    const photo = actionPhoto;
-    setActionPhoto(null);
-    try {
-      await deleteForTag({
-        familyId: family.id,
-        assetOwnerUserId: photo.asset_owner_user_id,
-        assetId: photo.asset_id,
-      });
-      refresh({ force: true });
-    } catch (err) {
-      Alert.alert('Could not remove', err?.message || String(err));
+    if (home.kind === 'kept' && home.momentId) {
+      router.push({ pathname: '/moment/[momentId]', params: { momentId: home.momentId } });
     }
   };
 
-  const title = family?.babyName ? `${family.babyName}'s world` : 'today';
-  const prompt = promptState?.prompt;
-  const mine = promptState?.mine;
-  const mineAnswered = !!(mine?.response_text || mine?.moment_id);
-  const snoozed = promptState?.snoozed;
-  const loadingCold = status === 'idle' || status === 'refreshing';
-  const monthSections = useMemo(
-    () => groupByMonth(sharedPhotos, family?.babyBirthday),
-    [family?.babyBirthday, sharedPhotos],
-  );
-  const places = useMemo(
-    () => buildPlaceClusters({ shared: sharedPhotos, metadataByKey: {}, memoriesByKey: {} }),
-    [sharedPhotos],
-  );
-
-  const photoSheetActions = actionPhoto ? [
-    {
-      icon: 'open-outline',
-      label: 'Open moment',
-      onPress: () => {
-        const photo = actionPhoto;
-        setActionPhoto(null);
-        openPhoto(photo);
-      },
-    },
-    {
-      icon: 'trash-outline',
-      label: 'Remove from timeline',
-      destructive: true,
-      onPress: removePhoto,
-    },
-  ] : [];
-
   return (
-    <AppShell
-      active="today"
-      title={title}
-      subtitle={ageInfo.label ? formatAgeLine(ageInfo.label) : undefined}
-      right={<SearchPill onPress={() => router.push({ pathname: '/library', params: { segment: 'search' } })} />}
-    >
-      <ScanBanner
-        pendingChange={pendingChange}
-        onPress={() => router.push('/review')}
-        onScanPress={() => router.push('/scan')}
-      />
-
-      <Card style={styles.dayCard}>
-        <View style={styles.dayRow}>
-          <View style={[styles.dayBadge, { backgroundColor: theme.colors.primarySoft }]}>
-            <Title style={[styles.dayNumber, { color: theme.semantic.primary }]}>{ageInfo.badge || '?'}</Title>
-          </View>
-          <View style={styles.dayText}>
-            <Eyebrow>Today</Eyebrow>
-            <Body>{ageInfo.label ? formatAgeLine(ageInfo.label) : 'A small place for today.'}</Body>
-          </View>
-          <Caption style={[styles.dayCount, { color: theme.semantic.secondary }]}>day {daysSince(family?.babyBirthday) ?? '...'}</Caption>
-        </View>
-      </Card>
-
-      <SegmentedControl
-        value={segment}
-        onChange={setSegment}
-        options={[
-          { value: 'timeline', label: 'Timeline' },
-          { value: 'places', label: 'Places' },
-          { value: 'on-this-day', label: 'On this day' },
-        ]}
-      />
-
-      {prompt && !snoozed ? (
-        mineAnswered ? (
-          <Card variant="muted">
-            <View style={styles.promptAnsweredRow}>
-              <View style={[styles.promptSavedIcon, { backgroundColor: theme.colors.primarySoft }]}>
-                <Ionicons name="checkmark" size={16} color={theme.semantic.primary} />
-              </View>
-              <View style={styles.promptAnsweredCopy}>
-                <Eyebrow>Daily prompt</Eyebrow>
-                <Title style={styles.promptSavedTitle}>Saved for today.</Title>
-                <Caption>
-                  {promptState?.answeredCount === 1 ? '1 parent answered' : `${promptState?.answeredCount || 1} parents answered`}
-                </Caption>
-              </View>
-              <Button
-                size="sm"
-                fullWidth={false}
-                variant="quiet"
-                onPress={() => router.push('/prompt')}
-              >
-                Edit
-              </Button>
-            </View>
-          </Card>
-        ) : (
-        <Card variant="muted">
-          <Eyebrow>Daily prompt</Eyebrow>
-          <Title style={styles.promptText}>{prompt.text}</Title>
-          {promptState?.answeredCount > 0 ? (
-            <Caption>
-              {promptState.answeredCount === 1 ? '1 parent answered' : `${promptState.answeredCount} parents answered`}
-            </Caption>
-          ) : null}
-          <View style={styles.actionRow}>
-            <Button
-              size="sm"
-              fullWidth={false}
-              variant="dark"
-              onPress={() => router.push('/prompt')}
-              icon={<Ionicons name="mic-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
-            >
-              Voice note
-            </Button>
-            <Button
-              size="sm"
-              fullWidth={false}
-              variant="ghost"
-              onPress={() => router.push('/prompt')}
-              icon={<Ionicons name="pencil-outline" size={14} color={theme.semantic.primary} />}
-            >
-              {mine?.response_text ? 'Edit note' : 'Write it'}
-            </Button>
-          </View>
+    <AppShell active="today" title={title} showActivityButton>
+      <EntranceView index={0}>
+        {home.mediaUri ? (
           <Pressable
-            onPress={snoozePrompt}
+            onPress={openHero}
+            disabled={home.kind === 'kept' && !home.momentId}
             accessibilityRole="button"
-            accessibilityLabel="Skip today's prompt"
-            hitSlop={8}
-            style={styles.skipPrompt}
+            accessibilityLabel={home.kind === 'tonight'
+              ? `Review Tonight. ${queueCount} ${queueCount === 1 ? 'memory' : 'memories'} ready.`
+              : 'Open this kept memory in Our World'}
+            style={[styles.memoryHero, { height: mediaHeight, backgroundColor: theme.semantic.cardAlt }]}
+            testID="today-photo-hero"
           >
-            <Caption style={{ color: theme.semantic.textMuted }}>Skip today</Caption>
+            <Image
+              source={{ uri: home.mediaUri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              accessibilityLabel="Family memory"
+            />
+            <View style={styles.heroShade} />
+            <LinearGradient
+              colors={['rgba(20,14,13,0)', 'rgba(20,14,13,0.72)']}
+              locations={[0, 1]}
+              pointerEvents="none"
+              style={styles.heroBottomGradient}
+            />
+            <View style={styles.heroTopRow}>
+              <View style={styles.glassPill}>
+                <Eyebrow style={styles.heroEyebrow}>
+                  {home.kind === 'tonight' ? 'Tonight' : 'Kept in Our World'}
+                </Eyebrow>
+              </View>
+            </View>
+            <View style={styles.heroCopy}>
+              {home.capturedAt ? (
+                <Hero maxFontSizeMultiplier={1.45} style={styles.heroDate}>
+                  {formatMemoryDate(home.capturedAt)}
+                </Hero>
+              ) : null}
+              <Caption maxFontSizeMultiplier={1.5} style={styles.heroContext}>
+                {home.kind === 'tonight'
+                  ? [memoryAge, parentReasonLabel(home.reasonCode)].filter(Boolean).join(' · ')
+                  : [memoryAge, home.author ? `kept by ${home.author}` : null].filter(Boolean).join(' · ')}
+              </Caption>
+              {home.kind === 'tonight' ? (
+                <View style={styles.reviewCue}>
+                  <Body maxFontSizeMultiplier={1.35} style={styles.reviewCueText}>
+                    {queueCount === 1 ? 'One memory to recognize' : `${queueCount} memories to recognize`}
+                  </Body>
+                  <Ionicons name="arrow-forward" size={20} color="#fff" />
+                </View>
+              ) : null}
+            </View>
           </Pressable>
-        </Card>
-        )
-      ) : loadingCold ? (
-        <Card variant="muted">
-          <Eyebrow>Daily prompt</Eyebrow>
-          <Title style={styles.promptText}>Loading today's question...</Title>
-        </Card>
-      ) : null}
-
-      <Card>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Eyebrow>This week's digest</Eyebrow>
-            <Title style={styles.digestTitle}>{digest.headline}</Title>
-          </View>
-          <Caption>{formatWeek(digest.weekStart, digest.weekEnd)}</Caption>
-        </View>
-        {digest.representativeMedia?.length ? (
-          <View style={styles.digestStrip}>
-            {digest.representativeMedia.slice(0, 4).map((media, index) => (
-              <Pressable
-                key={media.mediaId || `${media.momentId}:${index}`}
-                onPress={() => media.momentId ? router.push({ pathname: '/moment/[momentId]', params: { momentId: media.momentId } }) : null}
-                disabled={!media.momentId}
-                accessibilityRole="button"
-                accessibilityLabel={`Open digest moment ${index + 1}`}
-                accessibilityState={{ disabled: !media.momentId }}
-                style={[styles.digestStripTile, { backgroundColor: theme.semantic.cardAlt }]}
-              >
-                {media.thumbUrl || media.fullUrl ? (
-                  <Image
-                    source={{ uri: media.thumbUrl || media.fullUrl }}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                  />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-              </Pressable>
-            ))}
-          </View>
         ) : (
-          <View style={styles.digestCover}>
-            {digest.coverPhoto?.thumbUrl || digest.coverPhoto?.fullUrl ? (
-              <Image
-                source={{ uri: digest.coverPhoto.thumbUrl || digest.coverPhoto.fullUrl }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-              />
-            ) : (
-              <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-            )}
+          <View style={[styles.emptyHero, { minHeight: mediaHeight, backgroundColor: theme.semantic.cardAlt }]} testID="today-empty-hero">
+            <View style={[styles.emptyMark, { backgroundColor: theme.colors.primarySoft }]}>
+              <Ionicons name="sparkles-outline" size={28} color={theme.semantic.primary} />
+            </View>
+            <Eyebrow>Private discovery</Eyebrow>
+            <Hero maxFontSizeMultiplier={1.45} style={styles.emptyTitle}>
+              Let the first memories find you.
+            </Hero>
+            <Body align="center">
+              Our Little World quietly looks for clear moments. You decide what becomes part of the family world.
+            </Body>
+            <Button
+              onPress={() => router.push({ pathname: '/scan', params: { source: 'today' } })}
+              disabled={!canUsePrivateDiscovery || scanState.phase === 'scanning'}
+            >
+              {scanState.phase === 'scanning' ? 'Looking privately…' : 'Find memories'}
+            </Button>
           </View>
         )}
-        <View style={styles.digestGrid}>
-          <Metric label="moments" value={digest.momentCount ?? digest.photoCount} />
-          <Metric label="milestones" value={digest.milestoneCount ?? digest.firstsCount} />
-          <Metric label="voice" value={digest.voiceNoteCount || 0} />
-          <Metric label="letters" value={digest.letterCount} />
-        </View>
-        <Button
-          size="sm"
-          fullWidth={false}
-          variant="quiet"
-          style={styles.digestButton}
-          onPress={() => router.push('/digest')}
+      </EntranceView>
+
+      {scanState.phase === 'failed' ? (
+        <Pressable
+          onPress={() => router.push({ pathname: '/scan', params: { source: 'today' } })}
+          accessibilityRole="button"
+          accessibilityLabel="Try private discovery again"
+          style={styles.quietRepair}
         >
-          Read digest
-        </Button>
-      </Card>
+          <Caption>Private discovery paused. Your progress is safe.</Caption>
+          <Caption style={{ color: theme.semantic.primary, fontWeight: '800' }}>Try again</Caption>
+        </Pressable>
+      ) : null}
 
-      <MilestoneTeaser
-        summary={firstsSummary}
-        babyName={family?.babyName}
-        onPress={() => router.push('/firsts')}
-        onAdd={() => router.push('/first-compose')}
-      />
-
-      {segment === 'timeline' ? (
-        <>
-          <PhotoRail
-            title="For you, today"
-            photos={recentPhotos}
-            babyBirthday={family?.babyBirthday}
-            onPress={openPhoto}
-            onLongPress={onLongPressPhoto}
-            onSeeAll={() => router.push('/library')}
-            empty="No saved moments yet."
-            emptyActionLabel="Add your first"
-            onEmptyAction={() => router.push('/add')}
-          />
-          <MonthTimeline
-            sections={monthSections}
-            onPress={openPhoto}
-            onLongPress={onLongPressPhoto}
-            youUserId={user?.id}
-          />
-        </>
-      ) : segment === 'on-this-day' ? (
-        <PhotoRail
-          title="On this day"
-          photos={todayMatches}
-          babyBirthday={family?.babyBirthday}
-          onPress={openPhoto}
-          onLongPress={onLongPressPhoto}
-          empty="No matching moments from this date yet."
-          onSeeAll={() => setSegment('timeline')}
-        />
-      ) : (
-        <PlacesPreview places={places} onPress={openPhoto} onLongPress={onLongPressPhoto} />
-      )}
-
-      <PhotoActionSheet
-        photo={actionPhoto}
-        visible={!!actionPhoto}
-        onClose={() => setActionPhoto(null)}
-        actions={photoSheetActions}
-        subtitle={actionPhoto ? 'What should happen with this moment?' : undefined}
-      />
+      {home.kind !== 'empty' ? (
+        <Pressable
+          onPress={() => router.push('/library')}
+          accessibilityRole="button"
+          accessibilityLabel="Open Our World to browse saved memories"
+          style={styles.worldLink}
+        >
+          <View>
+            <Eyebrow maxFontSizeMultiplier={1.45}>Our World</Eyebrow>
+            <Body maxFontSizeMultiplier={1.55}>See the family world taking shape.</Body>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.semantic.primary} />
+        </Pressable>
+      ) : null}
     </AppShell>
   );
 }
 
-function SearchPill({ onPress }) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Search archive"
-      style={[styles.searchPill, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
-    >
-      <Ionicons name="search" size={14} color={theme.semantic.textSoft} />
-      <Caption style={styles.searchPillText}>Search</Caption>
-    </Pressable>
-  );
-}
-
-function MilestoneTeaser({ summary, babyName, onPress, onAdd }) {
-  const theme = useTheme();
-  const latest = summary?.latest || null;
-  if (latest) {
-    return (
-      <Card variant="muted">
-        <View style={styles.sectionHeader}>
-          <View style={styles.teaserCopy}>
-            <Eyebrow>Milestone</Eyebrow>
-            <Title style={styles.teaserTitle}>{latest.title}</Title>
-            <Body>{formatShortDate(latest.happened_at || latest.created_at)} · {summary.count} saved so far</Body>
-          </View>
-          <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
-            <Ionicons name="flag-outline" size={20} color={theme.semantic.primary} />
-          </View>
-        </View>
-        <Button
-          size="sm"
-          fullWidth={false}
-          variant="quiet"
-          style={styles.teaserButton}
-          onPress={onPress}
-        >
-          Open firsts
-        </Button>
-      </Card>
-    );
-  }
-
-  return (
-    <Card variant="muted">
-      <View style={styles.sectionHeader}>
-        <View style={styles.teaserCopy}>
-          <Eyebrow>Milestone</Eyebrow>
-          <Title style={styles.teaserTitle}>Save {babyName ? `${babyName}'s` : 'their'} first tiny win.</Title>
-          <Body>Start with a smile, laugh, roll, word, or any first worth keeping.</Body>
-        </View>
-        <View style={[styles.teaserIcon, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name="add-circle-outline" size={21} color={theme.semantic.primary} />
-        </View>
-      </View>
-      <Button
-        size="sm"
-        fullWidth={false}
-        variant="dark"
-        style={styles.teaserButton}
-        onPress={onAdd}
-        icon={<Ionicons name="flag-outline" size={14} color={theme.isDark ? theme.colors.ink : theme.colors.bg} />}
-      >
-        Add a first
-      </Button>
-    </Card>
-  );
-}
-
-function PhotoRail({
-  title,
-  photos,
-  babyBirthday,
-  onPress,
-  onLongPress,
-  onSeeAll,
-  empty = 'No saved photos yet.',
-  emptyActionLabel,
-  onEmptyAction,
-}) {
-  const theme = useTheme();
-  return (
-    <View>
-      <View style={styles.sectionHeader}>
-        <Title style={styles.railTitle}>{title}</Title>
-        {onSeeAll ? (
-          <Pressable
-            onPress={onSeeAll}
-            accessibilityRole="button"
-            accessibilityLabel={`See all ${title}`}
-            hitSlop={8}
-            style={styles.inlineHeaderAction}
-          >
-            <Caption>See all</Caption>
-          </Pressable>
-        ) : null}
-      </View>
-      {photos.length ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.photoRailContent}
-        >
-          {photos.map((photo, index) => (
-            <Pressable
-              key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-              onPress={() => onPress(photo)}
-              onLongPress={() => onLongPress?.(photo)}
-              delayLongPress={220}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${title} moment ${index + 1}`}
-              accessibilityHint={onLongPress ? 'Long press for more actions.' : undefined}
-              style={styles.photoRailTile}
-            >
-              {photo.thumbUrl || photo.fullUrl ? (
-                <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              ) : (
-                <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-              )}
-              <View style={[styles.photoChip, { backgroundColor: glass.mediaChrome, borderColor: glass.mediaChromeBorder }]}>
-                <Caption style={[styles.photoChipText, { color: theme.colors.bg }]}>
-                  {railChipLabel({ photo, index, babyBirthday, title })}
-                </Caption>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : (
-        <Card variant="ghost">
-          <Body>{empty}</Body>
-          {emptyActionLabel ? (
-            <Button
-              size="sm"
-              fullWidth={false}
-              style={styles.emptyRailButton}
-              onPress={onEmptyAction}
-              icon={<Ionicons name="add" size={14} color={theme.colors.onPrimary} />}
-            >
-              {emptyActionLabel}
-            </Button>
-          ) : null}
-        </Card>
-      )}
-    </View>
-  );
-}
-
-function MonthTimeline({ sections, onPress, onLongPress, youUserId }) {
-  if (!sections.length) return null;
-  return (
-    <View style={styles.monthList}>
-      {sections.map((section) => (
-        <Card key={section.key} padding="md" style={styles.monthCard}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Eyebrow>{section.monthLabel}</Eyebrow>
-              {section.ageLabel ? <Title style={styles.monthAge}>{section.ageLabel}</Title> : null}
-            </View>
-            <Caption>{section.items.length} moments</Caption>
-          </View>
-          <View style={styles.monthGrid}>
-            {section.items.slice(0, 9).map((photo, index) => (
-              <Pressable
-                key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                onPress={() => onPress(photo)}
-                onLongPress={() => onLongPress(photo)}
-                delayLongPress={220}
-                accessibilityRole="button"
-                accessibilityLabel={`Open moment ${index + 1} from ${section.monthLabel}`}
-                accessibilityHint="Long press for more actions."
-                style={[styles.monthTile, index === 0 && styles.monthHeroTile]}
-              >
-                {photo.thumbUrl || photo.fullUrl ? (
-                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-                {photo.asset_owner_user_id !== youUserId ? <View style={styles.partnerDot} /> : null}
-              </Pressable>
-            ))}
-          </View>
-        </Card>
-      ))}
-    </View>
-  );
-}
-
-function PlacesPreview({ places, onPress, onLongPress }) {
-  if (!places.length) {
-    return (
-      <Card>
-        <Eyebrow>Places</Eyebrow>
-        <Title style={styles.digestTitle}>No mapped moments yet.</Title>
-        <Body>Photos with location data will collect here as the archive grows.</Body>
-      </Card>
-    );
-  }
-  return (
-    <View style={styles.placeList}>
-      {places.slice(0, 6).map((place) => (
-        <Card key={place.id} padding="md" style={styles.placeCard}>
-          <View style={styles.placeCopy}>
-            <Eyebrow>{place.label}</Eyebrow>
-            <Title style={styles.placeTitle}>{place.photos.length} moments here</Title>
-            <Caption>{place.topScenes.slice(0, 2).join(' · ') || 'Family outing'}</Caption>
-          </View>
-          <View style={styles.placeThumbs}>
-            {place.photos.slice(0, 3).map((photo) => (
-              <Pressable
-                key={`${photo.asset_owner_user_id}:${photo.asset_id}`}
-                onPress={() => onPress(photo)}
-                onLongPress={() => onLongPress(photo)}
-                delayLongPress={220}
-                accessibilityRole="button"
-                accessibilityLabel={`Open moment from ${place.label}`}
-                accessibilityHint="Long press for more actions."
-                style={styles.placeThumb}
-              >
-                {photo.thumbUrl || photo.fullUrl ? (
-                  <Image source={{ uri: photo.thumbUrl || photo.fullUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-                ) : (
-                  <PhotoPlaceholder style={StyleSheet.absoluteFill} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-        </Card>
-      ))}
-    </View>
-  );
-}
-
-function ScanBanner({ pendingChange, onPress, onScanPress }) {
-  const scan = Scan.useScanState();
-  const waiting = scan.matches.reduce((count, match) => count + (!match.saved ? 1 : 0), 0);
-  const queued = scan.autoSaveQueueLength || 0;
-  if (scan.phase === 'idle') {
-    if (!pendingChange) return null;
-    return (
-      <Pressable
-        onPress={onScanPress}
-        accessibilityRole="button"
-        accessibilityLabel="Scan photo library updates"
-        style={styles.scanBanner}
-      >
-        <Ionicons name="sync-outline" size={17} />
-        <View style={{ flex: 1 }}>
-          <Body style={styles.scanTitle}>Photo library changed</Body>
-          <Caption>{describeMediaLibraryChange(pendingChange)} · tap to scan updates.</Caption>
-        </View>
-        <Ionicons name="chevron-forward" size={17} />
-      </Pressable>
-    );
-  }
-  if ((scan.phase === 'done' || scan.phase === 'aborted') && queued === 0 && waiting === 0) return null;
-  const pct = scan.total ? Math.min(100, Math.round((scan.seen / scan.total) * 100)) : null;
-  const title = scan.phase === 'scanning'
-    ? `Scanning${pct != null ? ` · ${pct}%` : ''}`
-    : queued > 0
-      ? `Auto-saving ${queued.toLocaleString()}`
-      : `${waiting.toLocaleString()} matches waiting`;
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Review scan matches"
-      style={styles.scanBanner}
-    >
-      <Ionicons name="sparkles-outline" size={17} />
-      <View style={{ flex: 1 }}>
-        <Body style={styles.scanTitle}>{title}</Body>
-        <Caption>Tap to review the media that needs a parent.</Caption>
-      </View>
-      <Ionicons name="chevron-forward" size={17} />
-    </Pressable>
-  );
-}
-
-function groupByMonth(items, babyBirthday) {
-  const sorted = [...(items || [])]
-    .filter((item) => item.creation_time)
-    .sort((a, b) => +new Date(b.creation_time) - +new Date(a.creation_time));
-  const buckets = new Map();
-  for (const item of sorted) {
-    const dt = new Date(item.creation_time);
-    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-    if (!buckets.has(key)) {
-      const monthLabel = dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toLowerCase();
-      const age = babyBirthday ? ageAt(babyBirthday, dt.getTime()) : null;
-      buckets.set(key, {
-        key,
-        monthLabel,
-        ageLabel: age ? formatAge(age) : '',
-        items: [],
-      });
-    }
-    buckets.get(key).items.push(item);
-  }
-  return Array.from(buckets.values());
-}
-
-function Metric({ label, value }) {
-  return (
-    <View style={styles.metric}>
-      <Title style={styles.metricValue}>{value}</Title>
-      <Caption>{label}</Caption>
-    </View>
-  );
-}
-
-function daysSince(isoDate) {
-  if (!isoDate) return null;
-  const start = new Date(`${isoDate}T00:00:00`);
-  return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
-}
-
-function formatAgeLine(label) {
-  if (!label) return '';
-  if (/\bold$/i.test(label) || label === 'birth day' || label.startsWith('before')) return label;
-  return `${label} old`;
-}
-
-function railChipLabel({ photo, index, babyBirthday, title }) {
-  if (String(title || '').toLowerCase().includes('on this day')) return 'On this day';
-  if (babyBirthday && photo?.creation_time) {
-    const age = ageAt(babyBirthday, new Date(photo.creation_time).getTime());
-    const label = formatAge(age);
-    if (label) return label.replace(' old', '');
-  }
-  return index === 0 ? 'For you' : 'Today';
-}
-
-function formatWeek(start, end) {
-  const a = new Date(`${start}T00:00:00`);
-  const b = new Date(`${end}T00:00:00`);
-  return `${a.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${b.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-}
-
-function formatShortDate(value) {
-  if (!value) return 'Someday';
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+function formatMemoryDate(date) {
+  return date.toLocaleDateString(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+  });
 }
 
 const styles = StyleSheet.create({
-  searchPill: {
-    height: 44,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    paddingHorizontal: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginRight: space.sm,
-  },
-  searchPillText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  dayCard: {
-    borderRadius: 14,
-  },
-  dayRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dayBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.md,
-  },
-  dayNumber: {
-    fontSize: 21,
-    lineHeight: 25,
-  },
-  dayCount: {
-    fontStyle: 'italic',
-    fontWeight: '800',
-  },
-  dayText: {
-    flex: 1,
-  },
-  promptText: {
-    fontSize: 23,
-    lineHeight: 29,
-    marginTop: space.sm,
-    marginBottom: space.lg,
-  },
-  promptAnsweredRow: {
-    minHeight: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-  },
-  promptSavedIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  promptAnsweredCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  promptSavedTitle: {
-    fontSize: 20,
-    lineHeight: 25,
-    marginTop: 2,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.lg,
-  },
-  skipPrompt: {
-    alignSelf: 'flex-start',
-    marginTop: space.sm,
-    minHeight: 28,
-    justifyContent: 'center',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: space.md,
-  },
-  inlineHeaderAction: {
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  digestTitle: {
-    fontSize: 22,
-    lineHeight: 27,
-    marginTop: space.xs,
-  },
-  digestGrid: {
-    flexDirection: 'row',
-    gap: space.sm,
-    marginTop: space.lg,
-  },
-  digestButton: {
-    marginTop: space.md,
-    alignSelf: 'flex-start',
-  },
-  digestCover: {
+  memoryHero: {
     width: '100%',
-    aspectRatio: 1.8,
-    borderRadius: radius.lg,
+    borderRadius: 28,
     overflow: 'hidden',
-    marginTop: space.lg,
+    justifyContent: 'space-between',
   },
-  digestStrip: {
-    flexDirection: 'row',
-    gap: space.xs,
-    marginTop: space.lg,
+  heroShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(20, 14, 13, 0.08)',
   },
-  digestStripTile: {
-    flex: 1,
-    aspectRatio: 0.82,
-    borderRadius: radius.md,
-    overflow: 'hidden',
+  heroBottomGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '52%',
   },
-  metric: {
-    flex: 1,
+  heroTopRow: {
+    padding: space.md,
+    alignItems: 'flex-start',
   },
-  metricValue: {
-    fontSize: 21,
-    lineHeight: 24,
+  glassPill: {
+    backgroundColor: 'rgba(24, 18, 16, 0.62)',
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
   },
-  teaserCopy: {
-    flex: 1,
-    minWidth: 0,
+  heroEyebrow: { color: '#fff' },
+  heroCopy: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.lg,
+    paddingTop: 80,
   },
-  teaserTitle: {
-    fontSize: 22,
-    lineHeight: 27,
+  heroDate: {
+    color: '#fff',
+    fontSize: 32,
+    lineHeight: 37,
+  },
+  heroContext: {
+    color: 'rgba(255,255,255,0.9)',
     marginTop: space.xs,
-    marginBottom: space.xs,
   },
-  teaserIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  reviewCue: {
+    marginTop: space.md,
+    minHeight: 48,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.42)',
+    paddingTop: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  reviewCueText: { color: '#fff', fontWeight: '800' },
+  emptyHero: {
+    borderRadius: 28,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.xxl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.md,
+  },
+  emptyMark: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  teaserButton: {
-    marginTop: space.lg,
-  },
-  railTitle: {
-    fontSize: 21,
-    lineHeight: 26,
-    marginBottom: space.md,
-  },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  photoTile: {
-    width: '31.5%',
-    aspectRatio: 0.82,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-  },
-  photoRailContent: {
-    gap: space.sm,
-    paddingRight: space.xl,
-  },
-  photoRailTile: {
-    width: 122,
-    height: 156,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-  },
-  photoChip: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
-    borderWidth: 1,
-    borderRadius: radius.pill,
+  emptyTitle: { textAlign: 'center', fontSize: 32, lineHeight: 38 },
+  quietRepair: {
+    minHeight: 48,
     paddingHorizontal: space.sm,
-    paddingVertical: 5,
-  },
-  photoChipText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '800',
-    textTransform: 'none',
-    letterSpacing: 0,
-  },
-  emptyRailButton: {
-    marginTop: space.md,
-  },
-  monthList: {
-    gap: space.lg,
-  },
-  monthCard: {
-    borderRadius: 18,
-  },
-  monthAge: {
-    fontSize: 21,
-    lineHeight: 25,
-    marginTop: 2,
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.xs,
-    marginTop: space.md,
-  },
-  monthTile: {
-    width: '31.8%',
-    aspectRatio: 1,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-  },
-  monthHeroTile: {
-    width: '65.5%',
-    aspectRatio: 1.35,
-  },
-  partnerDot: {
-    position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: glass.softWhiteDot,
-  },
-  placeList: {
-    gap: space.md,
-  },
-  placeCard: {
-    borderRadius: 18,
-  },
-  placeCopy: {
-    marginBottom: space.md,
-  },
-  placeTitle: {
-    fontSize: 21,
-    lineHeight: 25,
-    marginTop: 2,
-  },
-  placeThumbs: {
-    flexDirection: 'row',
-    gap: space.xs,
-  },
-  placeThumb: {
-    flex: 1,
-    aspectRatio: 1,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-  },
-  scanBanner: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: space.md,
-    padding: space.md,
-    borderRadius: radius.md,
-    backgroundColor: glass.softWhitePanel,
   },
-  scanTitle: {
-    color: undefined,
-    fontSize: 14,
-    lineHeight: 18,
+  worldLink: {
+    minHeight: 68,
+    paddingHorizontal: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
   },
 });

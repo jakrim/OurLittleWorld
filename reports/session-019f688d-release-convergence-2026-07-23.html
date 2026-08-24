@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Our Little World — Release Convergence</title>
+  <style>
+    :root {
+      --ink: #20322d;
+      --muted: #60716b;
+      --paper: #fffdf8;
+      --wash: #f2f0e8;
+      --line: #d9d5c8;
+      --sage: #315f52;
+      --sage-soft: #dce9e3;
+      --amber: #a45b22;
+      --amber-soft: #fff0de;
+      --red: #93423e;
+      --red-soft: #f8e4e2;
+      --blue: #315a78;
+      --blue-soft: #e3eef5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--wash);
+      font: 16px/1.6 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 44px 24px 80px; }
+    header {
+      padding: 42px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: linear-gradient(145deg, #fbf6e8 0%, #e6efe9 100%);
+      box-shadow: 0 16px 46px rgba(32, 50, 45, .08);
+    }
+    .eyebrow { margin: 0 0 10px; color: var(--sage); font-weight: 750; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+    h1 { margin: 0; max-width: 850px; font-family: ui-serif, Georgia, serif; font-size: clamp(42px, 7vw, 72px); line-height: 1.02; letter-spacing: -.035em; }
+    .lede { max-width: 820px; margin: 22px 0 0; font-size: 20px; color: #40534d; }
+    .invariant { margin: 28px 0 0; padding: 18px 20px; border-left: 5px solid var(--sage); border-radius: 10px; background: rgba(255,255,255,.62); font: 700 20px/1.4 ui-serif, Georgia, serif; }
+    .status-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .pill { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 999px; font-size: 13px; font-weight: 750; }
+    .pass { color: var(--sage); background: var(--sage-soft); }
+    .pending { color: var(--amber); background: var(--amber-soft); }
+    .blocked { color: var(--red); background: var(--red-soft); }
+    .info { color: var(--blue); background: var(--blue-soft); }
+    section { margin-top: 28px; padding: 30px; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); }
+    h2 { margin: 0 0 14px; font-family: ui-serif, Georgia, serif; font-size: 30px; line-height: 1.2; }
+    h3 { margin: 26px 0 10px; font-size: 19px; }
+    p { margin: 10px 0; }
+    a { color: var(--blue); }
+    code { padding: 2px 5px; border-radius: 5px; background: #eeeae1; font-size: .91em; overflow-wrap: anywhere; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { grid-column: span 4; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .card strong { display: block; margin-bottom: 5px; font-size: 25px; line-height: 1.15; }
+    .card span { color: var(--muted); }
+    .wide { grid-column: span 6; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+    th, td { padding: 11px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+    ul, ol { padding-left: 22px; }
+    li + li { margin-top: 6px; }
+    .callout { padding: 18px 20px; border-radius: 12px; background: var(--amber-soft); border: 1px solid #edc79f; }
+    .risk { background: var(--red-soft); border-color: #dfb4b1; }
+    .ok { background: var(--sage-soft); border-color: #b4d0c3; }
+    .small { color: var(--muted); font-size: 14px; }
+    footer { padding: 24px 4px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 780px) {
+      header { padding: 28px; }
+      section { padding: 22px; }
+      .card, .wide { grid-column: span 12; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { max-width: none; padding: 0; }
+      section, header { break-inside: avoid; box-shadow: none; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Release convergence · 23 July 2026</p>
+    <h1>Our Little World has a clean, signed candidate.</h1>
+    <p class="lede">The curated-memory work is preserved remotely, the later mixed changes have reviewable boundaries, and iOS build 1.1.11 is tied to an exact clean commit. The release is not yet production-ready: physical-device, two-writer, external-service, remote rehearsal, and seven-day library proof remain open.</p>
+    <p class="invariant">Private before Keep; shared only after parent confirmation.</p>
+    <div class="status-row">
+      <span class="pill pass">✓ Clean source</span>
+      <span class="pill pass">✓ Signed iOS build</span>
+      <span class="pill pass">✓ Local migration replay</span>
+      <span class="pill pass">✓ Internal TestFlight ready</span>
+      <span class="pill blocked">! Device gates open</span>
+      <span class="pill info">No production changes</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>What changed</h2>
+    <div class="grid">
+      <div class="card"><strong>7</strong><span>curated-memory commits pushed intact</span></div>
+      <div class="card"><strong>9</strong><span>later coherent commits reconstructed</span></div>
+      <div class="card"><strong>124</strong><span>dirty files classified with evidence</span></div>
+      <div class="card wide"><strong>3 draft PRs</strong><span><a href="https://github.com/jakrim/OurLittleWorld/pull/27">Curated roadmap → master</a>, <a href="https://github.com/jakrim/OurLittleWorld/pull/28">release convergence → polish-sprints</a>, and <a href="https://github.com/jakrim/OurLittleWorld/pull/29">evidence → release branch</a></span></div>
+      <div class="card wide"><strong>0 lost work</strong><span>canonical dirty checkout, growth worktree, reports, media research, and active App Store assets preserved</span></div>
+    </div>
+    <p>No reset, clean, stash, history rewrite, merge, production deploy, production migration, identifier backfill, or public release was performed.</p>
+  </section>
+
+  <section>
+    <h2>Release lineage</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Owner</th><th>Commit</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td>Canonical product base</td><td><code>polish-sprints</code></td><td><code>5ce3ee3</code></td><td>Remote; draft PR #27</td></tr>
+        <tr><td>First Look + release work</td><td><code>codex/olw-first-look-release</code></td><td><code>5560b74</code></td><td>Remote; draft PR #28</td></tr>
+        <tr><td>Growth measurement</td><td><code>codex/olw-growth-measurement</code></td><td><code>76c4345</code></td><td>Clean and separate</td></tr>
+        <tr><td>Evidence only</td><td><code>codex/olw-release-evidence</code></td><td>based on <code>5560b74</code></td><td>Inventory, receipts, ledger, report</td></tr>
+      </tbody>
+    </table>
+    <h3>Workstream boundaries</h3>
+    <table>
+      <thead><tr><th>Workstream</th><th>Files</th><th>Disposition</th></tr></thead>
+      <tbody>
+        <tr><td>Subscription / paywall / First Look</td><td>33</td><td><code>643f9c1</code></td></tr>
+        <tr><td>Billing / provider verification</td><td>9</td><td><code>f09c0f1</code>; not deployed</td></tr>
+        <tr><td>Web / marketing / analytics</td><td>39</td><td><code>0b8b809</code>; active store assets quarantined</td></tr>
+        <tr><td>Release / smoke / runbooks</td><td>18</td><td>Four release-focused commits</td></tr>
+        <tr><td>Native matcher</td><td>1</td><td><code>ffb0835</code></td></tr>
+        <tr><td>Reports / research</td><td>21</td><td>Preserved locally; excluded from release</td></tr>
+        <tr><td>Unknown / overlap</td><td>3</td><td>Metadata excluded; test overlap explicit</td></tr>
+      </tbody>
+    </table>
+    <p class="small">This clean candidate is iOS-only. The existing Android build 2 (<code>0cd66716-5ea4-4ff8-8966-427457a6f360</code>) came from the formerly dirty checkout, is preserved as provider evidence rather than accepted as a release candidate, and has no Google Play listing to receive it.</p>
+  </section>
+
+  <section>
+    <h2>How the technology protects the product promise</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Technology</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Mobile</td><td>Expo 57, React Native 0.86, React 19, expo-router</td><td>One native product with route-level trust gates and reproducible EAS signing.</td></tr>
+        <tr><td>Private discovery</td><td>Expo SQLite + bounded pure models</td><td>Candidates, reasons, queue, drafts, decisions, and retry identity survive restarts but do not enter the shared system.</td></tr>
+        <tr><td>Photo analysis</td><td>Custom Swift Expo module, Apple Vision, PhotoKit</td><td>Identity/quality analysis and iCloud reads stay device-local and bounded.</td></tr>
+        <tr><td>Shared archive</td><td>Supabase Postgres, RPCs, row-level security</td><td>Only confirmed Keeps become shared; family, writer, Circle, lapsed, authorship, correction, and export rules are enforced below the UI.</td></tr>
+        <tr><td>Server work</td><td>Deno Edge Functions</td><td>Purchase verification, checkout status, notification boundaries, and retries stay outside the untrusted client.</td></tr>
+        <tr><td>Private media</td><td>Cloudflare Worker, R2, Stream</td><td>HMAC-gated routing separates originals and signed playback from public URLs.</td></tr>
+        <tr><td>Web</td><td>Next.js 15.5, React 19</td><td>Marketing, gifting, checkout, consent, and support can ship independently.</td></tr>
+        <tr><td>Commerce</td><td>expo-iap, Apple/Google verification, Stripe</td><td>Provider receipts remain authoritative; entitlement unlocks only after server verification.</td></tr>
+        <tr><td>Proof</td><td>pnpm/Turbo, TypeScript, EAS, TestFlight, Node test, pgTAP, Maestro, Supabase CLI, Wrangler</td><td>Source, schema, services, signed artifacts, database contracts, and real journeys remain separate release gates.</td></tr>
+      </tbody>
+    </table>
+    <p>The architecture is intentionally asymmetric: the phone may know the private camera roll and candidate reasoning; the shared system may know only what an authorized parent deliberately kept.</p>
+  </section>
+
+  <section>
+    <h2>Signed release candidate</h2>
+    <div class="grid">
+      <div class="card"><strong>1.1.11</strong><span>iOS build number</span></div>
+      <div class="card"><strong>Expo 57</strong><span>clean runtime</span></div>
+      <div class="card"><strong>Finished</strong><span>EAS build status</span></div>
+    </div>
+    <table>
+      <tbody>
+        <tr><th>Commit</th><td><code>5560b740d04269f538978da1c8377ebfaee52f30</code></td></tr>
+        <tr><th>EAS build</th><td><code>e533a90d-082a-4264-9fb6-13ec9cde6ec0</code></td></tr>
+        <tr><th>Native fingerprint</th><td><code>72651e123f4b5f81facdb3cf705c567a8591fddb</code></td></tr>
+        <tr><th>Profile / environment</th><td><code>release-candidate</code> / <code>production</code></td></tr>
+        <tr><th>Distribution</th><td>Apple store-signed; <code>OLW Internal</code> only</td></tr>
+        <tr><th>Internal submission</th><td><a href="https://expo.dev/accounts/our-little-world/projects/ourlittleworld/submissions/6f942a79-12b9-49b6-b38b-3892e46938e8"><code>6f942a79-12b9-49b6-b38b-3892e46938e8</code></a>; EAS finished</td></tr>
+        <tr><th>Apple processing</th><td>Complete; build 1.1.11 is <strong>Ready to Submit</strong> with <code>OLW Internal</code> attached</td></tr>
+        <tr><th>Tester evidence</th><td>1 invite; 0 recorded installs</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Verification evidence</h2>
+    <div class="grid">
+      <div class="card"><strong>439 / 439</strong><span>mobile tests</span></div>
+      <div class="card"><strong>94 / 94</strong><span>database pgTAP</span></div>
+      <div class="card"><strong>20 / 20</strong><span>Expo Doctor</span></div>
+      <div class="card"><strong>25 / 25</strong><span>deterministic smoke assertions</span></div>
+      <div class="card"><strong>3 / 3</strong><span>billing Deno tests</span></div>
+      <div class="card"><strong>4 / 4</strong><span>notification cadence tests</span></div>
+    </div>
+    <p>Frozen install, lint, typecheck, 16-page web production build, schema lint, direct legacy-ID tests (6/6), secret scan, and diff checks passed. The Worker passed a Wrangler 4.114.0 dry-run, a live unsigned request was denied with HTTP 401, and no deployment occurred. The current Worker version remains <code>b9d559ac-8031-4a8f-81f4-4ee6058389b7</code>.</p>
+    <div class="callout ok">
+      <strong>Migration repair proved by rehearsal.</strong> A repeat run exposed policy-name collisions in the final two curated migrations. Commit <code>96493b3</code> makes policy creation restart-safe; a fresh replay and two consecutive reapplications passed afterward.
+    </div>
+    <p class="small">Performance fixtures: 5,000 candidates ≈ 450 ms insert / 16 ms query; 5,000 identities ≈ 112 ms insert / 5 ms lookup; 5,000-item Tonight evaluation ≈ 17.6 ms; 5,000 saved-memory evaluation ≈ 24 ms. These are synthetic fixtures, not personal-library proof.</p>
+  </section>
+
+  <section>
+    <h2>What remains unproven</h2>
+    <div class="callout">
+      <strong>The release is not complete.</strong> Both registered physical iPhones were offline, and the approved smoke authentication capability was unavailable. The signed binary therefore has not completed the two-writer or real-device journey.
+    </div>
+    <ul>
+      <li>Separate parent authorship, role boundaries, Keep/Skip, text, voice, photo, video, retry, collections, context, correction, lapsed/Circle, and export on signed 1.1.11.</li>
+      <li>Signed Cloudflare playback, voice delivery, upload recovery, and a physical notification tap.</li>
+      <li>Offline, iCloud, backgrounding, process termination, and Low Power Mode.</li>
+      <li>A representative remote Supabase rehearsal; no non-production branch exists.</li>
+      <li>Seven captured days on Jesse’s authorized personal library.</li>
+    </ul>
+    <p>A resumable seven-day ledger is included. It records only coarse outcomes and local evidence references—never media, face evidence, candidates, asset IDs, or personal-library fingerprints. Its checker reports progress safely and becomes a non-zero release gate with <code>--require-complete</code>.</p>
+  </section>
+
+  <section>
+    <h2>Provider risk: an older public submission is already in review</h2>
+    <div class="callout risk">
+      <strong>App Store submission <code>759b593f…</code> is Waiting for Review.</strong> It was created today at 4:04 PM by the App Store API user and uses older build 1.1.10, plus Family Monthly, Family Yearly, and the subscription group. This task did not create it.
+    </div>
+    <p>The version is configured for <strong>manual release</strong>, so approval alone will not publish it. Canceling, replacing, or advancing it remains an explicit authorization decision. The older iOS 1.1.10 binary and Android build 2 both came from the formerly dirty checkout and are not accepted as clean candidates. No production Supabase, Edge Function, Cloudflare Worker, web, identifier, or Google Play change was made here.</p>
+  </section>
+
+  <section>
+    <h2>Account deletion remains a separate gap</h2>
+    <p>Authorship preservation is not account deletion. The app still lacks an export-first deletion entry point, reauthentication, idempotent deletion orchestration, provider and push cleanup, storage cleanup, auth identity deletion, and safe partial retry.</p>
+    <ol>
+      <li>Add settings UI with export-first guidance and consequences.</li>
+      <li>Add a deletion-request ledger and idempotent Edge orchestrator.</li>
+      <li>Handle sole writer, co-parent, Circle, lapsed, purchaser, gift, and billing cases.</li>
+      <li>Preserve shared authorship while deleting private/device/provider state in order.</li>
+      <li>Prove interruption, retry, retention exceptions, and Apple compliance on a signed build.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>What the product does for people</h2>
+    <p>Our Little World is not primarily “another photo organizer.” Its strongest promise is relief from camera-roll overwhelm. It gives parents a quiet ritual: notice a small number of meaningful moments, decide what is worth keeping, and share only those confirmed memories inside one trusted family space.</p>
+    <p class="small">The current 1.1.10 App Store submission still uses baby-book-first description and screenshots. Camera-roll relief is the recommended positioning direction, not a claim that the submitted product page already makes. Newer store assets remain quarantined until their owning session and release-safe claims are reconciled.</p>
+    <h3>Safe now</h3>
+    <ul>
+      <li>A private family timeline for photos, notes, Firsts, and letters.</li>
+      <li>No public feed, likes, or audience-building loop.</li>
+      <li>Parents decide what becomes a shared memory.</li>
+      <li>Private-before-Keep candidate review in the release candidate.</li>
+    </ul>
+    <h3>Still withheld</h3>
+    <ul>
+      <li>Public availability of Tonight, automatic collections, or grounded context.</li>
+      <li>Flawless large-library performance or perfect identity matching.</li>
+      <li>Complete account deletion or full-fidelity export of every video/voice asset.</li>
+      <li>Production-ready two-parent, playback, or notification behavior.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>The next decisions</h2>
+    <ol>
+      <li>Decide whether the older 1.1.10 public submission should be canceled/replaced or retained.</li>
+      <li>Bring an authorized iPhone online, install 1.1.11 internally, and run the signed synthetic journey.</li>
+      <li>Provide the approved smoke auth capability and a representative non-production Supabase target.</li>
+      <li>Complete external media, notification, iCloud/offline/background, and seven-day gates.</li>
+      <li>Authorize production actions individually only after those receipts are complete.</li>
+    </ol>
+  </section>
+
+  <footer>
+    Generated from the clean evidence branch. Machine-readable companions include the 124-file change inventory, release-candidate receipt, seven-day ledger, and production rollout package. This report intentionally contains no family media, candidate examples, private identifiers, secrets, face evidence, or fingerprints derived from a personal library.
+  </footer>
+</main>
+</body>
+</html>

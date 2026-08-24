@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function SetupRoute() {
   return (
-    <ProtectedRoute allowIncompleteSetup allowFirstLook>
+    <ProtectedRoute allowIncompleteSetup allowFirstLook allowFirstValue>
       <SetupScreen />
     </ProtectedRoute>
   );

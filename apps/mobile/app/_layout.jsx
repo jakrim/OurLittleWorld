@@ -17,18 +17,21 @@ import {
 } from '@expo-google-fonts/manrope';
 import { Caveat_400Regular } from '@expo-google-fonts/caveat';
 
+import '../src/backgroundAutoIngestTask';
 import { AuthProvider } from '../src/AuthContext';
 import { BillingProvider } from '../src/BillingContext';
 import { FamilyProvider } from '../src/FamilyContext';
 import LaunchScreen from '../src/LaunchScreen';
+import { initializePosthogAnalytics } from '../src/posthogAnalyticsTransport';
 import {
   nativeAddSheetOptions,
   nativeComposeSheetOptions,
   nativeDetailSheetOptions,
-  nativeMenuSheetOptions,
   nativePromptSheetOptions,
 } from '../src/NativeSheet';
 import { ThemeProvider } from '../src/ui';
+import useForegroundAutoIngest from '../src/useForegroundAutoIngest';
+import usePushNotifications from '../src/usePushNotifications';
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -65,6 +68,9 @@ export default function RootLayout() {
           <AuthProvider>
             <FamilyProvider>
               <BillingProvider>
+                <AnalyticsBootstrap />
+                <ForegroundAutoIngest />
+                <PushNotifications />
                 <Stack
                   screenOptions={{
                     headerShown: false,
@@ -78,7 +84,25 @@ export default function RootLayout() {
                   <Stack.Screen name="letter-compose" options={nativeComposeSheetOptions} />
                   <Stack.Screen name="letter-detail" options={nativeDetailSheetOptions} />
                   <Stack.Screen name="digest" options={nativeDetailSheetOptions} />
-                  <Stack.Screen name="settings-menu" options={nativeMenuSheetOptions} />
+                  <Stack.Screen name="activity" options={nativeDetailSheetOptions} />
+                  <Stack.Screen
+                    name="delete-account"
+                    options={{
+                      headerShown: false,
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      gestureEnabled: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="settings-menu"
+                    options={{
+                      headerShown: false,
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      gestureEnabled: true,
+                    }}
+                  />
                 </Stack>
                 <Modal
                   visible={launchVisible}
@@ -95,4 +119,23 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+function AnalyticsBootstrap() {
+  React.useEffect(() => {
+    initializePosthogAnalytics().catch((error) => {
+      console.warn('[analytics] initialization failed', error?.message || error);
+    });
+  }, []);
+  return null;
+}
+
+function ForegroundAutoIngest() {
+  useForegroundAutoIngest();
+  return null;
+}
+
+function PushNotifications() {
+  usePushNotifications();
+  return null;
 }

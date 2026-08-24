@@ -1,0 +1,22 @@
+# PRD section 15 photo-only Add smoke: a media-only moment can be saved and
+# produces one post-save nudge. The qa route is dev-only and dry-run, so it
+# does not write synthetic media into the active family archive.
+appId: com.jessekrim.ourlittleworld
+---
+- openLink: "ourlittleworld://add?qa=photo-only"
+- assertVisible: "Save a moment"
+- assertVisible: "Remove media item 1"
+- assertVisible: "Write one line about this moment"
+- swipe:
+    start: 50%,86%
+    end: 50%,46%
+- swipe:
+    start: 50%,86%
+    end: 50%,46%
+- assertVisible: "Save moment"
+- tapOn: "Save moment"
+- assertVisible: "Moment saved"
+- assertVisible: "Add a 20-second voice note while it's fresh?"
+- assertVisible: "Open moment"
+- tapOn: "Not now"
+- assertVisible: "Today"

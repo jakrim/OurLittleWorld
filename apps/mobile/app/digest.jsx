@@ -5,7 +5,7 @@ import { ProtectedRoute } from '../src/navigation/RouteGuards';
 
 export default function DigestRoute() {
   return (
-    <ProtectedRoute>
+    <ProtectedRoute allowReadOnlyArchive>
       <DigestDetailSheetScreen />
     </ProtectedRoute>
   );

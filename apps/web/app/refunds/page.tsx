@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { BreadcrumbStructuredData } from "@/components/StructuredData";
+import { exportPolicyCopy } from "@/content/exportPolicy";
+
 export const metadata: Metadata = {
   title: "Cancellation and Refund Policy",
   description:
@@ -11,6 +14,7 @@ export const metadata: Metadata = {
 export default function RefundsPage() {
   return (
     <main id="main">
+      <BreadcrumbStructuredData route="refunds" />
       <section className="page-hero">
         <div className="wrap">
           <div className="breadcrumbs">
@@ -45,7 +49,8 @@ export default function RefundsPage() {
 
           <PolicyItem title="App Store and Google Play Purchases">
             <p>
-              Native app subscriptions are billed, renewed, canceled, and refunded by the store
+              Our Little World is not publicly downloadable from either store yet. When native app
+              subscriptions become available, they will be billed, renewed, canceled, and refunded by the store
               account used to purchase them. To cancel or request a refund, use Apple App Store
               or Google Play account settings and refund tools. Our Little World can help with
               entitlement troubleshooting, but the stores control native subscription billing.
@@ -54,7 +59,9 @@ export default function RefundsPage() {
 
           <PolicyItem title="Website Stripe Subscriptions">
             <p>
-              Website subscriptions are processed by Stripe. The billing owner can manage a Stripe
+              Website subscriptions are available only when the site shows an enabled live checkout;
+              the current public pre-launch site does not take payment. Enabled website subscriptions
+              are processed by Stripe. The billing owner can manage a Stripe
               subscription through the website billing portal from the app, when available, or by
               contacting support.
             </p>
@@ -62,6 +69,13 @@ export default function RefundsPage() {
               Canceling a Stripe subscription stops future renewal charges. Access normally
               continues until the end of the paid billing period unless a refund, chargeback,
               or revocation applies.
+            </p>
+          </PolicyItem>
+
+          <PolicyItem title="Lapsed Access and Exports">
+            <p>{exportPolicyCopy.lapsedVault}</p>
+            <p>
+              {exportPolicyCopy.exportScope} {exportPolicyCopy.previewLimits}
             </p>
           </PolicyItem>
 
@@ -90,7 +104,8 @@ export default function RefundsPage() {
 
           <PolicyItem title="Gift Year Purchases">
             <p>
-              Website gift years are single-use digital codes. A gift can usually be refunded
+              Website gift years are available only when the gift page shows an enabled live checkout.
+              Completed gift years use single-use digital codes. A gift can usually be refunded
               before the recipient redeems the code. After redemption, gift refunds are reviewed
               case by case. If a gift is refunded before redemption, the code may be revoked.
             </p>

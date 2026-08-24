@@ -2,13 +2,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router/react-navigation';
 
+import { loadCatchupDismissals } from './catchupDismissals';
+import { getReadDigestWeek } from './digestReadState';
+import { digestHasContent } from './digestModel.js';
 import { Family } from './families';
+import { ageInDaysOn, buildFirstsModel, selectCatchupGoal } from './firstsModel';
+import { buildFirstsSummary } from './firstsSummaryModel';
+import { MISSED_PROMPT_CATCHUP_DAYS, selectMissedPromptCatchup } from './missedPromptModel';
 import { listMomentArchive } from './moments';
-import { listSharedTagged } from './photoSync';
+import {
+  MONTHVERSARY_MAX_PER_BUCKET,
+  annualTodayMatches,
+  isUnderTwo,
+  monthversaryBuckets,
+  monthversaryLabel,
+} from './onThisDay';
+import { hydrateMediaUrls, listSharedTagged, listSharedTaggedPage } from './photoSync';
 import { Memories } from './storage';
-import { DailyPrompts, Firsts, Letters, WeeklyDigests } from './rituals';
+import { DailyPrompts, FIRST_GOAL_DEFINITIONS, Firsts, Letters, WeeklyDigests } from './rituals';
+import { buildBookHomeModel } from './bookHomeModel';
+import { selectBookReadinessNudge } from './bookReadinessNudgeModel';
 
-const CACHE_VERSION = 'v1';
+// v7: payload carries one book-readiness nudge candidate (F4).
+const CACHE_VERSION = 'v7';
 const REFRESH_TTL_MS = 30 * 1000;
 
 export function ritualHomeCacheKey({ familyId, userId }) {
@@ -42,29 +58,45 @@ function buildDerivedPayload({ raw, userId }) {
   const firsts = raw.firsts || [];
   const letters = raw.letters || [];
   const moments = raw.moments || [];
-  const today = new Date();
+  const promptResponses = raw.promptResponses || [];
   const promptState = annotatePromptState(raw.promptState, userId);
-  const todayMatches = shared.filter((photo) => {
-    if (!photo.creation_time) return false;
-    const captured = new Date(photo.creation_time);
-    return captured.getMonth() === today.getMonth() && captured.getDate() === today.getDate();
-  }).slice(0, 6);
+  const missedPrompts = raw.missedPrompts || [];
+  // Real annual matches win; month-versary buckets fill the first two years.
+  const annual = annualTodayMatches(shared);
+  const todayMatches = annual.length ? annual : (raw.monthversary || []);
+  const digest = raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments });
+  const { goalProgress } = buildFirstsModel(firsts, FIRST_GOAL_DEFINITIONS, raw.ageDays ?? null);
+  const bookHome = buildBookHomeModel({
+    moments,
+    sharedPhotos: shared,
+    firsts,
+    letters,
+    promptResponses,
+    childBirthday: raw.babyBirthday,
+    now: raw.now || new Date(),
+  });
 
   return {
     updatedAt: Date.now(),
     promptState,
-    digest: raw.digest || WeeklyDigests.build({ photos: shared, memories, firsts, letters, moments }),
+    digest,
+    catchupGoal: selectCatchupGoal(goalProgress.goals, raw.ageDays ?? null, raw.catchupDismissals || {}),
+    missedPrompts,
+    missedPrompt: selectMissedPromptCatchup(missedPrompts),
+    goalRows: goalProgress.goals,
+    digestUnread: digestHasContent(digest) && digest.weekStart !== raw.digestReadWeek,
     sharedPhotos: shared,
     recentPhotos: shared.slice(0, 12),
     todayMatches,
-    firstsSummary: {
-      count: firsts.length,
-      latest: firsts[0] || null,
-    },
+    firstsSummary: buildFirstsSummary(firsts, shared),
     lettersSummary: {
       count: letters.length,
       latest: letters[0] || null,
     },
+    bookReadinessNudge: selectBookReadinessNudge({
+      records: bookHome.records,
+      chapters: bookHome.chapters,
+    }),
     membersById: raw.membersById || {},
   };
 }
@@ -87,15 +119,39 @@ async function writeCache({ familyId, userId, payload }) {
   await AsyncStorage.setItem(key, JSON.stringify(payload));
 }
 
-async function fetchRitualHomePayload({ familyId, userId }) {
-  const [shared, memories, firsts, letters, promptState, members, moments] = await Promise.all([
+async function fetchMonthversaryMatches({ familyId, babyBirthday, babyName }) {
+  if (!isUnderTwo(ageInDaysOn(babyBirthday))) return [];
+  const buckets = monthversaryBuckets({ birthdayISO: babyBirthday });
+  const perBucket = await Promise.all(buckets.map(async (bucket) => {
+    const { rows } = await listSharedTaggedPage(familyId, {
+      limit: MONTHVERSARY_MAX_PER_BUCKET,
+      capturedOnOrAfter: bucket.start.toISOString(),
+      capturedBefore: bucket.end.toISOString(),
+    });
+    return rows.map((row) => ({ ...row, onThisDayLabel: monthversaryLabel(babyName, bucket.monthsAgo) }));
+  }));
+  return hydrateMediaUrls(perBucket.flat(), { variant: 'thumb' });
+}
+
+async function fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName }) {
+  const [shared, memories, firsts, letters, promptState, missedPrompts, promptResponses, members, moments, monthversary, catchupDismissals, digestReadWeek] = await Promise.all([
     listSharedTagged(familyId, { limit: 120 }).catch(() => []),
     Memories.forFamily(familyId).catch(() => []),
     Firsts.list(familyId).catch(() => []),
     Letters.list(familyId).catch(() => []),
-    DailyPrompts.getToday({ familyId }).catch(() => null),
+    DailyPrompts.getToday({ familyId, babyBirthday }).catch(() => null),
+    DailyPrompts.listMissed({
+      familyId,
+      babyBirthday,
+      userId,
+      days: MISSED_PROMPT_CATCHUP_DAYS,
+    }).catch(() => []),
+    DailyPrompts.listResponses(familyId).catch(() => []),
     Family.members(familyId).catch(() => []),
     listMomentArchive(familyId, { limit: 160 }).catch(() => []),
+    fetchMonthversaryMatches({ familyId, babyBirthday, babyName }).catch(() => []),
+    loadCatchupDismissals(familyId),
+    getReadDigestWeek(familyId),
   ]);
 
   const digest = await WeeklyDigests.ensureForCurrentWeek({
@@ -115,7 +171,15 @@ async function fetchRitualHomePayload({ familyId, userId }) {
       firsts,
       letters,
       moments,
+      promptResponses,
+      monthversary,
+      catchupDismissals,
+      digestReadWeek,
+      ageDays: ageInDaysOn(babyBirthday),
+      babyBirthday,
+      babyName,
       promptState,
+      missedPrompts,
       digest,
       membersById: Object.fromEntries(members.map((m) => [m.userId, m.displayName || 'Family'])),
     },
@@ -125,19 +189,28 @@ async function fetchRitualHomePayload({ familyId, userId }) {
 export async function patchCachedPromptState({ familyId, userId, promptRow }) {
   if (!familyId || !userId || !promptRow) return null;
   const cached = await readCache({ familyId, userId });
-  if (!cached?.promptState) return null;
-  const responses = [...(cached.promptState.responses || [])];
-  const index = responses.findIndex((row) => row.author_user_id === promptRow.author_user_id);
-  if (index >= 0) responses[index] = { ...responses[index], ...promptRow };
-  else responses.push(promptRow);
+  if (!cached) return null;
+  const promptDate = promptRow.prompt_date || promptRow.promptDate || null;
+  const isTodayPrompt = cached.promptState?.promptDate && promptDate === cached.promptState.promptDate;
+  let promptState = cached.promptState || null;
+  if (isTodayPrompt && promptState) {
+    const responses = [...(promptState.responses || [])];
+    const index = responses.findIndex((row) => row.author_user_id === promptRow.author_user_id);
+    if (index >= 0) responses[index] = { ...responses[index], ...promptRow };
+    else responses.push(promptRow);
+    promptState = annotatePromptState({
+      ...promptState,
+      responses,
+      mine: promptRow.author_user_id === userId ? promptRow : promptState.mine,
+    }, userId);
+  }
+  const missedPrompts = (cached.missedPrompts || []).filter((candidate) => candidate.promptDate !== promptDate);
   const next = {
     ...cached,
     updatedAt: Date.now(),
-    promptState: annotatePromptState({
-      ...cached.promptState,
-      responses,
-      mine: promptRow.author_user_id === userId ? promptRow : cached.promptState.mine,
-    }, userId),
+    promptState,
+    missedPrompts,
+    missedPrompt: selectMissedPromptCatchup(missedPrompts),
   };
   await writeCache({ familyId, userId, payload: next });
   return next;
@@ -148,7 +221,12 @@ export async function readCachedPromptState({ familyId, userId }) {
   return cached?.promptState || null;
 }
 
-export function useRitualHomeData({ familyId, userId }) {
+export async function readCachedSharedPhotos({ familyId, userId }) {
+  const cached = await readCache({ familyId, userId });
+  return cached?.sharedPhotos || [];
+}
+
+export function useRitualHomeData({ familyId, userId, babyBirthday = null, babyName = null }) {
   const [payload, setPayload] = useState(null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
@@ -189,7 +267,7 @@ export function useRitualHomeData({ familyId, userId }) {
 
     setStatus((current) => (current === 'idle' ? 'refreshing' : current));
     setError(null);
-    const promise = fetchRitualHomePayload({ familyId, userId })
+    const promise = fetchRitualHomePayload({ familyId, userId, babyBirthday, babyName })
       .then(async (next) => {
         lastRefreshRef.current = Date.now();
         await writeCache({ familyId, userId, payload: next });
@@ -207,7 +285,7 @@ export function useRitualHomeData({ familyId, userId }) {
       });
     refreshPromiseRef.current = promise;
     return promise;
-  }, [familyId, userId]);
+  }, [babyBirthday, babyName, familyId, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -228,32 +306,38 @@ export function useRitualHomeData({ familyId, userId }) {
 
   const savePromptResponse = useCallback(async (responseText) => {
     if (!familyId || !userId) return null;
-    const row = await DailyPrompts.saveResponse({ familyId, responseText });
+    const row = await DailyPrompts.saveResponse({ familyId, responseText, babyBirthday });
     const next = await patchCachedPromptState({ familyId, userId, promptRow: row });
     if (next) setPayload(next);
     refresh({ force: true });
     return row;
-  }, [familyId, refresh, userId]);
+  }, [babyBirthday, familyId, refresh, userId]);
 
   const snoozePrompt = useCallback(async () => {
     if (!familyId || !userId) return null;
-    const row = await DailyPrompts.snoozeToday({ familyId });
+    const row = await DailyPrompts.snoozeToday({ familyId, babyBirthday });
     const next = await patchCachedPromptState({ familyId, userId, promptRow: row });
     if (next) setPayload(next);
     refresh({ force: true });
     return row;
-  }, [familyId, refresh, userId]);
+  }, [babyBirthday, familyId, refresh, userId]);
 
   return useMemo(() => ({
     status,
     error,
     promptState: payload?.promptState || null,
     digest: payload?.digest || WeeklyDigests.build(),
+    catchupGoal: payload?.catchupGoal || null,
+    missedPrompt: payload?.missedPrompt || null,
+    missedPrompts: payload?.missedPrompts || [],
+    goalRows: payload?.goalRows || [],
+    digestUnread: payload?.digestUnread || false,
     sharedPhotos: payload?.sharedPhotos || [],
     recentPhotos: payload?.recentPhotos || [],
     todayMatches: payload?.todayMatches || [],
-    firstsSummary: payload?.firstsSummary || { count: 0, latest: null },
+    firstsSummary: payload?.firstsSummary || { count: 0, latest: null, latestPhoto: null },
     lettersSummary: payload?.lettersSummary || { count: 0, latest: null },
+    bookReadinessNudge: payload?.bookReadinessNudge || null,
     membersById: payload?.membersById || {},
     refresh,
     savePromptResponse,

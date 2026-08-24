@@ -16,7 +16,14 @@ import {
   streamPlaybackUrl,
   uploadToStream,
 } from './mediaSession';
+import { attachmentTarget } from './mediaAttachmentTarget';
 import { supabase } from './supabase';
+import { normalizeMomentTags } from './tagModel';
+import { archivePageRanges } from './archivePaginationModel';
+import { registerReadySavedFileFingerprint } from './savedMediaFingerprint';
+import { buildMomentDayDetailRows, buildMomentDayIndexRows, utcRangeForLocalDay } from './momentDayIndexModel.js';
+import * as mediaDb from './mediaDb';
+import { readPostgrestRelationshipCompatible } from './postgrestCompatibility';
 
 const BUCKET = 'family-photos';
 const FULL_MAX_DIM = 1800;
@@ -26,6 +33,45 @@ const FULL_QUALITY = 0.86;
 const THUMB_QUALITY = 0.74;
 const VIDEO_POSTER_QUALITY = 0.8;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+export const MOMENT_DAY_INDEX_MAX_MOMENTS = 5000;
+export const MOMENT_DAY_INDEX_MAX_MEDIA = 20000;
+export const MOMENT_DAY_INDEX_PAGE_SIZE = 500;
+
+const MOMENT_BASE_SELECT = 'id, family_id, author_user_id, title, caption_note, captured_at, place_name, latitude, longitude, shared_with, created_at';
+const MOMENT_RICH_SELECT = `
+  ${MOMENT_BASE_SELECT},
+  moment_media:moment_media!moment_media_moment_family_fkey (
+    id,
+    media_type,
+    local_identifier,
+    owner_user_id,
+    file_name,
+    mime_type,
+    width,
+    height,
+    duration_sec,
+    metadata,
+    upload_status,
+    quota_class,
+    storage_provider,
+    playback_provider,
+    stream_uid,
+    sort_order
+  ),
+  voice_notes:voice_notes!voice_notes_moment_family_fkey (
+    id,
+    author_user_id,
+    duration_sec,
+    waveform,
+    audio_object,
+    mime_type,
+    upload_status
+  ),
+  moment_tags:moment_tags!moment_tags_moment_family_fkey (tag),
+  moment_reactions:moment_reactions!moment_reactions_moment_family_fkey (emoji, author_user_id)
+`;
+const MOMENT_DAY_BASE_SELECT = 'id, captured_at';
+const MOMENT_DAY_SELECT = `${MOMENT_DAY_BASE_SELECT}, moment_media:moment_media!moment_media_moment_family_fkey (id, media_type, metadata, sort_order)`;
 
 const MIME_EXT = {
   'image/jpeg': 'jpg',
@@ -67,20 +113,6 @@ function extensionFor({ mimeType, fileName, fallback }) {
   const ext = String(fileName || '').split('.').pop()?.toLowerCase();
   if (ext && /^[a-z0-9]{2,5}$/.test(ext)) return ext;
   return fallback;
-}
-
-function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const raw of tags) {
-    const tag = String(raw || '').trim().replace(/^#/, '');
-    const key = tag.toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(tag);
-  }
-  return out;
 }
 
 function mediaTypeFor(asset) {
@@ -145,6 +177,12 @@ function dateFromAsset(asset) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function normalizeCapturedAtOverride(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function locationFromAsset(asset) {
   const exif = asset?.exif || {};
   const latitude = Number(exif.GPSLatitude ?? exif.latitude ?? asset?.latitude);
@@ -153,19 +191,19 @@ function locationFromAsset(asset) {
   return { latitude, longitude };
 }
 
-async function uploadPickedImage({ familyId, momentId, userId, asset, index, capturedAt }) {
+async function uploadPickedImage({ familyId, momentId = null, letterId = null, userId, asset, index, capturedAt }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const fullId = uuid();
   const thumbId = uuid();
-  const fullPath = `${familyId}/moments/${momentId}/image-full/${fullId}.jpg`;
-  const thumbPath = `${familyId}/moments/${momentId}/image-thumb/${thumbId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const fullPath = `${target.basePath}/image-full/${fullId}.jpg`;
+  const thumbPath = `${target.basePath}/image-thumb/${thumbId}.jpg`;
+  const sharedAssetKey = uuid();
   const location = locationFromAsset(asset);
   const creationTime = dateFromAsset(asset) || capturedAt;
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     fullPath,
     thumbPath,
     originalFileName: asset.fileName || null,
@@ -174,11 +212,11 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'image',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: 'image/jpeg',
     full_object: fullId,
@@ -215,29 +253,50 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
 
-    const { error: tagErr } = await supabase.from('photo_tags').upsert(
-      {
-        family_id: familyId,
-        asset_owner_user_id: userId,
-        asset_id: localIdentifier,
-        tagged_by_user_id: userId,
-        tagged_at: new Date().toISOString(),
-        creation_time: creationTime,
-        original_width: full.width || asset.width || null,
-        original_height: full.height || asset.height || null,
-        latitude: location?.latitude ?? null,
-        longitude: location?.longitude ?? null,
-        location_fetched_at: location ? new Date().toISOString() : null,
-        storage_object: fullId,
-        thumb_object: thumbId,
-        upload_status: 'ready',
-        upload_error: null,
-        moment_id: momentId,
-        moment_media_id: mediaId,
-      },
-      { onConflict: 'family_id,asset_owner_user_id,asset_id' },
-    );
-    if (tagErr) throw tagErr;
+    if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: full.uri,
+      }).catch(() => null);
+    }
+
+    if (momentId) {
+      const { error: tagErr } = await supabase.from('photo_tags').upsert(
+        {
+          family_id: familyId,
+          asset_owner_user_id: userId,
+          asset_id: sharedAssetKey,
+          tagged_by_user_id: userId,
+          tagged_at: new Date().toISOString(),
+          creation_time: creationTime,
+          original_width: full.width || asset.width || null,
+          original_height: full.height || asset.height || null,
+          latitude: location?.latitude ?? null,
+          longitude: location?.longitude ?? null,
+          location_fetched_at: location ? new Date().toISOString() : null,
+          storage_object: fullId,
+          thumb_object: thumbId,
+          upload_status: 'ready',
+          upload_error: null,
+          moment_id: momentId,
+          moment_media_id: mediaId,
+        },
+        { onConflict: 'family_id,asset_owner_user_id,asset_id' },
+      );
+      if (tagErr) throw tagErr;
+      if (asset.assetId) {
+        mediaDb.recordRemoteAssetTarget({
+          familyId,
+          ownerUserId: userId,
+          localAssetId: asset.assetId,
+          remoteAssetKey: sharedAssetKey,
+          momentId,
+          mediaId,
+        });
+      }
+    }
 
     return { id: mediaId, type: 'image', fullPath, thumbPath };
   } catch (err) {
@@ -250,25 +309,25 @@ async function uploadPickedImage({ familyId, momentId, userId, asset, index, cap
   }
 }
 
-async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
+async function uploadPickedVideo({ familyId, momentId = null, letterId = null, userId, asset, index }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const fullId = uuid();
   const posterId = uuid();
   const ext = extensionFor({ mimeType: asset.mimeType, fileName: asset.fileName, fallback: 'mp4' });
   const mimeType = asset.mimeType || (ext === 'mov' ? 'video/quicktime' : 'video/mp4');
-  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
+  const sharedAssetKey = uuid();
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
   const sourceBytes = asset.fileSize || fileSizeOf(asset.uri);
 
   // New playable videos go to Cloudflare Stream; sources past the simple
   // upload cap stay on the legacy Supabase byte plane until tus lands.
   const useStream = !sourceBytes || sourceBytes <= STREAM_SIMPLE_UPLOAD_MAX_BYTES;
-  const fullPath = useStream ? null : `${familyId}/moments/${momentId}/video/${fullId}.${ext}`;
+  const fullPath = useStream ? null : `${target.basePath}/video/${fullId}.${ext}`;
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     ...(fullPath ? { fullPath } : {}),
     originalFileName: asset.fileName || null,
     fileSize: asset.fileSize || null,
@@ -276,11 +335,11 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: mimeType,
     full_object: useStream ? null : fullId,
@@ -297,7 +356,7 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
   let streamUid = null;
   try {
     if (useStream) {
-      const upload = await createStreamUpload({ familyId, durationSec, sourceBytes });
+      const upload = await createStreamUpload({ familyId, mediaId, durationSec, sourceBytes });
       reservationId = upload.reservationId;
       streamUid = upload.uid;
       await uploadToStream({
@@ -353,6 +412,24 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
     await finalizeMediaUpload(reservationId, { bytes: sourceBytes, durationSec });
+    if (momentId && asset.assetId) {
+      mediaDb.recordRemoteAssetTarget({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: asset.assetId,
+        remoteAssetKey: sharedAssetKey,
+        momentId,
+        mediaId,
+      });
+    }
+    if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: asset.uri,
+      }).catch(() => null);
+    }
     return { id: mediaId, type: 'video', streamUid, posterPath: posterMetadata.posterPath || null };
   } catch (err) {
     await releaseMediaUpload(reservationId);
@@ -368,18 +445,18 @@ async function uploadPickedVideo({ familyId, momentId, userId, asset, index }) {
  * Saves a picked video as a poster-only memory (no source upload). Used when
  * a video is over the plan's playable limits and the user keeps the poster.
  */
-async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, index }) {
+async function uploadPickedVideoPosterOnly({ familyId, momentId = null, letterId = null, userId, asset, index }) {
+  const target = attachmentTarget({ familyId, momentId, letterId });
   const mediaId = uuid();
   const posterId = uuid();
-  const posterPath = `${familyId}/moments/${momentId}/video-poster/${posterId}.jpg`;
-  const localIdentifier = asset.assetId || `picked:${momentId}:${index}`;
+  const posterPath = `${target.basePath}/video-poster/${posterId}.jpg`;
+  const sharedAssetKey = uuid();
   const durationSec = asset.duration ? Number(asset.duration) / 1000 : null;
 
   const poster = await createVideoPoster(asset);
 
   const metadata = {
     source: 'manual-picker',
-    pickerAssetId: asset.assetId || null,
     posterPath,
     posterTimeMs: poster.timeMs,
     posterWidth: poster.width,
@@ -392,11 +469,11 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, 
 
   const { error: insertErr } = await supabase.from('moment_media').insert({
     id: mediaId,
-    moment_id: momentId,
+    ...target.columns,
     family_id: familyId,
     owner_user_id: userId,
     media_type: 'video',
-    local_identifier: localIdentifier,
+    local_identifier: sharedAssetKey,
     file_name: asset.fileName || null,
     mime_type: asset.mimeType || 'video/mp4',
     poster_object: posterId,
@@ -421,6 +498,24 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, 
       })
       .eq('id', mediaId);
     if (updateErr) throw updateErr;
+    if (momentId && asset.assetId) {
+      mediaDb.recordRemoteAssetTarget({
+        familyId,
+        ownerUserId: userId,
+        localAssetId: asset.assetId,
+        remoteAssetKey: sharedAssetKey,
+        momentId,
+        mediaId,
+      });
+    }
+    if (momentId) {
+      await registerReadySavedFileFingerprint({
+        familyId,
+        momentId,
+        mediaId,
+        fileUri: poster.uri,
+      }).catch(() => null);
+    }
     return { id: mediaId, type: 'video', posterPath, posterOnly: true };
   } catch (err) {
     await supabase
@@ -431,25 +526,52 @@ async function uploadPickedVideoPosterOnly({ familyId, momentId, userId, asset, 
   }
 }
 
-async function uploadVoiceNote({ familyId, momentId, userId, voice }) {
+async function uploadVoiceNote({
+  familyId,
+  momentId = null,
+  letterId = null,
+  userId,
+  voice,
+  noteId: suppliedNoteId = null,
+  audioId: suppliedAudioId = null,
+}) {
   if (!voice?.uri) return null;
-  const noteId = uuid();
-  const audioId = uuid();
+  const target = attachmentTarget({ familyId, momentId, letterId });
+  const noteId = suppliedNoteId || uuid();
+  const audioId = suppliedAudioId || uuid();
   const ext = extensionFor({ mimeType: voice.mimeType, fileName: voice.fileName, fallback: 'm4a' });
   const mimeType = voice.mimeType || 'audio/mp4';
-  const audioPath = `${familyId}/moments/${momentId}/voice/${audioId}.${ext}`;
+  const audioPath = `${target.basePath}/voice/${audioId}.${ext}`;
 
-  const { error: insertErr } = await supabase.from('voice_notes').insert({
+  const { data: existing, error: existingErr } = await supabase
+    .from('voice_notes')
+    .select('id, family_id, moment_id, letter_id, author_user_id, audio_object, upload_status')
+    .eq('id', noteId)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+  if (existing && (
+    existing.family_id !== familyId
+    || existing.author_user_id !== userId
+    || (momentId && existing.moment_id !== momentId)
+    || (letterId && existing.letter_id !== letterId)
+    || existing.audio_object !== audioId
+  )) {
+    throw new Error('Voice retry identity does not match this memory');
+  }
+  if (existing?.upload_status === 'ready') return { id: noteId, audioPath, alreadyReady: true };
+
+  const { error: insertErr } = await supabase.from('voice_notes').upsert({
     id: noteId,
     family_id: familyId,
-    moment_id: momentId,
+    ...target.columns,
     author_user_id: userId,
     duration_sec: voice.durationSec || null,
     waveform: voice.waveform || [],
     audio_object: audioId,
     mime_type: mimeType,
     upload_status: 'uploading',
-  });
+    upload_error: null,
+  }, { onConflict: 'id' });
   if (insertErr) throw insertErr;
 
   try {
@@ -473,6 +595,27 @@ async function uploadVoiceNote({ familyId, momentId, userId, voice }) {
   }
 }
 
+export async function ensureMomentVoiceNote({
+  familyId,
+  momentId,
+  voice,
+  voiceNoteId,
+  voiceObjectId,
+}) {
+  if (!familyId || !momentId || !voice?.uri || !voiceNoteId || !voiceObjectId) {
+    throw new Error('Missing voice note retry target');
+  }
+  const userId = await currentUserId();
+  return uploadVoiceNote({
+    familyId,
+    momentId,
+    userId,
+    voice,
+    noteId: voiceNoteId,
+    audioId: voiceObjectId,
+  });
+}
+
 export async function createMomentWithMedia({
   familyId,
   title,
@@ -482,12 +625,13 @@ export async function createMomentWithMedia({
   assets = [],
   voice = null,
   videoPosterOnly = false,
+  capturedAt: capturedAtOverride = null,
 }) {
   if (!familyId) throw new Error('No family selected');
   const cleanTitle = String(title || '').trim();
   const cleanNote = String(note || '').trim();
   const cleanPlace = String(placeName || '').trim();
-  const cleanTags = normalizeTags(tags);
+  const cleanTags = normalizeMomentTags(tags);
   const pickedAssets = Array.isArray(assets) ? assets.filter((asset) => asset?.uri) : [];
 
   if (!cleanTitle && !cleanNote && !pickedAssets.length && !voice?.uri) {
@@ -509,7 +653,7 @@ export async function createMomentWithMedia({
 
   const userId = await currentUserId();
   const momentId = uuid();
-  const capturedAt = dateFromAsset(pickedAssets[0]) || new Date().toISOString();
+  const capturedAt = normalizeCapturedAtOverride(capturedAtOverride) || dateFromAsset(pickedAssets[0]) || new Date().toISOString();
   const firstLocation = pickedAssets.map(locationFromAsset).find(Boolean);
 
   const { error: momentErr } = await supabase.from('moments').insert({
@@ -552,9 +696,47 @@ export async function createMomentWithMedia({
 
   return {
     id: momentId,
+    capturedAt,
     media: uploadedMedia,
     voice: uploadedVoice,
   };
+}
+
+export async function uploadLetterAttachments({
+  familyId,
+  letterId,
+  assets = [],
+  voice = null,
+  videoPosterOnly = false,
+}) {
+  if (!familyId || !letterId) throw new Error('Missing letter attachment target');
+  const pickedAssets = Array.isArray(assets) ? assets.filter((asset) => asset?.uri) : [];
+
+  if (!videoPosterOnly) {
+    for (const asset of pickedAssets) {
+      if (mediaTypeFor(asset) !== 'video') continue;
+      await assertVideoWithinPlan({
+        familyId,
+        durationSec: asset.duration ? Number(asset.duration) / 1000 : null,
+        sourceBytes: asset.fileSize || fileSizeOf(asset.uri),
+      });
+    }
+  }
+
+  const userId = await currentUserId();
+  const uploadedMedia = [];
+  for (let i = 0; i < pickedAssets.length; i += 1) {
+    const asset = pickedAssets[i];
+    const media = mediaTypeFor(asset) === 'video'
+      ? (videoPosterOnly
+        ? await uploadPickedVideoPosterOnly({ familyId, letterId, userId, asset, index: i })
+        : await uploadPickedVideo({ familyId, letterId, userId, asset, index: i }))
+      : await uploadPickedImage({ familyId, letterId, userId, asset, index: i });
+    uploadedMedia.push(media);
+  }
+
+  const uploadedVoice = await uploadVoiceNote({ familyId, letterId, userId, voice });
+  return { media: uploadedMedia, voice: uploadedVoice };
 }
 
 async function signPaths(paths) {
@@ -575,115 +757,350 @@ async function signPaths(paths) {
   return out;
 }
 
-export async function listMomentArchive(familyId, { limit = 120 } = {}) {
-  if (!familyId) return [];
-  const { data, error } = await supabase
-    .from('moments')
-    .select(`
-      id,
-      family_id,
-      author_user_id,
-      title,
-      caption_note,
-      captured_at,
-      place_name,
-      latitude,
-      longitude,
-      shared_with,
-      created_at,
-      moment_media (
-        id,
-        media_type,
-        local_identifier,
-        owner_user_id,
-        file_name,
-        mime_type,
-        width,
-        height,
-        duration_sec,
-        metadata,
-        upload_status,
-        quota_class,
-        storage_provider,
-        playback_provider,
-        stream_uid,
-        sort_order
-      ),
-      voice_notes (
-        id,
-        duration_sec,
-        waveform,
-        audio_object,
-        mime_type,
-        upload_status
-      ),
-      moment_tags (tag),
-      moment_reactions (emoji, author_user_id)
-    `)
-    .eq('family_id', familyId)
-    .order('captured_at', { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.warn('listMomentArchive', error.message);
-    return [];
+export async function getLetterAttachments({ familyId, letterId }) {
+  if (!familyId || !letterId) return { media: [], voiceNotes: [] };
+  const [mediaResult, voiceResult] = await Promise.all([
+    supabase
+      .from('moment_media')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('letter_id', letterId)
+      .eq('upload_status', 'ready')
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('voice_notes')
+      .select('*')
+      .eq('family_id', familyId)
+      .eq('letter_id', letterId)
+      .eq('upload_status', 'ready')
+      .order('created_at', { ascending: true }),
+  ]);
+  if (mediaResult.error) throw mediaResult.error;
+  if (voiceResult.error) throw voiceResult.error;
+
+  const media = mediaResult.data || [];
+  const voiceNotes = voiceResult.data || [];
+  const paths = [];
+  let hasStreamMedia = false;
+  for (const item of media) {
+    paths.push(item.metadata?.fullPath, item.metadata?.thumbPath, item.metadata?.posterPath);
+    if (item.stream_uid) hasStreamMedia = true;
+  }
+  for (const voice of voiceNotes) {
+    const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+    if (voice.audio_object) paths.push(`${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`);
   }
 
-  return hydrateMomentRows(familyId, data || []);
+  const [signed, mediaSessionToken] = await Promise.all([
+    signPaths(paths),
+    hasStreamMedia ? getMediaSession(familyId).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  return {
+    media: media.map((item) => ({
+      ...item,
+      fullUrl: item.stream_uid
+        ? streamPlaybackUrl(familyId, item.stream_uid, mediaSessionToken)
+        : signed.get(item.metadata?.fullPath) || null,
+      thumbUrl: signed.get(item.metadata?.thumbPath) || null,
+      posterUrl: signed.get(item.metadata?.posterPath) || null,
+    })),
+    voiceNotes: voiceNotes.map((voice) => {
+      const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+      const audioPath = voice.audio_object
+        ? `${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`
+        : null;
+      return { ...voice, audioUrl: signed.get(audioPath) || null };
+    }),
+  };
+}
+
+export async function deleteLetterAttachments({ familyId, letterId }) {
+  if (!familyId || !letterId) return;
+  const attachments = await getLetterAttachments({ familyId, letterId });
+  const paths = [];
+  for (const media of attachments.media) {
+    paths.push(media.metadata?.fullPath, media.metadata?.thumbPath, media.metadata?.posterPath);
+  }
+  for (const voice of attachments.voiceNotes) {
+    const ext = extensionFor({ mimeType: voice.mime_type, fallback: 'm4a' });
+    if (voice.audio_object) paths.push(`${familyId}/letters/${letterId}/voice/${voice.audio_object}.${ext}`);
+  }
+  const storagePaths = Array.from(new Set(paths.filter(Boolean)));
+  if (storagePaths.length) {
+    const { error } = await supabase.storage.from(BUCKET).remove(storagePaths);
+    if (error) console.warn('deleteLetterAttachments storage cleanup', error.message);
+  }
+}
+
+export async function listMomentArchive(familyId, { limit = 120 } = {}) {
+  if (!familyId) return [];
+  const safeLimit = Math.max(0, Math.floor(Number(limit || 0)));
+  if (!safeLimit) return [];
+  const rows = [];
+  for (const pageRange of archivePageRanges(safeLimit)) {
+    let page;
+    try {
+      page = await readMomentRowsCompatible({
+        familyId,
+        embeddedSelect: MOMENT_RICH_SELECT,
+        baseSelect: MOMENT_BASE_SELECT,
+        applyQuery: (query) => query
+          .order('captured_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(pageRange.from, pageRange.to),
+      });
+    } catch (error) {
+      console.warn('listMomentArchive', error.message);
+      if (!rows.length) return [];
+      break;
+    }
+    rows.push(...page);
+    if (page.length < pageRange.take) break;
+  }
+
+  return hydrateMomentRows(familyId, rows);
+}
+
+async function readMomentRowsCompatible({
+  familyId,
+  embeddedSelect,
+  baseSelect,
+  applyQuery,
+  attachRelations = attachMomentRelationsWithoutEmbeds,
+}) {
+  return readPostgrestRelationshipCompatible({
+    familyId,
+    embeddedSelect,
+    baseSelect,
+    createQuery: (select) => supabase.from('moments').select(select),
+    applyQuery,
+    attachRelations,
+  });
+}
+
+async function attachMomentRelationsWithoutEmbeds(familyId, moments) {
+  const ids = moments.map((moment) => moment.id).filter(Boolean);
+  const media = [];
+  const voices = [];
+  const tags = [];
+  const reactions = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const pageIds = ids.slice(offset, offset + 100);
+    const [mediaResult, voiceResult, tagResult, reactionResult] = await Promise.all([
+      supabase
+        .from('moment_media')
+        .select('id, moment_id, media_type, local_identifier, owner_user_id, file_name, mime_type, width, height, duration_sec, metadata, upload_status, quota_class, storage_provider, playback_provider, stream_uid, sort_order')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('voice_notes')
+        .select('id, moment_id, author_user_id, duration_sec, waveform, audio_object, mime_type, upload_status')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('moment_tags')
+        .select('moment_id, tag')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+      supabase
+        .from('moment_reactions')
+        .select('moment_id, emoji, author_user_id')
+        .eq('family_id', familyId)
+        .in('moment_id', pageIds),
+    ]);
+    if (mediaResult.error) throw mediaResult.error;
+    media.push(...(mediaResult.data || []));
+    if (!voiceResult.error) voices.push(...(voiceResult.data || []));
+    if (!tagResult.error) tags.push(...(tagResult.data || []));
+    if (!reactionResult.error) reactions.push(...(reactionResult.data || []));
+  }
+  const grouped = (rows, key) => {
+    const map = new Map();
+    for (const row of rows) {
+      const value = row[key];
+      if (!value) continue;
+      if (!map.has(value)) map.set(value, []);
+      map.get(value).push(row);
+    }
+    return map;
+  };
+  const mediaByMoment = grouped(media, 'moment_id');
+  const voicesByMoment = grouped(voices, 'moment_id');
+  const tagsByMoment = grouped(tags, 'moment_id');
+  const reactionsByMoment = grouped(reactions, 'moment_id');
+  return moments.map((moment) => ({
+    ...moment,
+    moment_media: (mediaByMoment.get(moment.id) || []).sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)),
+    voice_notes: voicesByMoment.get(moment.id) || [],
+    moment_tags: (tagsByMoment.get(moment.id) || []).map(({ tag }) => ({ tag })),
+    moment_reactions: (reactionsByMoment.get(moment.id) || []).map(({ emoji, author_user_id }) => ({ emoji, author_user_id })),
+  }));
+}
+
+async function attachMomentMediaWithoutEmbeds(familyId, moments) {
+  const ids = moments.map((moment) => moment.id).filter(Boolean);
+  const media = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const pageIds = ids.slice(offset, offset + 100);
+    const { data, error } = await supabase
+      .from('moment_media')
+      .select('id, moment_id, media_type, metadata, sort_order')
+      .eq('family_id', familyId)
+      .in('moment_id', pageIds);
+    if (error) throw error;
+    media.push(...(data || []));
+  }
+  const byMoment = new Map();
+  for (const row of media) {
+    if (!byMoment.has(row.moment_id)) byMoment.set(row.moment_id, []);
+    byMoment.get(row.moment_id).push(row);
+  }
+  return moments.map((moment) => ({
+    ...moment,
+    moment_media: (byMoment.get(moment.id) || [])
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)),
+  }));
+}
+
+export async function listMomentArchiveByIds(familyId, momentIds = []) {
+  const ids = [...new Set((momentIds || []).filter(Boolean))].slice(0, 60);
+  if (!familyId || !ids.length) return [];
+  const data = await readMomentRowsCompatible({
+    familyId,
+    embeddedSelect: MOMENT_RICH_SELECT,
+    baseSelect: MOMENT_BASE_SELECT,
+    applyQuery: (query) => query.in('id', ids),
+  });
+  const order = new Map(ids.map((id, index) => [id, index]));
+  const rows = data.sort((a, b) => (order.get(a.id) ?? ids.length) - (order.get(b.id) ?? ids.length));
+  return hydrateMomentRows(familyId, rows);
+}
+
+export async function listMomentDayArchive(familyId, {
+  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  momentLimit = MOMENT_DAY_INDEX_MAX_MOMENTS,
+  mediaLimit = MOMENT_DAY_INDEX_MAX_MEDIA,
+} = {}) {
+  if (!familyId) return [];
+  const moments = [];
+  const mediaRows = [];
+  const safeMomentLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MOMENTS, Number(momentLimit || 0)));
+  const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
+  for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
+    const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
+    const page = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_DAY_SELECT,
+      baseSelect: MOMENT_DAY_BASE_SELECT,
+      applyQuery: (query) => query
+        .order('captured_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + take - 1),
+      attachRelations: attachMomentMediaWithoutEmbeds,
+    });
+    for (const moment of page) {
+      moments.push({ id: moment.id, captured_at: moment.captured_at });
+      for (const media of moment.moment_media || []) {
+        if (mediaRows.length >= safeMediaLimit) break;
+        mediaRows.push({ ...media, moment_id: moment.id });
+      }
+    }
+    if (page.length < take) break;
+  }
+  if (!moments.length) return [];
+
+  const days = buildMomentDayIndexRows({ moments, mediaRows, timezone });
+  const signed = await signPaths(days.map((day) => day.coverPath).filter(Boolean));
+  return days.map((day) => ({
+    key: `saved-day:${day.day}`,
+    capturedAt: day.capturedAt,
+    imageCount: day.imageCount,
+    videoCount: day.videoCount,
+    thumbUrl: signed.get(day.coverPath) || null,
+    moment: { id: day.coverMomentId, captured_at: day.capturedAt },
+  }));
+}
+
+export async function getFamilyArchiveCounts(familyId) {
+  if (!familyId) return { moments: 0, photos: 0, videos: 0, voiceNotes: 0 };
+  const count = async (query) => {
+    const { count: value, error } = await query;
+    if (error) throw error;
+    return Number(value || 0);
+  };
+  const [moments, photos, videos, voiceNotes] = await Promise.all([
+    count(supabase.from('moments').select('id', { count: 'exact', head: true }).eq('family_id', familyId)),
+    count(supabase.from('moment_media').select('id', { count: 'exact', head: true }).eq('family_id', familyId).eq('media_type', 'image')),
+    count(supabase.from('moment_media').select('id', { count: 'exact', head: true }).eq('family_id', familyId).eq('media_type', 'video')),
+    count(supabase.from('voice_notes').select('id', { count: 'exact', head: true }).eq('family_id', familyId)),
+  ]);
+  return { moments, photos, videos, voiceNotes };
+}
+
+export async function listMomentDayDetails(familyId, {
+  day,
+  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  momentLimit = MOMENT_DAY_INDEX_MAX_MOMENTS,
+  mediaLimit = MOMENT_DAY_INDEX_MAX_MEDIA,
+} = {}) {
+  if (!familyId) return [];
+  const range = utcRangeForLocalDay(day, timezone);
+  if (!range) return [];
+  const moments = [];
+  const mediaRows = [];
+  const safeMomentLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MOMENTS, Number(momentLimit || 0)));
+  const safeMediaLimit = Math.max(0, Math.min(MOMENT_DAY_INDEX_MAX_MEDIA, Number(mediaLimit || 0)));
+  for (let offset = 0; offset < safeMomentLimit; offset += MOMENT_DAY_INDEX_PAGE_SIZE) {
+    const take = Math.min(MOMENT_DAY_INDEX_PAGE_SIZE, safeMomentLimit - offset);
+    const page = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_DAY_SELECT,
+      baseSelect: MOMENT_DAY_BASE_SELECT,
+      applyQuery: (query) => query
+        .gte('captured_at', range.start)
+        .lt('captured_at', range.end)
+        .order('captured_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + take - 1),
+      attachRelations: attachMomentMediaWithoutEmbeds,
+    });
+    for (const moment of page) {
+      moments.push({ id: moment.id, captured_at: moment.captured_at });
+      for (const media of moment.moment_media || []) {
+        if (mediaRows.length >= safeMediaLimit) break;
+        mediaRows.push({ ...media, moment_id: moment.id });
+      }
+    }
+    if (page.length < take) break;
+  }
+  const rows = buildMomentDayDetailRows({ moments, mediaRows });
+  const signed = await signPaths(rows.map((row) => row.coverPath).filter(Boolean));
+  return rows.map((row) => ({
+    key: row.key,
+    capturedAt: row.capturedAt,
+    imageCount: row.imageCount,
+    videoCount: row.videoCount,
+    thumbUrl: signed.get(row.coverPath) || null,
+    moment: { id: row.momentId, captured_at: row.capturedAt },
+  }));
 }
 
 export async function getMomentDetail({ familyId, momentId }) {
   if (!familyId || !momentId) return null;
-  const { data, error } = await supabase
-    .from('moments')
-    .select(`
-      id,
-      family_id,
-      author_user_id,
-      title,
-      caption_note,
-      captured_at,
-      place_name,
-      latitude,
-      longitude,
-      shared_with,
-      created_at,
-      moment_media (
-        id,
-        media_type,
-        local_identifier,
-        owner_user_id,
-        file_name,
-        mime_type,
-        width,
-        height,
-        duration_sec,
-        metadata,
-        upload_status,
-        quota_class,
-        storage_provider,
-        playback_provider,
-        stream_uid,
-        sort_order
-      ),
-      voice_notes (
-        id,
-        duration_sec,
-        waveform,
-        audio_object,
-        mime_type,
-        upload_status
-      ),
-      moment_tags (tag),
-      moment_reactions (emoji, author_user_id)
-    `)
-    .eq('family_id', familyId)
-    .eq('id', momentId)
-    .maybeSingle();
-  if (error) {
+  let rows;
+  try {
+    rows = await readMomentRowsCompatible({
+      familyId,
+      embeddedSelect: MOMENT_RICH_SELECT,
+      baseSelect: MOMENT_BASE_SELECT,
+      applyQuery: (query) => query.eq('id', momentId).limit(1),
+    });
+  } catch (error) {
     console.warn('getMomentDetail', error.message);
     return null;
   }
-  const hydrated = await hydrateMomentRows(familyId, data ? [data] : []);
+  const hydrated = await hydrateMomentRows(familyId, rows);
   return hydrated[0] || null;
 }
 
@@ -714,12 +1131,120 @@ export async function toggleMomentReaction({ familyId, momentId, emoji }) {
   return { active: true };
 }
 
+export async function ensureMomentReaction({ familyId, momentId, emoji }) {
+  const userId = await currentUserId();
+  if (!familyId || !momentId || !emoji) throw new Error('Missing reaction target');
+  const { data: existing, error: findErr } = await supabase
+    .from('moment_reactions')
+    .select('id')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId)
+    .eq('author_user_id', userId)
+    .eq('emoji', emoji)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  if (existing?.id) return { active: true, id: existing.id, alreadySaved: true };
+  const { data, error } = await supabase.from('moment_reactions').insert({
+    family_id: familyId,
+    moment_id: momentId,
+    author_user_id: userId,
+    emoji,
+  }).select('id').single();
+  if (error && error.code !== '23505') throw error;
+  return { active: true, id: data?.id || null, alreadySaved: error?.code === '23505' };
+}
+
+export async function recordMomentView({ familyId, momentId }) {
+  const userId = await currentUserId();
+  if (!familyId || !momentId || !userId) return null;
+  const { data, error } = await supabase
+    .from('moment_views')
+    .upsert({
+      family_id: familyId,
+      moment_id: momentId,
+      user_id: userId,
+      viewed_at: new Date().toISOString(),
+    }, { onConflict: 'moment_id,user_id' })
+    .select('user_id, viewed_at')
+    .single();
+  if (error) {
+    if (!isMissingMomentViews(error)) console.warn('recordMomentView', error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function listMomentViews({ familyId, momentId }) {
+  if (!familyId || !momentId) return [];
+  const { data, error } = await supabase
+    .from('moment_views')
+    .select('user_id, viewed_at')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId);
+  if (error) {
+    if (!isMissingMomentViews(error)) console.warn('listMomentViews', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+function isMissingMomentViews(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (message.includes('moment_views') && message.includes('schema cache'));
+}
+
+export async function listMomentReplies({ familyId, momentId }) {
+  if (!familyId || !momentId) return [];
+  const { data, error } = await supabase
+    .from('moment_replies')
+    .select('id, author_user_id, body, created_at, updated_at')
+    .eq('family_id', familyId)
+    .eq('moment_id', momentId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    if (!isMissingMomentReplies(error)) console.warn('listMomentReplies', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function addMomentReply({ familyId, momentId, body }) {
+  const userId = await currentUserId();
+  const text = String(body || '').trim();
+  if (!familyId || !momentId || !userId || !text) throw new Error('Write a reply first');
+  const { data, error } = await supabase
+    .from('moment_replies')
+    .insert({
+      family_id: familyId,
+      moment_id: momentId,
+      author_user_id: userId,
+      body: text.slice(0, 1000),
+    })
+    .select('id, author_user_id, body, created_at, updated_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+function isMissingMomentReplies(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || (message.includes('moment_replies') && message.includes('schema cache'));
+}
+
 export async function updateMoment({ familyId, momentId, patch = {}, tags }) {
   if (!familyId || !momentId) throw new Error('Missing moment');
   const payload = {};
   if (patch.title !== undefined) payload.title = String(patch.title || '').trim() || null;
   if (patch.captionNote !== undefined) payload.caption_note = String(patch.captionNote || '').trim() || null;
   if (patch.placeName !== undefined) payload.place_name = String(patch.placeName || '').trim() || null;
+  if (patch.capturedAt !== undefined) {
+    const capturedAt = normalizeCapturedAtOverride(patch.capturedAt);
+    if (capturedAt) payload.captured_at = capturedAt;
+  }
   if (patch.sharedWith !== undefined) payload.shared_with = Array.isArray(patch.sharedWith) ? patch.sharedWith : [];
   if (Object.keys(payload).length) {
     payload.updated_at = new Date().toISOString();
@@ -732,7 +1257,7 @@ export async function updateMoment({ familyId, momentId, patch = {}, tags }) {
   }
 
   if (tags !== undefined) {
-    const cleanTags = normalizeTags(tags);
+    const cleanTags = normalizeMomentTags(tags);
     const { error: deleteErr } = await supabase
       .from('moment_tags')
       .delete()

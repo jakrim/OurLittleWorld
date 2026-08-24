@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@react-native-vector-icons/ionicons';
 import * as Haptics from 'expo-haptics';
 import { finishTransaction, getAvailablePurchases as getStorePurchases } from 'expo-iap';
@@ -23,6 +23,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useBilling } from './BillingContext';
 import { useFamily } from './FamilyContext';
+import { GIFT_REDEMPTION_COPY } from './giftOfferCopy';
 import {
   SUBSCRIPTION_PRODUCT_IDS,
   SUPPORT_EMAIL,
@@ -30,6 +31,7 @@ import {
   entitlementStatusLabel,
   formatBytes,
   formatVideoMinutes,
+  getFamilyAcquisitionContext,
   getFamilyStorageUsage,
   openManageSubscription,
   verifyStorePurchase,
@@ -37,10 +39,28 @@ import {
 import { Family } from './families';
 import { ageAt, formatAge } from './photos';
 import { clearReferenceProfile, readReferenceProfile } from './recognitionReferences';
+import { clearImportCalibration } from './recognitionTrust';
+import { clearScanCheckpoint } from './scanCheckpoints';
+import { resetFamilyLibraryConnection } from './familyLibrarySync';
+import * as Scan from './scanController';
+import {
+  readAnalyticsConsent,
+  revokeAnalyticsConsent,
+  setAnalyticsConsent,
+} from './posthogAnalyticsTransport';
+import {
+  NOTIFICATION_CATEGORIES,
+  TRANSACTIONAL_NOTIFICATION_CATEGORY,
+  defaultNotificationPreferences,
+  enabledNotificationCount,
+  formatQuietHours,
+  getNotificationPreferences,
+  mergeNotificationPreferences,
+  saveNotificationPreferences,
+} from './notificationSettings';
 import {
   DEFAULT_RITUAL_SETTINGS,
   DEFAULT_SETTINGS_COUNTS,
-  MONTHIVERSARY_DAY_OPTIONS,
   PROMPT_TIME_OPTIONS,
   WEEKDAY_OPTIONS,
   formatDigestDay,
@@ -48,9 +68,12 @@ import {
   formatPromptTime,
   getFamilyRitualSettings,
   getSettingsCounts,
+  monthiversaryDayForFamily,
   normalizeRitualSettings,
   saveFamilyRitualSettings,
 } from './ritualSettings';
+import { trackAnalyticsEvent } from './analytics';
+import { analyticsEnvironment, analyticsPlatform } from './analyticsProductContext';
 
 const THEME_MODE_OPTIONS = [
   { value: 'system', label: 'Auto', icon: 'phone-portrait-outline' },
@@ -63,25 +86,77 @@ const DEFAULT_REFERENCE_SUMMARY = {
   trusted: 0,
   seeded: 0,
   latestAgeLabel: 'No local reference yet',
-  latestSourceLabel: 'Pick one clear photo before automatic discovery.',
+  latestSourceLabel: 'Automatic discovery will try the birthday-first setup before asking for a photo.',
   updatedAt: null,
 };
 
+const QUIET_START_OPTIONS = [
+  { value: '20:00', label: '8 PM' },
+  { value: '21:00', label: '9 PM' },
+  { value: '22:00', label: '10 PM' },
+  { value: '23:00', label: '11 PM' },
+];
+
+const QUIET_END_OPTIONS = [
+  { value: '06:00', label: '6 AM' },
+  { value: '07:00', label: '7 AM' },
+  { value: '08:00', label: '8 AM' },
+  { value: '09:00', label: '9 AM' },
+];
+
 export default function SettingsMenuSheetScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const theme = useTheme();
   const { family, refresh: refreshFamily } = useFamily();
   const { entitlement, refresh: refreshBilling, redeemCode } = useBilling();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [ritualSettings, setRitualSettings] = useState(() => normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS));
+  const [notificationPreferences, setNotificationPreferences] = useState(defaultNotificationPreferences);
   const [settingsCounts, setSettingsCounts] = useState(DEFAULT_SETTINGS_COUNTS);
   const [referenceSummary, setReferenceSummary] = useState(DEFAULT_REFERENCE_SUMMARY);
   const [activeEditor, setActiveEditor] = useState(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
   const [clearingReferences, setClearingReferences] = useState(false);
   const [billingBusy, setBillingBusy] = useState(null);
   const [purchaseCode, setPurchaseCode] = useState('');
   const [storageUsage, setStorageUsage] = useState(null);
+  const [analyticsConsent, setAnalyticsConsentState] = useState('unknown');
+  const [analyticsConsentBusy, setAnalyticsConsentBusy] = useState(false);
+  const scrollRef = useRef(null);
+  const [notificationsSectionY, setNotificationsSectionY] = useState(0);
+  const [notificationsRowY, setNotificationsRowY] = useState(0);
+  const [pendingNotificationsScroll, setPendingNotificationsScroll] = useState(false);
+  const requestedSection = Array.isArray(params.section) ? params.section[0] : params.section;
+
+  useEffect(() => {
+    let alive = true;
+    readAnalyticsConsent()
+      .then((value) => { if (alive) setAnalyticsConsentState(value); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (requestedSection !== 'notifications') return;
+    setActiveEditor('notifications');
+    setPendingNotificationsScroll(true);
+  }, [requestedSection]);
+
+  useEffect(() => {
+    if (!pendingNotificationsScroll || activeEditor !== 'notifications') return undefined;
+    const notificationsY = notificationsSectionY + notificationsRowY;
+    if (!notificationsY) return undefined;
+    const timeout = setTimeout(() => {
+      scrollRef.current?.scrollTo?.({
+        y: Math.max(0, notificationsY - space.sm),
+        animated: false,
+      });
+      setPendingNotificationsScroll(false);
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, [activeEditor, notificationsRowY, notificationsSectionY, pendingNotificationsScroll]);
 
   useEffect(() => {
     let alive = true;
@@ -96,6 +171,7 @@ export default function SettingsMenuSheetScreen() {
     let alive = true;
     if (!family?.id) {
       setRitualSettings(normalizeRitualSettings(DEFAULT_RITUAL_SETTINGS, family));
+      setNotificationPreferences(defaultNotificationPreferences());
       setSettingsCounts(DEFAULT_SETTINGS_COUNTS);
       setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
       return () => {
@@ -104,13 +180,17 @@ export default function SettingsMenuSheetScreen() {
     }
     Promise.all([
       getFamilyRitualSettings({ familyId: family.id, family }),
+      user?.id
+        ? getNotificationPreferences({ familyId: family.id, userId: user.id })
+        : Promise.resolve(defaultNotificationPreferences()),
       getSettingsCounts(family.id),
       user?.id
         ? readReferenceProfile({ familyId: family.id, userId: user.id }).catch(() => null)
         : Promise.resolve(null),
-    ]).then(([nextSettings, nextCounts, nextReferenceProfile]) => {
+    ]).then(([nextSettings, nextNotifications, nextCounts, nextReferenceProfile]) => {
       if (!alive) return;
       setRitualSettings(nextSettings);
+      setNotificationPreferences(nextNotifications);
       setSettingsCounts(nextCounts);
       setReferenceSummary(summarizeReferenceProfile(nextReferenceProfile, family));
     });
@@ -141,11 +221,34 @@ export default function SettingsMenuSheetScreen() {
     }
   };
 
+  const saveNotificationPatch = async (patch) => {
+    if (!family?.id || !user?.id || savingNotifications) return;
+    const previous = notificationPreferences;
+    const optimistic = mergeNotificationPreferences(previous, patch);
+    setSavingNotifications(true);
+    setNotificationPreferences(optimistic);
+    try {
+      const saved = await saveNotificationPreferences({
+        familyId: family.id,
+        userId: user.id,
+        base: previous,
+        patch,
+      });
+      setNotificationPreferences(saved);
+    } catch (err) {
+      setNotificationPreferences(previous);
+      Alert.alert('Could not save notification settings', err?.message || String(err));
+    } finally {
+      setSavingNotifications(false);
+    }
+  };
+
   const ritualDetails = useMemo(() => ({
     prompt: `Prompt at ${formatPromptTime(ritualSettings.dailyPromptTime)}`,
     digest: `${formatDigestDay(ritualSettings.weeklyDigestDay)} summary from moments`,
     monthiversary: formatMonthiversary(ritualSettings),
-  }), [ritualSettings]);
+    notifications: `${enabledNotificationCount(notificationPreferences)} on · quiet ${formatQuietHours(notificationPreferences)}`,
+  }), [notificationPreferences, ritualSettings]);
 
   const setMode = (mode) => {
     Haptics.selectionAsync();
@@ -166,12 +269,15 @@ export default function SettingsMenuSheetScreen() {
     Haptics.selectionAsync();
     router.replace(route);
   };
+  const discoveryRoute = referenceSummary.total || !family?.babyBirthday
+    ? '/reference'
+    : { pathname: '/reference', params: { autoSeed: '1' } };
 
   const resetReferenceProfile = () => {
     if (!family?.id || !user?.id || clearingReferences) return;
     Alert.alert(
-      'Reset local references?',
-      'This clears the reference photos stored on this device. Saved moments stay in the archive.',
+      'Restart photo discovery?',
+      'This clears this device’s face references, review learning, and scan progress. Saved family moments stay in the archive.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -180,7 +286,13 @@ export default function SettingsMenuSheetScreen() {
           onPress: async () => {
             setClearingReferences(true);
             try {
-              await clearReferenceProfile({ familyId: family.id, userId: user.id });
+              Scan.reset();
+              await Promise.all([
+                clearReferenceProfile({ familyId: family.id, userId: user.id }),
+                clearImportCalibration({ familyId: family.id, userId: user.id }),
+                clearScanCheckpoint({ familyId: family.id, userId: user.id }),
+                resetFamilyLibraryConnection({ familyId: family.id, userId: user.id }),
+              ]);
               setReferenceSummary(DEFAULT_REFERENCE_SUMMARY);
               setActiveEditor(null);
               router.replace('/reference');
@@ -249,10 +361,26 @@ export default function SettingsMenuSheetScreen() {
     const trimmed = purchaseCode.trim();
     if (!trimmed || billingBusy) return;
     setBillingBusy('redeem');
+    trackAnalyticsEvent('gift_started', {
+      surface: 'settings',
+      gift_source: 'settings',
+      gift_product_key: 'unknown',
+    }, settingsAnalyticsContext(family));
     try {
-      await redeemCode(trimmed);
+      const redeemed = await redeemCode(trimmed);
+      let acquisition = {};
+      try {
+        acquisition = await getFamilyAcquisitionContext(family?.id);
+      } catch {
+        // A successful redemption must not depend on analytics readback.
+      }
+      trackAnalyticsEvent('gift_redeemed', {
+        surface: 'settings',
+        redemption_type: redeemed?.source === 'gift' ? 'gift' : redeemed?.source === 'partner' ? 'partner' : 'website',
+        plan_state_after: redeemed?.source === 'gift' ? 'gift' : 'active',
+      }, { ...settingsAnalyticsContext(family), ...acquisition });
       setPurchaseCode('');
-      Alert.alert('Code redeemed', 'Your family plan is active.');
+      Alert.alert('Code redeemed', GIFT_REDEMPTION_COPY.successStatus);
     } catch (err) {
       Alert.alert('Code could not be redeemed', err?.message || String(err));
     } finally {
@@ -264,9 +392,42 @@ export default function SettingsMenuSheetScreen() {
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Our Little World billing help')}`);
   };
 
+  const updateAnalyticsConsent = async (nextConsent) => {
+    if (analyticsConsentBusy) return;
+    setAnalyticsConsentBusy(true);
+    try {
+      const result = nextConsent === 'revoked'
+        ? await revokeAnalyticsConsent()
+        : await setAnalyticsConsent(nextConsent);
+      setAnalyticsConsentState(result.consent);
+    } catch (err) {
+      Alert.alert('Could not update analytics', err?.message || 'Try again.');
+    } finally {
+      setAnalyticsConsentBusy(false);
+    }
+  };
+
+  const confirmSignOut = () => {
+    Alert.alert(
+      'Sign out?',
+      'You can sign back in any time. Your saved family archive stays in Our Little World; private drafts and on-device discovery are cleared from this device.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => signOut().catch((error) => {
+            Alert.alert('Could not sign out', error?.message || 'Try again.');
+          }),
+        },
+      ],
+    );
+  };
+
   return (
     <Screen bare>
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         bounces={false}
         style={[styles.root, { backgroundColor: theme.semantic.card }]}
@@ -367,18 +528,6 @@ export default function SettingsMenuSheetScreen() {
               );
             })}
           </View>
-            <Pressable
-              onPress={() => go('/brand')}
-              accessibilityRole="button"
-              accessibilityLabel="Open brand sheet"
-              style={[styles.brandSheetLink, { backgroundColor: theme.semantic.card, borderColor: theme.semantic.border }]}
-            >
-            <View style={styles.brandSheetCopy}>
-              <Caption>Brand sheet</Caption>
-              <Body style={styles.brandSheetLabel}>Marks, lockups, palettes, type</Body>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={theme.semantic.textMuted} />
-          </Pressable>
         </View>
 
         <View>
@@ -401,7 +550,7 @@ export default function SettingsMenuSheetScreen() {
               label="Reference profile"
               detail={referenceSummary.total
                 ? `${referenceSummary.total} local ${plural(referenceSummary.total, 'reference', 'references')} · ${referenceSummary.trusted} trusted`
-                : 'Pick one clear photo before automatic discovery'}
+                : 'Start birthday-first discovery'}
               tint={theme.semantic.primary}
               active={activeEditor === 'reference'}
               onPress={() => setActiveEditor(activeEditor === 'reference' ? null : 'reference')}
@@ -409,15 +558,15 @@ export default function SettingsMenuSheetScreen() {
             <MenuItem
               icon="images-outline"
               label="Automatic discovery"
-              detail="Reference photo and scan settings"
-              onPress={() => go('/reference')}
+              detail="Birthday-first matching and review settings"
+              onPress={() => go(discoveryRoute)}
             />
           </View>
           {activeEditor === 'reference' ? (
             <ReferenceProfilePanel
               summary={referenceSummary}
               clearing={clearingReferences}
-              onUpdate={() => go('/reference')}
+              onUpdate={() => go(discoveryRoute)}
               onScan={() => go('/scan')}
               onReset={resetReferenceProfile}
             />
@@ -434,6 +583,19 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'billing'}
               onPress={() => setActiveEditor(activeEditor === 'billing' ? null : 'billing')}
             />
+            {activeEditor === 'billing' ? (
+              <BillingPanel
+                entitlement={entitlement}
+                usage={storageUsage}
+                code={purchaseCode}
+                busy={billingBusy}
+                embedded
+                onCodeChange={setPurchaseCode}
+                onRedeem={redeemBillingCode}
+                onManage={manageSubscription}
+                onSupport={contactSupport}
+              />
+            ) : null}
             <MenuItem
               icon="refresh-outline"
               label="Restore purchases"
@@ -471,21 +633,13 @@ export default function SettingsMenuSheetScreen() {
               onPress={contactSupport}
             />
           </View>
-          {activeEditor === 'billing' ? (
-            <BillingPanel
-              entitlement={entitlement}
-              usage={storageUsage}
-              code={purchaseCode}
-              busy={billingBusy}
-              onCodeChange={setPurchaseCode}
-              onRedeem={redeemBillingCode}
-              onManage={manageSubscription}
-              onSupport={contactSupport}
-            />
-          ) : null}
         </View>
 
-        <View>
+        <View
+          onLayout={(event) => {
+            setNotificationsSectionY(event.nativeEvent.layout.y);
+          }}
+        >
           <Eyebrow>rituals</Eyebrow>
           <View style={styles.menuList}>
             <MenuItem
@@ -509,6 +663,19 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'monthiversary'}
               onPress={() => setActiveEditor(activeEditor === 'monthiversary' ? null : 'monthiversary')}
             />
+            <View
+              onLayout={(event) => {
+                setNotificationsRowY(event.nativeEvent.layout.y);
+              }}
+            >
+              <MenuItem
+                icon="notifications-outline"
+                label="Notifications"
+                detail={ritualDetails.notifications}
+                active={activeEditor === 'notifications'}
+                onPress={() => setActiveEditor(activeEditor === 'notifications' ? null : 'notifications')}
+              />
+            </View>
           </View>
           {['prompt', 'digest', 'monthiversary'].includes(activeEditor) ? (
             <RitualEditor
@@ -517,6 +684,13 @@ export default function SettingsMenuSheetScreen() {
               saving={savingSettings}
               family={family}
               onSave={saveRitualPatch}
+            />
+          ) : null}
+          {activeEditor === 'notifications' ? (
+            <NotificationPreferencesPanel
+              preferences={notificationPreferences}
+              saving={savingNotifications}
+              onSave={saveNotificationPatch}
             />
           ) : null}
         </View>
@@ -549,6 +723,13 @@ export default function SettingsMenuSheetScreen() {
               active={activeEditor === 'privacy'}
               onPress={() => setActiveEditor(activeEditor === 'privacy' ? null : 'privacy')}
             />
+            <MenuItem
+              icon="analytics-outline"
+              label="Optional product analytics"
+              detail={`Current choice: ${analyticsConsent}`}
+              active={activeEditor === 'analytics'}
+              onPress={() => setActiveEditor(activeEditor === 'analytics' ? null : 'analytics')}
+            />
           </View>
           {activeEditor === 'privacy' ? (
             <PrivacyPanel
@@ -557,10 +738,46 @@ export default function SettingsMenuSheetScreen() {
               onReview={() => go({ pathname: '/library', params: { segment: 'search' } })}
             />
           ) : null}
+          {activeEditor === 'analytics' ? (
+            <AnalyticsConsentPanel
+              consent={analyticsConsent}
+              busy={analyticsConsentBusy}
+              onChange={updateAnalyticsConsent}
+            />
+          ) : null}
+        </View>
+
+        <View>
+          <Eyebrow>account</Eyebrow>
+          <View style={styles.menuList}>
+            <MenuItem
+              icon="log-out-outline"
+              label="Sign out"
+              detail={user?.email || 'Keep this account and sign out on this device'}
+              onPress={confirmSignOut}
+            />
+            <MenuItem
+              icon="trash-outline"
+              label="Delete account"
+              detail="Export, review the impact, then permanently delete"
+              tint={theme.colors.danger}
+              onPress={() => router.push('/delete-account')}
+            />
+          </View>
         </View>
       </ScrollView>
     </Screen>
   );
+}
+
+function settingsAnalyticsContext(family) {
+  return {
+    family_id: family?.id || null,
+    actor_role: ['creator', 'partner'].includes(family?.me?.role) ? family.me.role : 'unknown',
+    plan_state: 'unknown',
+    platform: analyticsPlatform(Platform.OS),
+    environment: analyticsEnvironment(),
+  };
 }
 
 function FamilyHero({ family }) {
@@ -583,7 +800,7 @@ function FamilyHero({ family }) {
   );
 }
 
-function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, onManage, onSupport }) {
+function BillingPanel({ entitlement, usage, code, busy, embedded = false, onCodeChange, onRedeem, onManage, onSupport }) {
   const theme = useTheme();
   const active = entitlement?.isActive;
   const ownerCopy = entitlement?.isBillingOwner
@@ -593,7 +810,13 @@ function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, 
   const showUsage = active && usage;
 
   return (
-    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+    <View
+      style={[
+        styles.editorPanel,
+        embedded && styles.embeddedEditorPanel,
+        { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border },
+      ]}
+    >
       <View style={styles.billingHeader}>
         <View>
           <Caption>Family access</Caption>
@@ -635,9 +858,10 @@ function BillingPanel({ entitlement, usage, code, busy, onCodeChange, onRedeem, 
       ) : null}
 
       <Field
-        label="Gift, website, or partner code"
+        label={GIFT_REDEMPTION_COPY.fieldLabel}
         value={code}
         onChangeText={onCodeChange}
+        caption={GIFT_REDEMPTION_COPY.caption}
         autoCapitalize="characters"
         inputProps={{ autoCorrect: false, spellCheck: false, textContentType: 'oneTimeCode' }}
         containerStyle={styles.billingCodeField}
@@ -721,7 +945,7 @@ function RitualEditor({ type, settings, saving, family, onSave }) {
     );
   }
 
-  const dayOptions = monthiversaryDayOptions(family);
+  const birthdayMonthiversaryDay = monthiversaryDayForFamily(family) ?? settings.monthiversaryDay;
   return (
     <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
       <Caption>Monthiversary nudge</Caption>
@@ -731,18 +955,87 @@ function RitualEditor({ type, settings, saving, family, onSave }) {
           { value: 'on', label: 'On' },
           { value: 'off', label: 'Off' },
         ]}
-        onChange={(value) => onSave({ monthiversaryEnabled: value === 'on' })}
+        onChange={(value) => onSave({
+          monthiversaryEnabled: value === 'on',
+          monthiversaryDay: value === 'on' ? birthdayMonthiversaryDay : settings.monthiversaryDay,
+        })}
         style={styles.editorControl}
       />
-      {settings.monthiversaryEnabled ? (
+      <Caption>{saving ? 'Saving...' : monthiversaryHelperText(settings, family)}</Caption>
+    </View>
+  );
+}
+
+function NotificationPreferencesPanel({ preferences, saving, onSave }) {
+  const theme = useTheme();
+  const enabledCount = enabledNotificationCount(preferences);
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <View style={styles.notificationHeader}>
+        <View>
+          <Caption>Push notifications</Caption>
+          <Title style={styles.panelMetric}>{enabledCount} on</Title>
+        </View>
+        <View style={[styles.billingBadge, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name="notifications-outline" size={20} color={theme.semantic.primary} />
+        </View>
+      </View>
+      <Caption>{saving ? 'Saving...' : 'Quiet family updates, capped at two per day unless transactional.'}</Caption>
+
+      <View style={styles.quietHoursBlock}>
+        <Caption>Quiet starts</Caption>
         <SegmentedControl
-          value={settings.monthiversaryDay}
-          options={dayOptions}
-          onChange={(monthiversaryDay) => onSave({ monthiversaryDay })}
+          value={preferences.quietStart}
+          options={QUIET_START_OPTIONS}
+          onChange={(quietStart) => onSave({ quietStart })}
           style={styles.editorControl}
         />
-      ) : null}
-      <Caption>{saving ? 'Saving...' : formatMonthiversary(settings)}</Caption>
+        <Caption>Quiet ends</Caption>
+        <SegmentedControl
+          value={preferences.quietEnd}
+          options={QUIET_END_OPTIONS}
+          onChange={(quietEnd) => onSave({ quietEnd })}
+          style={styles.editorControl}
+        />
+      </View>
+
+      <View style={styles.notificationList}>
+        {NOTIFICATION_CATEGORIES.map((category) => (
+          <NotificationPreferenceRow
+            key={category.key}
+            category={category}
+            enabled={!!preferences.categories?.[category.key]}
+            disabled={saving}
+            onChange={(enabled) => onSave({ categories: { [category.key]: enabled } })}
+          />
+        ))}
+        <NotificationPreferenceRow
+          category={TRANSACTIONAL_NOTIFICATION_CATEGORY}
+          enabled
+          disabled
+          locked
+        />
+      </View>
+    </View>
+  );
+}
+
+function NotificationPreferenceRow({ category, enabled, disabled = false, locked = false, onChange }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.notificationRow, { borderColor: theme.semantic.border }]}>
+      <View style={styles.notificationRowText}>
+        <Body style={styles.privacyPolicyTitle}>{category.label}</Body>
+        <Caption>{category.detail}</Caption>
+      </View>
+      <Switch
+        value={!!enabled}
+        disabled={disabled || locked}
+        onValueChange={onChange}
+        trackColor={{ false: theme.semantic.border, true: theme.colors.primarySoft }}
+        thumbColor={enabled ? theme.semantic.primary : theme.semantic.card}
+        ios_backgroundColor={theme.semantic.border}
+      />
     </View>
   );
 }
@@ -801,6 +1094,54 @@ function PrivacyPanel({ counts, onManage, onReview }) {
   );
 }
 
+function AnalyticsConsentPanel({ consent, busy, onChange }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.editorPanel, { backgroundColor: theme.semantic.cardAlt, borderColor: theme.semantic.border }]}>
+      <Eyebrow>Optional analytics</Eyebrow>
+      <Title style={styles.panelMetric}>Your family content stays out.</Title>
+      <Caption>
+        If you allow analytics, Our Little World sends coarse actions such as onboarding,
+        checkout, and whether a moment was saved to a dedicated product project. It never
+        sends child names, birthdays, photos, captions, notes, letters, prompt answers,
+        media identifiers, locations, contacts, or gift and redemption codes.
+      </Caption>
+      <Caption>Current choice: {consent}. Analytics is off unless this says granted.</Caption>
+      <View style={styles.panelButtonRow}>
+        <Pressable
+          onPress={() => onChange('granted')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Allow optional product analytics"
+          style={[styles.panelButton, styles.panelButtonInline, { borderColor: theme.semantic.border }]}
+        >
+          <Caption style={{ color: theme.semantic.primary }}>Allow analytics</Caption>
+        </Pressable>
+        <Pressable
+          onPress={() => onChange('denied')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Deny optional product analytics"
+          style={[styles.panelButton, styles.panelButtonInline, { borderColor: theme.semantic.border }]}
+        >
+          <Caption>Do not allow</Caption>
+        </Pressable>
+      </View>
+      {consent === 'granted' ? (
+        <Pressable
+          onPress={() => onChange('revoked')}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Revoke analytics consent"
+          style={[styles.panelButton, { borderColor: theme.semantic.border }]}
+        >
+          <Caption>Revoke consent and reset this device's analytics session</Caption>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 function PrivacyPolicyRow({ icon, title, body }) {
   const theme = useTheme();
   return (
@@ -840,7 +1181,7 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
         <Pressable
           onPress={onUpdate}
           accessibilityRole="button"
-          accessibilityLabel={ready ? 'Update reference photo' : 'Pick reference photo'}
+          accessibilityLabel={ready ? 'Update reference photo' : 'Set up automatic discovery'}
           style={[
             styles.panelButton,
             styles.panelButtonInline,
@@ -848,7 +1189,7 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
           ]}
         >
           <Caption style={[styles.panelButtonText, { color: theme.colors.onPrimary }]}>
-            {ready ? 'Update photo' : 'Pick photo'}
+            {ready ? 'Update photo' : 'Set up discovery'}
           </Caption>
         </Pressable>
         <Pressable
@@ -875,12 +1216,12 @@ function ReferenceProfilePanel({ summary, clearing, onUpdate, onScan, onReset })
           onPress={onReset}
           disabled={clearing}
           accessibilityRole="button"
-          accessibilityLabel="Reset local references and re-enroll"
+          accessibilityLabel="Restart photo discovery"
           accessibilityState={{ disabled: clearing }}
           style={styles.referenceReset}
         >
           <Caption style={[styles.referenceResetText, { color: theme.semantic.textMuted }]}>
-            {clearing ? 'Resetting...' : 'Reset local references and re-enroll'}
+            {clearing ? 'Restarting...' : 'Restart photo discovery'}
           </Caption>
         </Pressable>
       ) : null}
@@ -920,7 +1261,9 @@ function MenuItem({ icon, label, detail, onPress, tint, active = false }) {
         <Body style={styles.menuItemLabel}>{label}</Body>
         <Caption>{detail}</Caption>
       </View>
-      <Ionicons name={active ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.semantic.textMuted} />
+      <View style={styles.menuItemChevron}>
+        <Ionicons name={active ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.semantic.textMuted} />
+      </View>
     </Pressable>
   );
 }
@@ -929,27 +1272,19 @@ function plural(count, singular, pluralValue = `${singular}s`) {
   return Number(count) === 1 ? singular : pluralValue;
 }
 
-function ordinal(value) {
-  const day = Number(value);
-  if ([11, 12, 13].includes(day % 100)) return `${day}th`;
-  const suffix = day % 10 === 1 ? 'st' : day % 10 === 2 ? 'nd' : day % 10 === 3 ? 'rd' : 'th';
-  return `${day}${suffix}`;
-}
-
 function formatShortDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function monthiversaryDayOptions(family) {
-  const birthDay = Number(String(family?.babyBirthday || '').split('-')[2]);
-  const values = [birthDay, ...MONTHIVERSARY_DAY_OPTIONS.map((option) => option.value)]
-    .filter((value) => Number.isFinite(value) && value >= 1 && value <= 31);
-  return Array.from(new Set(values)).slice(0, 4).map((value) => ({
-    value,
-    label: value === birthDay ? 'Birth day' : ordinal(value),
-  }));
+function monthiversaryHelperText(settings, family) {
+  const name = family?.babyName || 'Your child';
+  if (!settings?.monthiversaryEnabled) {
+    return `Off. Turn it on to use ${name}'s birthday for monthly memory nudges.`;
+  }
+  const label = formatMonthiversary(settings).replace(' monthly', '');
+  return `${name}'s birthday sets this automatically: ${label} each month.`;
 }
 
 function summarizeReferenceProfile(profile, family) {
@@ -966,7 +1301,7 @@ function summarizeReferenceProfile(profile, family) {
   }
   const latestSourceLabel = trusted
     ? `${trusted} trusted ${plural(trusted, 'save', 'saves')} now refresh future scans on this device.`
-    : 'Only picked reference photos are stored locally so far.';
+    : 'Only local reference photos are stored on this device so far.';
   return {
     total: references.length,
     trusted,
@@ -1114,24 +1449,6 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
   },
-  brandSheetLink: {
-    minHeight: 54,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    paddingHorizontal: space.md,
-    marginTop: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-  },
-  brandSheetCopy: {
-    flex: 1,
-  },
-  brandSheetLabel: {
-    color: undefined,
-    fontSize: 14,
-    lineHeight: 19,
-  },
   menuList: {
     marginTop: space.sm,
     borderRadius: radius.lg,
@@ -1142,6 +1459,7 @@ const styles = StyleSheet.create({
     minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: space.md,
     paddingVertical: space.md,
     gap: space.md,
   },
@@ -1154,11 +1472,17 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     flex: 1,
+    minWidth: 0,
   },
   menuItemLabel: {
-    color: undefined,
     fontSize: 14,
     lineHeight: 19,
+  },
+  menuItemChevron: {
+    width: 28,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   editorPanel: {
     borderRadius: radius.lg,
@@ -1166,6 +1490,13 @@ const styles = StyleSheet.create({
     padding: space.md,
     gap: space.sm,
     marginTop: space.sm,
+  },
+  embeddedEditorPanel: {
+    borderRadius: 0,
+    borderWidth: 0,
+    borderTopWidth: 1,
+    marginTop: 0,
+    paddingTop: space.md,
   },
   editorControl: {
     marginTop: 2,
@@ -1219,6 +1550,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: space.md,
   },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+  },
+  quietHoursBlock: {
+    gap: space.xs,
+    marginTop: space.xs,
+  },
+  notificationList: {
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  notificationRow: {
+    minHeight: 62,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingTop: space.sm,
+  },
+  notificationRowText: {
+    flex: 1,
+  },
   billingBadge: {
     width: 42,
     height: 42,
@@ -1239,7 +1595,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   referenceStatValue: {
-    color: undefined,
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '800',

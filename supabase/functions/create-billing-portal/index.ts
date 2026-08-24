@@ -3,6 +3,7 @@ import {
   corsHeaders,
   errorResponse,
   json,
+  originFromRequest,
   readJson,
   requireUser,
   restSelect,
@@ -37,7 +38,7 @@ Deno.serve(async (req) => {
 
     const params = new URLSearchParams();
     params.set('customer', customerId);
-    params.set('return_url', String(body.returnUrl || body.return_url || 'https://ourlittleworld.me/pricing/'));
+    params.set('return_url', `${originFromRequest(req)}/pricing/`);
     const configuration = Deno.env.get('STRIPE_BILLING_PORTAL_CONFIGURATION');
     if (configuration) params.set('configuration', configuration);
 

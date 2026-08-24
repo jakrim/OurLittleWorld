@@ -44,18 +44,26 @@ export function streamPlaybackUrl(familyId, streamUid, sessionToken) {
  * Over-plan rejections surface as MediaPolicyError so callers can offer the
  * poster-only / Vault paths.
  */
-export async function createStreamUpload({ familyId, durationSec, sourceBytes }) {
+export async function createStreamUpload({ familyId, mediaId, durationSec, sourceBytes, context = null }) {
   const { data, error } = await supabase.functions.invoke('create-stream-upload', {
-    body: { familyId, durationSec, sourceBytes },
+    body: {
+      familyId,
+      canonicalMediaId: mediaId,
+      durationSec,
+      sourceBytes,
+      providerUid: context?.uid || null,
+      reservationId: context?.reservationId || null,
+      providerState: context?.state || null,
+    },
   });
   const payload = data || (await parseFunctionError(error));
   if (payload?.error === 'over_plan_limit') {
     throw new MediaPolicyError(payload.reason || 'over_plan_limit');
   }
-  if (error || !payload?.uploadURL) {
+  if (error || !payload?.uid || !payload?.reservationId) {
     throw new Error(payload?.error || error?.message || 'Stream upload could not be prepared');
   }
-  return payload; // { uploadURL, uid, reservationId }
+  return payload;
 }
 
 async function parseFunctionError(error) {
