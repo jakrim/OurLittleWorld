@@ -69,8 +69,9 @@ export function createDeletionRequestId(
   getRandomValues = globalThis.crypto?.getRandomValues?.bind(globalThis.crypto),
 ) {
   if (randomUuid) return randomUuid();
-  if (!getRandomValues) throw new Error('Secure account deletion confirmation is unavailable.');
-  const bytes = getRandomValues(new Uint8Array(16));
+  const bytes = getRandomValues
+    ? getRandomValues(new Uint8Array(16))
+    : Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');

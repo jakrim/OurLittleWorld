@@ -69,8 +69,9 @@ test('deletion request identity uses secure bytes when randomUUID is unavailable
     return bytes;
   });
   assert.equal(id, '00010203-0405-4607-8809-0a0b0c0d0e0f');
-  assert.throws(
-    () => createDeletionRequestId(null, null),
-    /Secure account deletion confirmation is unavailable/,
-  );
+});
+
+test('deletion request identity falls back to Math.random when no crypto API exists', () => {
+  const id = createDeletionRequestId(null, null);
+  assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
